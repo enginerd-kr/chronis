@@ -1,13 +1,13 @@
 # Chronis - Distributed Scheduler Framework
 
-**Chronis** (크로노스) - Python distributed scheduler framework for multi-container environments
+**Chronis** - Python distributed scheduler framework for multi-container environments
 
 ## Features
 
 - ✅ **Adapter**: Support for DynamoDB, PostgreSQL, SQLite, InMemory storage
 - ✅ **Distributed Locks**: Redis and InMemory lock adapters
 - ✅ **Polling-based**: Non-blocking scheduling using APScheduler
-- ✅ **High Availability**: Prevents duplicate execution in multi-pod environments
+- ✅ **High Availability**: Prevents duplicate execution in multi-container environments
 - ✅ **Timezone Support**: IANA timezone-aware scheduling with automatic DST handling
 - ✅ **Retry Logic**: Automatic retry with exponential backoff
 
@@ -180,13 +180,62 @@ uv run pytest tests/test_basic.py -v
 
 ## Development
 
+### Quick Setup
+
 ```bash
 # Clone repository
 git clone https://github.com/yourusername/chronis.git
 cd chronis
 
+# Setup development environment
+make setup-dev
+```
+
+### Using Makefile
+
+```bash
+# Show all available commands
+make help
+
+# Install dependencies
+make install
+
+# Run tests with coverage
+make test
+
+# Run linter
+make lint
+
+# Format code
+make format
+
+# Run all checks (lint + type-check)
+make check
+
+# Fix linting issues and format
+make fix
+
+# Run CI pipeline
+make ci
+
+# Clean build artifacts
+make clean
+
+# Build package
+make build
+
+# Show project info
+make info
+```
+
+### Manual Commands
+
+```bash
 # Install dependencies
 uv sync
+
+# Run tests
+uv run pytest
 
 # Run linter
 uv run ruff check chronis/
@@ -194,6 +243,6 @@ uv run ruff check chronis/
 # Format code
 uv run ruff format chronis/
 
-# Run tests
-uv run pytest
+# Type check
+uv run mypy chronis/
 ```
