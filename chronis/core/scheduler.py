@@ -2,7 +2,7 @@
 
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Callable
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -456,47 +456,27 @@ class PollingScheduler:
         Args:
             job_data: Job data
         """
+        from chronis.core.triggers import TriggerFactory
+
         job_id = job_data["job_id"]
         trigger_type = job_data["trigger_type"]
         trigger_args = job_data["trigger_args"]
         timezone = job_data.get("timezone", "UTC")
 
-        # Timezone object
+        # Current time (timezone aware)
         tz = ZoneInfo(timezone)
         current_time_local = datetime.now(tz)
 
-        next_run_time_local = None
+        # Calculate next run time using trigger strategy
+        strategy = TriggerFactory.get_strategy(trigger_type)
+        next_run_time_utc = strategy.calculate_next_run_time(
+            trigger_args, timezone, current_time_local
+        )
 
-        if trigger_type == "interval":
-            seconds = trigger_args.get("seconds", 0)
-            minutes = trigger_args.get("minutes", 0)
-            hours = trigger_args.get("hours", 0)
-            next_run_time_local = current_time_local + timedelta(
-                seconds=seconds, minutes=minutes, hours=hours
-            )
-
-        elif trigger_type == "cron":
-            from croniter import croniter
-
-            cron_expr = (
-                f"{trigger_args.get('minute', '*')} "
-                f"{trigger_args.get('hour', '*')} "
-                f"{trigger_args.get('day', '*')} "
-                f"{trigger_args.get('month', '*')} "
-                f"{trigger_args.get('day_of_week', '*')}"
-            )
-
-            # Pass timezone to croniter
-            iter_obj = croniter(cron_expr, current_time_local)
-            next_run_time_local = iter_obj.get_next(datetime)
-
-        elif trigger_type == "date":
-            # One-time - next_run_time = None
-            next_run_time_local = None
-
-        # Convert to UTC and save
-        if next_run_time_local:
-            next_run_time_utc = next_run_time_local.astimezone(ZoneInfo("UTC"))
+        # Update job with next run time or deactivate if None
+        if next_run_time_utc:
+            # Convert back to local time for display
+            next_run_time_local = next_run_time_utc.astimezone(tz)
 
             updates = {
                 "next_run_time": next_run_time_utc.isoformat(),

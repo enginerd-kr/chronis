@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Callable
 
 from chronis.core.enums import TriggerType
-from chronis.utils.time import ZoneInfo, get_timezone, utc_now
+from chronis.utils.time import get_timezone, utc_now
 
 
 class JobDefinition:
@@ -135,51 +135,15 @@ class JobDefinition:
         Returns:
             Next run time in UTC, or None
         """
-        from datetime import timedelta
+        from chronis.core.triggers import TriggerFactory
 
         # Current time (timezone aware)
         tz = get_timezone(self.timezone)
         current_time = datetime.now(tz)
 
-        if self.trigger_type == TriggerType.INTERVAL:
-            # Interval: current time + interval
-            seconds = self.trigger_args.get("seconds", 0)
-            minutes = self.trigger_args.get("minutes", 0)
-            hours = self.trigger_args.get("hours", 0)
-            next_time = current_time + timedelta(seconds=seconds, minutes=minutes, hours=hours)
-            # Convert to UTC
-            return next_time.astimezone(ZoneInfo("UTC"))
-
-        elif self.trigger_type == TriggerType.CRON:
-            # Cron: calculate with croniter (with timezone)
-            from croniter import croniter
-
-            cron_expr = (
-                f"{self.trigger_args.get('minute', '*')} "
-                f"{self.trigger_args.get('hour', '*')} "
-                f"{self.trigger_args.get('day', '*')} "
-                f"{self.trigger_args.get('month', '*')} "
-                f"{self.trigger_args.get('day_of_week', '*')}"
-            )
-
-            # Pass timezone to croniter
-            iter_obj = croniter(cron_expr, current_time)
-            next_time = iter_obj.get_next(datetime)
-
-            # Convert to UTC
-            return next_time.astimezone(ZoneInfo("UTC"))
-
-        elif self.trigger_type == TriggerType.DATE:
-            # Date: parse specified date (with timezone)
-            run_date_str = self.trigger_args.get("run_date")
-            if run_date_str:
-                # Parse ISO 8601 (with timezone)
-                next_time = datetime.fromisoformat(run_date_str.replace("Z", "+00:00"))
-                # Convert to UTC
-                return next_time.astimezone(ZoneInfo("UTC"))
-            return None
-
-        return None
+        # Get appropriate strategy and calculate next run time
+        strategy = TriggerFactory.get_strategy(self.trigger_type.value)
+        return strategy.calculate_next_run_time(self.trigger_args, self.timezone, current_time)
 
 
 class JobInfo:
