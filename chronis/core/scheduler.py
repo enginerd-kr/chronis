@@ -1,6 +1,7 @@
 """Polling-based scheduler implementation."""
 
 import logging
+import threading
 import time
 from datetime import datetime
 from typing import Any, Callable
@@ -12,6 +13,7 @@ from chronis.adapters.base import JobStorageAdapter, LockAdapter
 from chronis.core.enums import TriggerType
 from chronis.core.exceptions import JobAlreadyExistsError, JobNotFoundError
 from chronis.core.job import JobDefinition, JobInfo
+from chronis.core.triggers import TriggerFactory
 from chronis.utils.logging import ContextLogger, _default_logger
 from chronis.utils.time import ZoneInfo, utc_now
 
@@ -41,6 +43,13 @@ class PollingScheduler:
         >>> scheduler.stop()
     """
 
+    # Constants
+    MAX_ERROR_MESSAGE_LENGTH = 500
+    DEFAULT_MAX_RETRIES = 3
+    DEFAULT_RETRY_DELAY_SECONDS = 60
+    MIN_POLLING_INTERVAL = 1
+    MAX_POLLING_INTERVAL = 3600
+
     def __init__(
         self,
         storage_adapter: JobStorageAdapter,
@@ -60,7 +69,25 @@ class PollingScheduler:
             lock_ttl_seconds: Lock TTL (seconds)
             lock_prefix: Lock key prefix
             logger: Custom logger (uses default if None)
+
+        Raises:
+            ValueError: If parameters are invalid
         """
+        # Validate parameters
+        if polling_interval_seconds < self.MIN_POLLING_INTERVAL:
+            raise ValueError(f"polling_interval_seconds must be >= {self.MIN_POLLING_INTERVAL}")
+        if polling_interval_seconds > self.MAX_POLLING_INTERVAL:
+            raise ValueError(
+                f"polling_interval_seconds should not exceed {self.MAX_POLLING_INTERVAL}"
+            )
+        if lock_ttl_seconds < polling_interval_seconds * 2:
+            raise ValueError(
+                "lock_ttl_seconds should be at least 2x polling_interval_seconds "
+                "to prevent premature lock expiration"
+            )
+        if not lock_prefix:
+            raise ValueError("lock_prefix cannot be empty")
+
         self.storage = storage_adapter
         self.lock = lock_adapter
         self.polling_interval_seconds = polling_interval_seconds
@@ -69,6 +96,7 @@ class PollingScheduler:
 
         self._running = False
         self._job_registry: dict[str, Callable] = {}
+        self._registry_lock = threading.RLock()
 
         # Initialize structured logger
         base_logger = logger or _default_logger
@@ -83,7 +111,7 @@ class PollingScheduler:
 
     def register_job_function(self, name: str, func: Callable) -> None:
         """
-        Register job function (for lookup by function name).
+        Register job function (thread-safe).
 
         Args:
             name: Function name (e.g., "my_module.my_job")
@@ -94,7 +122,9 @@ class PollingScheduler:
             ...     print("Sending email...")
             >>> scheduler.register_job_function("send_email", send_email)
         """
-        self._job_registry[name] = func
+        with self._registry_lock:
+            self._job_registry[name] = func
+            self.logger.debug("Registered job function", func_name=name)
 
     def start(self) -> None:
         """
@@ -364,8 +394,10 @@ class PollingScheduler:
             kwargs_keys=list(kwargs.keys()),
         )
 
-        # Lookup registered function
-        func = self._job_registry.get(func_name)  # type: ignore
+        # Lookup registered function (thread-safe)
+        with self._registry_lock:
+            func = self._job_registry.get(func_name)  # type: ignore
+
         if not func:
             job_logger.error(f"Function not registered: {func_name}")
             raise ValueError(f"Function {func_name} not registered")
@@ -391,6 +423,39 @@ class PollingScheduler:
             )
             raise
 
+    def _update_job_safely(
+        self,
+        job_id: str,
+        updates: dict[str, Any],
+        operation_name: str,
+        extra_log_context: dict[str, Any] | None = None,
+    ) -> bool:
+        """
+        Safely update job with standardized error handling.
+
+        Args:
+            job_id: Job ID
+            updates: Update dictionary
+            operation_name: Name of operation for logging
+            extra_log_context: Additional log context
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            updates["updated_at"] = utc_now().isoformat()
+            self.storage.update_job(job_id, updates)
+
+            log_context = {"job_id": job_id, **(extra_log_context or {})}
+            self.logger.debug(f"{operation_name} successful", **log_context)
+            return True
+
+        except Exception as e:
+            self.logger.error(
+                f"Failed to {operation_name}: {e}", exc_info=True, job_id=job_id
+            )
+            return False
+
     def _increment_retry_count(self, job_id: str, error_message: str) -> None:
         """
         Increment job retry count and record error.
@@ -399,19 +464,18 @@ class PollingScheduler:
             job_id: Job ID
             error_message: Error message
         """
-        try:
-            job_data = self.storage.get_job(job_id)
-            if job_data:
-                retry_count = job_data.get("retry_count", 0) + 1
-                updates = {
-                    "retry_count": retry_count,
-                    "last_error": error_message[:500],  # Limit error message length
-                    "updated_at": utc_now().isoformat(),
-                }
-                self.storage.update_job(job_id, updates)
-                self.logger.debug("Incremented retry count", job_id=job_id, retry_count=retry_count)
-        except Exception as e:
-            self.logger.error(f"Failed to increment retry count: {e}", exc_info=True, job_id=job_id)
+        job_data = self.storage.get_job(job_id)
+        if not job_data:
+            return
+
+        retry_count = job_data.get("retry_count", 0) + 1
+        updates = {
+            "retry_count": retry_count,
+            "last_error": error_message[: self.MAX_ERROR_MESSAGE_LENGTH],
+        }
+        self._update_job_safely(
+            job_id, updates, "increment retry count", {"retry_count": retry_count}
+        )
 
     def _reset_retry_count(self, job_id: str) -> None:
         """
@@ -420,16 +484,8 @@ class PollingScheduler:
         Args:
             job_id: Job ID
         """
-        try:
-            updates = {
-                "retry_count": 0,
-                "last_error": None,
-                "updated_at": utc_now().isoformat(),
-            }
-            self.storage.update_job(job_id, updates)
-            self.logger.debug("Reset retry count", job_id=job_id)
-        except Exception as e:
-            self.logger.error(f"Failed to reset retry count: {e}", exc_info=True, job_id=job_id)
+        updates = {"retry_count": 0, "last_error": None}
+        self._update_job_safely(job_id, updates, "reset retry count")
 
     def _record_job_error(self, job_id: str, error_message: str) -> None:
         """
@@ -439,15 +495,8 @@ class PollingScheduler:
             job_id: Job ID
             error_message: Error message
         """
-        try:
-            updates = {
-                "last_error": error_message[:500],
-                "updated_at": utc_now().isoformat(),
-            }
-            self.storage.update_job(job_id, updates)
-            self.logger.debug("Recorded job error", job_id=job_id)
-        except Exception as e:
-            self.logger.error(f"Failed to record job error: {e}", exc_info=True, job_id=job_id)
+        updates = {"last_error": error_message[: self.MAX_ERROR_MESSAGE_LENGTH]}
+        self._update_job_safely(job_id, updates, "record job error")
 
     def _update_next_run_time(self, job_data: dict[str, Any]) -> None:
         """
@@ -456,8 +505,6 @@ class PollingScheduler:
         Args:
             job_data: Job data
         """
-        from chronis.core.triggers import TriggerFactory
-
         job_id = job_data["job_id"]
         trigger_type = job_data["trigger_type"]
         trigger_args = job_data["trigger_args"]
@@ -473,18 +520,30 @@ class PollingScheduler:
             trigger_args, timezone, current_time_local
         )
 
-        # Update job with next run time or deactivate if None
         if next_run_time_utc:
-            # Convert back to local time for display
-            next_run_time_local = next_run_time_utc.astimezone(tz)
+            self._update_job_schedule(job_id, next_run_time_utc, timezone)
+        else:
+            self._deactivate_one_time_job(job_id, trigger_type)
 
-            updates = {
-                "next_run_time": next_run_time_utc.isoformat(),
-                "next_run_time_local": next_run_time_local.isoformat(),
-                "updated_at": utc_now().isoformat(),
-            }
-            self.storage.update_job(job_id, updates)
+    def _update_job_schedule(
+        self, job_id: str, next_run_time_utc: datetime, timezone: str
+    ) -> None:
+        """
+        Update job with next run time.
 
+        Args:
+            job_id: Job ID
+            next_run_time_utc: Next run time in UTC
+            timezone: IANA timezone string
+        """
+        tz = ZoneInfo(timezone)
+        next_run_time_local = next_run_time_utc.astimezone(tz)
+
+        updates = {
+            "next_run_time": next_run_time_utc.isoformat(),
+            "next_run_time_local": next_run_time_local.isoformat(),
+        }
+        if self._update_job_safely(job_id, updates, "update next_run_time"):
             self.logger.info(
                 "Updated next_run_time",
                 job_id=job_id,
@@ -492,14 +551,17 @@ class PollingScheduler:
                 next_run_time_local=next_run_time_local.isoformat(),
                 timezone=timezone,
             )
-        else:
-            # Deactivate one-time job
-            updates = {
-                "is_active": False,
-                "updated_at": utc_now().isoformat(),
-            }
-            self.storage.update_job(job_id, updates)
 
+    def _deactivate_one_time_job(self, job_id: str, trigger_type: str) -> None:
+        """
+        Deactivate one-time job after execution.
+
+        Args:
+            job_id: Job ID
+            trigger_type: Trigger type for logging
+        """
+        updates = {"is_active": False}
+        if self._update_job_safely(job_id, updates, "deactivate one-time job"):
             self.logger.info("Deactivated one-time job", job_id=job_id, trigger_type=trigger_type)
 
     # ------------------------------------------------------------------------
@@ -614,17 +676,25 @@ class PollingScheduler:
             ...     is_active=False
             ... )
         """
-        updates = {}
-        if name is not None:
-            updates["name"] = name
-        if trigger_type is not None:
-            updates["trigger_type"] = trigger_type.value
-        if trigger_args is not None:
-            updates["trigger_args"] = trigger_args
-        if is_active is not None:
-            updates["is_active"] = is_active
-        if metadata is not None:
-            updates["metadata"] = metadata
+        # Build updates dictionary from non-None parameters
+        updates = {
+            k: v
+            for k, v in {
+                "name": name,
+                "trigger_type": trigger_type.value if trigger_type else None,
+                "trigger_args": trigger_args,
+                "is_active": is_active,
+                "metadata": metadata,
+            }.items()
+            if v is not None
+        }
+
+        if not updates:
+            # No updates provided, just fetch and return current state
+            current = self.get_job(job_id)
+            if not current:
+                raise JobNotFoundError(f"Job {job_id} not found")
+            return current
 
         updates["updated_at"] = utc_now().isoformat()
 
