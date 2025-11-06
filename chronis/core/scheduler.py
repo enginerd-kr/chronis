@@ -3,6 +3,8 @@
 import logging
 import threading
 import time
+from collections.abc import Generator
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Callable
 
@@ -15,6 +17,7 @@ from chronis.core.exceptions import JobAlreadyExistsError, JobNotFoundError
 from chronis.core.job import JobDefinition, JobInfo
 from chronis.core.triggers import TriggerFactory
 from chronis.utils.logging import ContextLogger, _default_logger
+from chronis.utils.retry import RetryStrategy
 from chronis.utils.time import ZoneInfo, utc_now
 
 
@@ -245,6 +248,34 @@ class PollingScheduler:
         """
         return self.storage.query_ready_jobs(current_time)
 
+    @contextmanager
+    def _acquire_lock_context(
+        self, lock_key: str, job_logger: ContextLogger
+    ) -> Generator[bool, None, None]:
+        """
+        Context manager for lock acquisition and release.
+
+        Args:
+            lock_key: Lock key
+            job_logger: Context logger
+
+        Yields:
+            True if lock acquired, False otherwise
+        """
+        lock_acquired = False
+        try:
+            lock_acquired = self.lock.acquire(lock_key, self.lock_ttl_seconds, blocking=False)
+            if lock_acquired:
+                job_logger.info("Lock acquired, starting job execution")
+            yield lock_acquired
+        finally:
+            if lock_acquired:
+                try:
+                    self.lock.release(lock_key)
+                    job_logger.debug("Lock released")
+                except Exception as e:
+                    job_logger.error(f"Failed to release lock: {e}", exc_info=True)
+
     def _try_execute_job(self, job_data: dict[str, Any]) -> None:
         """
         Try to execute job (using lock adapter and error handling).
@@ -258,18 +289,22 @@ class PollingScheduler:
 
         job_logger = self.logger.with_context(job_id=job_id, job_name=job_name)
 
-        # Try to acquire distributed lock (using adapter)
-        lock_acquired = False
-        try:
-            lock_acquired = self.lock.acquire(lock_key, self.lock_ttl_seconds, blocking=False)
-
+        with self._acquire_lock_context(lock_key, job_logger) as lock_acquired:
             if not lock_acquired:
-                # Another pod is executing
                 job_logger.debug("Job already locked by another pod, skipping")
                 return
 
-            job_logger.info("Lock acquired, starting job execution")
+            self._execute_and_update_job(job_data, job_logger)
 
+    def _execute_and_update_job(self, job_data: dict[str, Any], job_logger: ContextLogger) -> None:
+        """
+        Execute job and update next run time.
+
+        Args:
+            job_data: Job data
+            job_logger: Context logger
+        """
+        try:
             # Execute job function (with retry logic)
             self._execute_job_with_retry(job_data, job_logger)
 
@@ -285,16 +320,7 @@ class PollingScheduler:
                 error_type=type(e).__name__,
             )
             # Record error to storage
-            self._record_job_error(job_id, str(e))
-
-        finally:
-            # Release lock (using adapter)
-            if lock_acquired:
-                try:
-                    self.lock.release(lock_key)
-                    job_logger.debug("Lock released")
-                except Exception as e:
-                    job_logger.error(f"Failed to release lock: {e}", exc_info=True)
+            self._record_job_error(job_data["job_id"], str(e))
 
     def _execute_job_with_retry(self, job_data: dict[str, Any], job_logger: ContextLogger) -> None:
         """
@@ -307,37 +333,28 @@ class PollingScheduler:
         Raises:
             Exception: If all retries fail
         """
-        max_retries = job_data.get("max_retries", 3)
-        retry_delay = job_data.get("retry_delay_seconds", 60)
-        use_backoff = job_data.get("retry_exponential_backoff", True)
+        # Create retry strategy from job configuration
+        retry_strategy = RetryStrategy(
+            max_retries=job_data.get("max_retries", self.DEFAULT_MAX_RETRIES),
+            retry_delay_seconds=job_data.get("retry_delay_seconds", self.DEFAULT_RETRY_DELAY_SECONDS),
+            use_exponential_backoff=job_data.get("retry_exponential_backoff", True),
+        )
         current_retry = job_data.get("retry_count", 0)
 
         job_logger.debug(
             "Starting job execution with retry settings",
-            max_retries=max_retries,
-            retry_delay=retry_delay,
-            use_backoff=use_backoff,
+            max_retries=retry_strategy.max_retries,
+            retry_delay=retry_strategy.retry_delay_seconds,
+            use_backoff=retry_strategy.use_exponential_backoff,
             current_retry=current_retry,
         )
 
         last_exception = None
 
-        for attempt in range(max_retries + 1):
+        for attempt in range(retry_strategy.max_retries + 1):
             try:
                 if attempt > 0:
-                    # Calculate retry delay
-                    if use_backoff:
-                        # Exponential backoff: delay * (2 ^ (attempt - 1))
-                        delay = retry_delay * (2 ** (attempt - 1))
-                    else:
-                        delay = retry_delay
-
-                    job_logger.warning(
-                        f"Retrying job execution (attempt {attempt}/{max_retries})",
-                        retry_attempt=attempt,
-                        delay_seconds=delay,
-                    )
-                    time.sleep(delay)
+                    retry_strategy.wait_before_retry(attempt, job_logger)
 
                 # Execute job function
                 self._execute_job_function(job_data, job_logger)
@@ -352,21 +369,21 @@ class PollingScheduler:
             except Exception as e:
                 last_exception = e
                 job_logger.error(
-                    f"Job execution failed (attempt {attempt + 1}/{max_retries + 1}): {e}",
+                    f"Job execution failed (attempt {attempt + 1}/{retry_strategy.max_retries + 1}): {e}",
                     exc_info=True,
                     retry_attempt=attempt,
                     error_type=type(e).__name__,
                 )
 
                 # Increment retry count on last attempt
-                if attempt == max_retries:
+                if attempt == retry_strategy.max_retries:
                     self._increment_retry_count(job_data["job_id"], str(e))
                     break
 
         # All retries failed
         job_logger.error(
-            f"Job failed after {max_retries + 1} attempts",
-            max_retries=max_retries,
+            f"Job failed after {retry_strategy.max_retries + 1} attempts",
+            max_retries=retry_strategy.max_retries,
             last_error=str(last_exception),
         )
         raise last_exception  # type: ignore
