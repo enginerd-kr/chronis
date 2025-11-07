@@ -1,5 +1,7 @@
 """Polling-based scheduler implementation."""
 
+import asyncio
+import inspect
 import logging
 import threading
 import time
@@ -387,7 +389,7 @@ class PollingScheduler:
 
     def _execute_job_function(self, job_data: dict[str, Any], job_logger: ContextLogger) -> None:
         """
-        Execute actual job function.
+        Execute actual job function (supports both sync and async functions).
 
         Args:
             job_data: Job data
@@ -416,15 +418,23 @@ class PollingScheduler:
             job_logger.error(f"Function not registered: {func_name}")
             raise ValueError(f"Function {func_name} not registered")
 
-        # Execute function
+        # Execute function (handle both sync and async)
         start_time = time.time()
         try:
-            func(*args, **kwargs)
+            # Check if function is async
+            if inspect.iscoroutinefunction(func):
+                # Run async function in event loop
+                result = asyncio.run(func(*args, **kwargs))
+            else:
+                # Run sync function normally
+                result = func(*args, **kwargs)
+
             execution_time = time.time() - start_time
             job_logger.info(
                 "Job function completed",
                 func_name=func_name,
                 execution_time_seconds=round(execution_time, 3),
+                is_async=inspect.iscoroutinefunction(func),
             )
         except Exception as e:
             execution_time = time.time() - start_time
