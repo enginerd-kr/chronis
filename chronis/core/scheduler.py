@@ -141,7 +141,6 @@ class PollingScheduler:
         """
         with self._registry_lock:
             self._job_registry[name] = func
-            self.logger.debug("Registered job function", func_name=name)
 
     def start(self) -> None:
         """
@@ -158,15 +157,9 @@ class PollingScheduler:
             >>> scheduler.stop()
         """
         if self._running:
-            self.logger.warning("Scheduler start called but already running")
             raise RuntimeError("Scheduler is already running")
 
-        self.logger.info(
-            "Starting scheduler",
-            polling_interval=self.polling_interval_seconds,
-            lock_ttl=self.lock_ttl_seconds,
-            max_workers=self.max_workers,
-        )
+        self.logger.info("Starting scheduler")
 
         # Start dedicated event loop for async jobs
         self._start_async_loop()
@@ -185,7 +178,6 @@ class PollingScheduler:
         # Start APScheduler (non-blocking)
         self._apscheduler.start()
         self._running = True
-        self.logger.info("Scheduler started successfully")
 
     def stop(self) -> None:
         """
@@ -197,10 +189,7 @@ class PollingScheduler:
             >>> scheduler.stop()
         """
         if not self._running:
-            self.logger.debug("Stop called but scheduler not running")
             return
-
-        self.logger.info("Stopping scheduler")
 
         # Shutdown APScheduler
         self._apscheduler.shutdown(wait=True)
@@ -212,7 +201,6 @@ class PollingScheduler:
         self._executor.shutdown(wait=True, cancel_futures=False)
 
         self._running = False
-        self.logger.info("Scheduler stopped successfully")
 
     def is_running(self) -> bool:
         """Check if scheduler is running."""
@@ -225,7 +213,6 @@ class PollingScheduler:
     def _start_async_loop(self) -> None:
         """Start dedicated event loop for async jobs in background thread."""
         if self._async_loop is not None:
-            self.logger.warning("Async loop already running")
             return
 
         # Create new event loop
@@ -238,8 +225,6 @@ class PollingScheduler:
             name="chronis-async-loop"
         )
         self._loop_thread.start()
-
-        self.logger.debug("Started dedicated event loop for async jobs")
 
     def _run_event_loop(self) -> None:
         """Run event loop forever (called in dedicated thread)."""
@@ -267,8 +252,6 @@ class PollingScheduler:
         self._async_loop = None
         self._loop_thread = None
 
-        self.logger.debug("Stopped dedicated event loop")
-
     # ------------------------------------------------------------------------
     # Internal Methods (APScheduler Polling Logic)
     # ------------------------------------------------------------------------
@@ -283,33 +266,20 @@ class PollingScheduler:
             # UTC aware time
             current_time = utc_now()
 
-            self.logger.debug("Polling for ready jobs", current_time=current_time.isoformat())
-
             # 1. Query ready jobs from storage
             jobs = self._query_ready_jobs(current_time)
 
-            if not jobs:
-                self.logger.debug("No ready jobs found")
-                return
+            if jobs:
+                self.logger.info("Found jobs", count=len(jobs))
 
-            self.logger.info(
-                "Found ready jobs",
-                job_count=len(jobs),
-                job_ids=[j.get("job_id") for j in jobs],
-            )
-
-            # 2. Try to execute each job
-            for job_data in jobs:
-                self._try_execute_job(job_data)
+                # 2. Try to execute each job
+                for job_data in jobs:
+                    self._try_execute_job(job_data)
 
             self._last_poll_time = current_time
 
         except Exception as e:
-            self.logger.error(
-                f"Critical error in polling loop: {e}",
-                exc_info=True,
-                error_type=type(e).__name__,
-            )
+            self.logger.error(f"Polling error: {e}", exc_info=True)
 
     def _query_ready_jobs(self, current_time: datetime) -> list[dict[str, Any]]:
         """
@@ -340,16 +310,13 @@ class PollingScheduler:
         lock_acquired = False
         try:
             lock_acquired = self.lock.acquire(lock_key, self.lock_ttl_seconds, blocking=False)
-            if lock_acquired:
-                job_logger.info("Lock acquired, starting job execution")
             yield lock_acquired
         finally:
             if lock_acquired:
                 try:
                     self.lock.release(lock_key)
-                    job_logger.debug("Lock released")
                 except Exception as e:
-                    job_logger.error(f"Failed to release lock: {e}", exc_info=True)
+                    job_logger.error(f"Lock release failed: {e}", exc_info=True)
 
     def _try_execute_job(self, job_data: dict[str, Any]) -> None:
         """
@@ -367,15 +334,10 @@ class PollingScheduler:
         # Check if job can be executed based on state
         job_status = JobStatus(job_data.get("status", "scheduled"))
         if job_status != JobStatus.SCHEDULED:
-            job_logger.debug(
-                f"Job cannot be executed in {job_status} state, skipping",
-                status=job_status.value
-            )
             return
 
         with self._acquire_lock_context(lock_key, job_logger) as lock_acquired:
             if not lock_acquired:
-                job_logger.debug("Job already locked by another pod, skipping")
                 return
 
             self._trigger_job(job_data, job_logger)
@@ -408,14 +370,10 @@ class PollingScheduler:
                 job_logger
             )
 
-            job_logger.info("Job triggered successfully")
+            job_logger.info("Job triggered")
 
         except Exception as e:
-            job_logger.error(
-                f"Failed to trigger job: {e}",
-                exc_info=True,
-                error_type=type(e).__name__,
-            )
+            job_logger.error(f"Trigger failed: {e}", exc_info=True)
         finally:
             # 3. Immediately calculate and update next run time
             # This happens regardless of job execution result
@@ -448,11 +406,7 @@ class PollingScheduler:
 
         except Exception as e:
             # Log the error but don't propagate it
-            job_logger.error(
-                f"Job execution failed: {e}",
-                exc_info=True,
-                error_type=type(e).__name__,
-            )
+            job_logger.error(f"Execution failed: {e}", exc_info=True)
 
             # Mark back to SCHEDULED even on failure
             self._update_job_safely(
@@ -479,19 +433,11 @@ class PollingScheduler:
         args = job_data.get("args", ())
         kwargs = job_data.get("kwargs", {})
 
-        job_logger.debug(
-            "Executing job function",
-            func_name=func_name,
-            args_count=len(args),
-            kwargs_keys=list(kwargs.keys()),
-        )
-
         # Lookup registered function (thread-safe)
         with self._registry_lock:
             func = self._job_registry.get(func_name)  # type: ignore
 
         if not func:
-            job_logger.error(f"Function not registered: {func_name}")
             raise ValueError(f"Function {func_name} not registered")
 
         # Execute function (handle both sync and async)
@@ -517,19 +463,15 @@ class PollingScheduler:
 
             execution_time = time.time() - start_time
             job_logger.info(
-                "Job function completed",
-                func_name=func_name,
-                execution_time_seconds=round(execution_time, 3),
-                is_async=is_async,
+                "Job completed",
+                execution_time=round(execution_time, 3),
             )
         except Exception as e:
             execution_time = time.time() - start_time
             job_logger.error(
-                f"Job function raised exception: {e}",
+                f"Job failed: {e}",
                 exc_info=True,
-                func_name=func_name,
-                execution_time_seconds=round(execution_time, 3),
-                error_type=type(e).__name__,
+                execution_time=round(execution_time, 3),
             )
             raise
 
@@ -555,15 +497,10 @@ class PollingScheduler:
         try:
             updates["updated_at"] = utc_now().isoformat()
             self.storage.update_job(job_id, updates)
-
-            log_context = {"job_id": job_id, **(extra_log_context or {})}
-            self.logger.debug(f"{operation_name} successful", **log_context)
             return True
 
         except Exception as e:
-            self.logger.error(
-                f"Failed to {operation_name}: {e}", exc_info=True, job_id=job_id
-            )
+            self.logger.error(f"{operation_name} failed: {e}", job_id=job_id)
             return False
 
 
@@ -612,14 +549,7 @@ class PollingScheduler:
             "next_run_time": next_run_time_utc.isoformat(),
             "next_run_time_local": next_run_time_local.isoformat(),
         }
-        if self._update_job_safely(job_id, updates, "update next_run_time"):
-            self.logger.info(
-                "Updated next_run_time",
-                job_id=job_id,
-                next_run_time_utc=next_run_time_utc.isoformat(),
-                next_run_time_local=next_run_time_local.isoformat(),
-                timezone=timezone,
-            )
+        self._update_job_safely(job_id, updates, "update next_run_time")
 
     def _deactivate_one_time_job(self, job_id: str, trigger_type: str) -> None:
         """
@@ -634,8 +564,7 @@ class PollingScheduler:
             "next_run_time": None,
             "next_run_time_local": None,
         }
-        if self._update_job_safely(job_id, updates, "mark one-time job as completed"):
-            self.logger.info("Marked one-time job as completed", job_id=job_id, trigger_type=trigger_type)
+        self._update_job_safely(job_id, updates, "mark one-time job as completed")
 
     # ------------------------------------------------------------------------
     # Job CRUD Operations
@@ -665,38 +594,13 @@ class PollingScheduler:
             ... )
             >>> scheduler.create_job(job)
         """
-        self.logger.info(
-            "Creating job",
-            job_id=job.job_id,
-            job_name=job.name,
-            trigger_type=job.trigger_type.value,
-            timezone=job.timezone,
-        )
-
         job_data = job.to_dict()
         try:
             result = self.storage.create_job(job_data)
-            self.logger.info(
-                "Job created successfully",
-                job_id=job.job_id,
-                next_run_time=result.get("next_run_time"),
-            )
+            self.logger.info("Job created", job_id=job.job_id)
             return JobInfo(result)
         except ValueError as e:
-            self.logger.error(
-                f"Failed to create job: {e}",
-                job_id=job.job_id,
-                error_type="JobAlreadyExists",
-            )
             raise JobAlreadyExistsError(str(e)) from e
-        except Exception as e:
-            self.logger.error(
-                f"Unexpected error creating job: {e}",
-                exc_info=True,
-                job_id=job.job_id,
-                error_type=type(e).__name__,
-            )
-            raise
 
     def get_job(self, job_id: str) -> JobInfo | None:
         """
@@ -791,22 +695,13 @@ class PollingScheduler:
             >>> scheduler.delete_job("email-001")
             True
         """
-        self.logger.info("Deleting job", job_id=job_id)
-
         try:
             success = self.storage.delete_job(job_id)
             if success:
-                self.logger.info("Job deleted successfully", job_id=job_id)
-            else:
-                self.logger.warning("Job not found for deletion", job_id=job_id)
+                self.logger.info("Job deleted", job_id=job_id)
             return success
         except Exception as e:
-            self.logger.error(
-                f"Error deleting job: {e}",
-                exc_info=True,
-                job_id=job_id,
-                error_type=type(e).__name__,
-            )
+            self.logger.error(f"Delete failed: {e}", job_id=job_id)
             raise
 
     def list_jobs(
