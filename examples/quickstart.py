@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 from chronis import (
     InMemoryLockAdapter,
     InMemoryStorageAdapter,
-    JobStatus,
     PollingScheduler,
 )
 
@@ -93,36 +92,23 @@ def main():
     )
     print(f"   ✓ Created date job: {job4.name} (runs once at {future_time})\n")
 
-    # 5. List scheduled jobs
-    print("5. Listing scheduled jobs:")
-    jobs = scheduler.list_jobs(status=JobStatus.SCHEDULED)
-    for job in jobs:
-        print(f"   - {job.name} (ID: {job.job_id}, Status: {job.status.value})")
-        print(f"     Next run: {job.next_run_time}")
-
-    # 6. Start scheduler
-    print("\n6. Starting scheduler...")
+    # 5. Start scheduler
+    print("5. Starting scheduler...")
     scheduler.start()
     print("   ✓ Scheduler started (polling every 5 seconds)")
 
-    # 7. Let it run for 40 seconds
-    print("\n7. Running scheduler for 40 seconds...")
+    # 6. Let it run for 40 seconds
+    print("\n6. Running scheduler for 40 seconds...")
     print("   (Watch the jobs execute)\n")
     time.sleep(40)
 
-    # 8. Stop scheduler
-    print("\n8. Stopping scheduler...")
+    # 7. Stop scheduler
+    print("\n7. Stopping scheduler...")
     scheduler.stop()
     print("   ✓ Scheduler stopped")
 
-    # 9. Final job status
-    print("\n9. Final job status:")
-    jobs = scheduler.list_jobs()
-    for job in jobs:
-        print(f"   - {job.name}: Status={job.status.value}")
-
-    # 10. Demonstrate state transitions
-    print("\n10. Demonstrating state transitions:")
+    # 8. Demonstrate state transitions
+    print("\n8. Demonstrating state transitions:")
     print("   Pausing email job...")
     scheduler.pause_job("email-001")
     paused_job = scheduler.get_job("email-001")

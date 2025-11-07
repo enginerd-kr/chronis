@@ -62,33 +62,3 @@ def test_create_job():
     assert job_info.name == "Test Job"
     assert job_info.status == JobStatus.SCHEDULED
     assert job_info.can_execute() is True
-
-
-def test_list_jobs():
-    """Test listing jobs."""
-    storage = InMemoryStorageAdapter()
-    lock = InMemoryLockAdapter()
-    scheduler = PollingScheduler(
-        storage_adapter=storage,
-        lock_adapter=lock,
-    )
-
-    def dummy_func():
-        print("Hello")
-
-    scheduler.register_job_function(f"{dummy_func.__module__}.{dummy_func.__name__}", dummy_func)
-
-    # Create multiple jobs
-    for i in range(3):
-        job = JobDefinition(
-            job_id=f"test-{i}",
-            name=f"Test Job {i}",
-            trigger_type=TriggerType.INTERVAL,
-            trigger_args={"seconds": 5},
-            func=dummy_func,
-        )
-        scheduler.create_job(job)
-
-    # List all jobs
-    jobs = scheduler.list_jobs()
-    assert len(jobs) == 3
