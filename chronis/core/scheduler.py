@@ -64,6 +64,7 @@ class PollingScheduler:
         lock_prefix: str = "scheduler:lock:",
         max_workers: int | None = None,
         max_queue_size: int | None = None,
+        verbose: bool = False,
         logger: logging.Logger | None = None,
     ) -> None:
         """
@@ -77,6 +78,7 @@ class PollingScheduler:
             lock_prefix: Lock key prefix
             max_workers: Maximum number of worker threads (default: 20)
             max_queue_size: Maximum queue size for backpressure control (default: max_workers * 5)
+            verbose: Enable verbose logging (default: False)
             logger: Custom logger (uses default if None)
 
         Raises:
@@ -104,6 +106,7 @@ class PollingScheduler:
         self.lock_prefix = lock_prefix
         self.max_workers = max_workers or self.DEFAULT_MAX_WORKERS
         self.max_queue_size = max_queue_size or (self.max_workers * 5)
+        self.verbose = verbose
 
         self._running = False
         self._job_registry: dict[str, Callable] = {}
@@ -308,11 +311,13 @@ class PollingScheduler:
             jobs = self._query_ready_jobs(current_time, limit=available_slots)
 
             if jobs:
-                self.logger.info(
-                    "Found ready jobs",
-                    count=len(jobs),
-                    queue_status=self._job_queue.get_status()
-                )
+                # Log only in verbose mode or when many jobs found
+                if self.verbose or len(jobs) >= 10:
+                    self.logger.info(
+                        "Found ready jobs",
+                        count=len(jobs),
+                        queue_status=self._job_queue.get_status()
+                    )
 
                 # Add jobs to queue
                 for job_data in jobs:
@@ -445,7 +450,9 @@ class PollingScheduler:
             # 3. Add done callback to remove from queue when complete
             future.add_done_callback(lambda f: self._on_job_complete(job_id))
 
-            job_logger.info("Job triggered")
+            # Log only in verbose mode
+            if self.verbose:
+                job_logger.info("Job triggered")
 
         except Exception as e:
             job_logger.error(f"Trigger failed: {e}", exc_info=True)
@@ -550,12 +557,15 @@ class PollingScheduler:
                 result = func(*args, **kwargs)
 
             execution_time = time.time() - start_time
-            job_logger.info(
-                "Job completed",
-                execution_time=round(execution_time, 3),
-            )
+            # Log only in verbose mode
+            if self.verbose:
+                job_logger.info(
+                    "Job completed",
+                    execution_time=round(execution_time, 3),
+                )
         except Exception as e:
             execution_time = time.time() - start_time
+            # Always log errors
             job_logger.error(
                 f"Job failed: {e}",
                 exc_info=True,
@@ -685,7 +695,9 @@ class PollingScheduler:
         job_data = job.to_dict()
         try:
             result = self.storage.create_job(job_data)
-            self.logger.info("Job created", job_id=job.job_id)
+            # Log only in verbose mode
+            if self.verbose:
+                self.logger.info("Job created", job_id=job.job_id)
             return JobInfo(result)
         except ValueError as e:
             raise JobAlreadyExistsError(str(e)) from e
