@@ -6,6 +6,7 @@ import logging
 import threading
 import time
 from collections.abc import Generator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Callable
@@ -51,6 +52,7 @@ class PollingScheduler:
     # Constants
     MIN_POLLING_INTERVAL = 1
     MAX_POLLING_INTERVAL = 3600
+    DEFAULT_MAX_WORKERS = 20
 
     def __init__(
         self,
@@ -59,6 +61,7 @@ class PollingScheduler:
         polling_interval_seconds: int = 10,
         lock_ttl_seconds: int = 300,
         lock_prefix: str = "scheduler:lock:",
+        max_workers: int | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         """
@@ -70,6 +73,7 @@ class PollingScheduler:
             polling_interval_seconds: Polling interval (seconds)
             lock_ttl_seconds: Lock TTL (seconds)
             lock_prefix: Lock key prefix
+            max_workers: Maximum number of worker threads (default: 20)
             logger: Custom logger (uses default if None)
 
         Raises:
@@ -95,6 +99,7 @@ class PollingScheduler:
         self.polling_interval_seconds = polling_interval_seconds
         self.lock_ttl_seconds = lock_ttl_seconds
         self.lock_prefix = lock_prefix
+        self.max_workers = max_workers or self.DEFAULT_MAX_WORKERS
 
         self._running = False
         self._job_registry: dict[str, Callable] = {}
@@ -103,6 +108,16 @@ class PollingScheduler:
         # Initialize structured logger
         base_logger = logger or _default_logger
         self.logger = ContextLogger(base_logger, {"component": "PollingScheduler"})
+
+        # Initialize ThreadPoolExecutor for job execution
+        self._executor = ThreadPoolExecutor(
+            max_workers=self.max_workers,
+            thread_name_prefix="chronis-worker-"
+        )
+
+        # Initialize dedicated event loop for async jobs
+        self._async_loop: asyncio.AbstractEventLoop | None = None
+        self._loop_thread: threading.Thread | None = None
 
         # Initialize APScheduler (BackgroundScheduler - non-blocking)
         self._apscheduler = BackgroundScheduler(
@@ -150,7 +165,11 @@ class PollingScheduler:
             "Starting scheduler",
             polling_interval=self.polling_interval_seconds,
             lock_ttl=self.lock_ttl_seconds,
+            max_workers=self.max_workers,
         )
+
+        # Start dedicated event loop for async jobs
+        self._start_async_loop()
 
         # Register polling job to APScheduler
         trigger = IntervalTrigger(seconds=self.polling_interval_seconds, timezone="UTC")
@@ -186,12 +205,69 @@ class PollingScheduler:
         # Shutdown APScheduler
         self._apscheduler.shutdown(wait=True)
 
+        # Stop dedicated event loop
+        self._stop_async_loop()
+
+        # Shutdown thread pool executor
+        self._executor.shutdown(wait=True, cancel_futures=False)
+
         self._running = False
         self.logger.info("Scheduler stopped successfully")
 
     def is_running(self) -> bool:
         """Check if scheduler is running."""
         return self._running
+
+    # ------------------------------------------------------------------------
+    # Async Event Loop Management
+    # ------------------------------------------------------------------------
+
+    def _start_async_loop(self) -> None:
+        """Start dedicated event loop for async jobs in background thread."""
+        if self._async_loop is not None:
+            self.logger.warning("Async loop already running")
+            return
+
+        # Create new event loop
+        self._async_loop = asyncio.new_event_loop()
+
+        # Start event loop in dedicated thread
+        self._loop_thread = threading.Thread(
+            target=self._run_event_loop,
+            daemon=True,
+            name="chronis-async-loop"
+        )
+        self._loop_thread.start()
+
+        self.logger.debug("Started dedicated event loop for async jobs")
+
+    def _run_event_loop(self) -> None:
+        """Run event loop forever (called in dedicated thread)."""
+        if self._async_loop is None:
+            return
+
+        asyncio.set_event_loop(self._async_loop)
+        try:
+            self._async_loop.run_forever()
+        finally:
+            self._async_loop.close()
+
+    def _stop_async_loop(self) -> None:
+        """Stop dedicated event loop."""
+        if self._async_loop is None:
+            return
+
+        # Stop the event loop
+        self._async_loop.call_soon_threadsafe(self._async_loop.stop)
+
+        # Wait for loop thread to finish
+        if self._loop_thread is not None:
+            self._loop_thread.join(timeout=5.0)
+
+        self._async_loop = None
+        self._loop_thread = None
+
+        self.logger.debug("Stopped dedicated event loop")
 
     # ------------------------------------------------------------------------
     # Internal Methods (APScheduler Polling Logic)
@@ -306,10 +382,10 @@ class PollingScheduler:
 
     def _trigger_job(self, job_data: dict[str, Any], job_logger: ContextLogger) -> None:
         """
-        Trigger job execution in background thread.
+        Trigger job execution using thread pool.
 
         The scheduler triggers the job and immediately updates the next run time.
-        Job execution happens asynchronously in a background thread.
+        Job execution happens asynchronously in a worker thread from the pool.
 
         Args:
             job_data: Job data
@@ -325,14 +401,12 @@ class PollingScheduler:
                 "mark job as running"
             )
 
-            # 2. Fire the job in a background thread (non-blocking)
-            thread = threading.Thread(
-                target=self._execute_job_function_background,
-                args=(job_data, job_logger),
-                daemon=True,
-                name=f"job-{job_id}"
+            # 2. Submit job to thread pool executor (non-blocking)
+            self._executor.submit(
+                self._execute_job_function_background,
+                job_data,
+                job_logger
             )
-            thread.start()
 
             job_logger.info("Job triggered successfully")
 
@@ -391,6 +465,8 @@ class PollingScheduler:
         """
         Execute actual job function (supports both sync and async functions).
 
+        Async functions are executed in the dedicated event loop for optimal performance.
+
         Args:
             job_data: Job data
             job_logger: Context logger
@@ -420,11 +496,21 @@ class PollingScheduler:
 
         # Execute function (handle both sync and async)
         start_time = time.time()
+        is_async = inspect.iscoroutinefunction(func)
+
         try:
             # Check if function is async
-            if inspect.iscoroutinefunction(func):
-                # Run async function in event loop
-                result = asyncio.run(func(*args, **kwargs))
+            if is_async:
+                # Run async function in dedicated event loop
+                if self._async_loop is None:
+                    raise RuntimeError("Async event loop not initialized")
+
+                future = asyncio.run_coroutine_threadsafe(
+                    func(*args, **kwargs),
+                    self._async_loop
+                )
+                # Wait for result (blocks current thread, but doesn't block event loop)
+                result = future.result()
             else:
                 # Run sync function normally
                 result = func(*args, **kwargs)
@@ -434,7 +520,7 @@ class PollingScheduler:
                 "Job function completed",
                 func_name=func_name,
                 execution_time_seconds=round(execution_time, 3),
-                is_async=inspect.iscoroutinefunction(func),
+                is_async=is_async,
             )
         except Exception as e:
             execution_time = time.time() - start_time
