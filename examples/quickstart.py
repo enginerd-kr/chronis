@@ -7,6 +7,7 @@ from chronis import (
     InMemoryLockAdapter,
     InMemoryStorageAdapter,
     JobDefinition,
+    JobStatus,
     PollingScheduler,
     TriggerType,
 )
@@ -92,10 +93,10 @@ def main():
     print(f"   ✓ Created job: {job3.name} (runs every 15 seconds)\n")
 
     # 5. List jobs
-    print("5. Listing active jobs:")
-    jobs = scheduler.list_jobs(is_active=True)
+    print("5. Listing scheduled jobs:")
+    jobs = scheduler.list_jobs(status=JobStatus.SCHEDULED)
     for job in jobs:
-        print(f"   - {job.name} (ID: {job.job_id})")
+        print(f"   - {job.name} (ID: {job.job_id}, Status: {job.status.value})")
         print(f"     Next run: {job.next_run_time}")
 
     # 6. Start scheduler
@@ -123,7 +124,19 @@ def main():
     print("9. Final job status:")
     jobs = scheduler.list_jobs()
     for job in jobs:
-        print(f"   - {job.name}: Active={job.is_active}")
+        print(f"   - {job.name}: Status={job.status.value}")
+
+    # 10. Demonstrate state transitions
+    print("\n10. Demonstrating state transitions:")
+    print("   Pausing email job...")
+    scheduler.pause_job("email-001")
+    paused_job = scheduler.get_job("email-001")
+    print(f"   ✓ Email job status: {paused_job.status.value}")
+
+    print("   Resuming email job...")
+    scheduler.resume_job("email-001")
+    resumed_job = scheduler.get_job("email-001")
+    print(f"   ✓ Email job status: {resumed_job.status.value}")
 
     print("\n=== Example Complete ===")
 

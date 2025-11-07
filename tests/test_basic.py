@@ -5,6 +5,7 @@ from chronis import (
     InMemoryLockAdapter,
     InMemoryStorageAdapter,
     JobDefinition,
+    JobStatus,
     PollingScheduler,
     TriggerType,
 )
@@ -59,7 +60,8 @@ def test_create_job():
     job_info = scheduler.create_job(job)
     assert job_info.job_id == "test-001"
     assert job_info.name == "Test Job"
-    assert job_info.is_active is True
+    assert job_info.status == JobStatus.SCHEDULED
+    assert job_info.can_execute() is True
 
 
 def test_list_jobs():

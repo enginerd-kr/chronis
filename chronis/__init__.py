@@ -2,7 +2,7 @@
 Chronis - Distributed Scheduler Framework for Multi-Container Environments
 
 Usage:
-    from chronis import PollingScheduler, JobDefinition, TriggerType
+    from chronis import PollingScheduler, JobDefinition, TriggerType, JobStatus
     from chronis.adapters.storage import InMemoryStorageAdapter
     from chronis.adapters.locks import InMemoryLockAdapter
 
@@ -10,7 +10,7 @@ Usage:
     lock = InMemoryLockAdapter()
     scheduler = PollingScheduler(storage_adapter=storage, lock_adapter=lock)
 
-    # Create a job with timezone support and retry logic
+    # Create a job with timezone support and state management
     job = JobDefinition(
         job_id="daily-report",
         name="Daily Report (Seoul Time)",
@@ -18,12 +18,15 @@ Usage:
         trigger_args={"hour": 9, "minute": 0},
         func="send_daily_report",
         timezone="Asia/Seoul",  # Run at 9 AM Seoul time
-        max_retries=5,  # Retry up to 5 times on failure
-        retry_delay_seconds=60,  # Wait 60 seconds between retries
-        retry_exponential_backoff=True  # Use exponential backoff
+        status=JobStatus.SCHEDULED  # Initial state
     )
     scheduler.create_job(job)
     scheduler.start()
+
+    # Manage job state
+    scheduler.pause_job("daily-report")
+    scheduler.resume_job("daily-report")
+    scheduler.cancel_job("daily-report")
 """
 
 # Core classes
@@ -39,6 +42,7 @@ from chronis.core.exceptions import (
 )
 from chronis.core.job import JobDefinition, JobInfo
 from chronis.core.scheduler import PollingScheduler
+from chronis.core.state import JobStatus
 
 __all__ = [
     # Core
@@ -46,6 +50,7 @@ __all__ = [
     "JobDefinition",
     "JobInfo",
     "TriggerType",
+    "JobStatus",
     # Exceptions
     "SchedulerError",
     "JobAlreadyExistsError",

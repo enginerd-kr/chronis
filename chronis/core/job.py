@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any, Callable
 
 from chronis.core.enums import TriggerType
+from chronis.core.state import JobStatus, StateFactory
 from chronis.utils.time import get_timezone, utc_now
 
 
@@ -20,12 +21,9 @@ class JobDefinition:
         timezone: str = "UTC",
         args: tuple | None = None,
         kwargs: dict[str, Any] | None = None,
-        is_active: bool = True,
+        status: JobStatus = JobStatus.PENDING,
         next_run_time: datetime | None = None,
         metadata: dict[str, Any] | None = None,
-        max_retries: int = 3,
-        retry_delay_seconds: int = 60,
-        retry_exponential_backoff: bool = True,
     ) -> None:
         """
         Initialize job definition.
@@ -42,12 +40,9 @@ class JobDefinition:
             timezone: IANA timezone (e.g., "Asia/Seoul", "America/New_York", "UTC")
             args: Function positional arguments
             kwargs: Function keyword arguments
-            is_active: Whether job is active
+            status: Job status (default: PENDING)
             next_run_time: Next execution time (auto-calculated if None)
             metadata: Additional metadata
-            max_retries: Maximum retry count (0 = no retry)
-            retry_delay_seconds: Retry delay in seconds
-            retry_exponential_backoff: Enable exponential backoff
         """
         self.job_id = job_id
         self.name = name
@@ -57,14 +52,9 @@ class JobDefinition:
         self.timezone = timezone
         self.args = args or ()
         self.kwargs = kwargs or {}
-        self.is_active = is_active
+        self.status = status
         self.next_run_time = next_run_time
         self.metadata = metadata or {}
-
-        # Retry settings
-        self.max_retries = max_retries
-        self.retry_delay_seconds = retry_delay_seconds
-        self.retry_exponential_backoff = retry_exponential_backoff
 
         # Validate timezone
         self._validate_timezone()
@@ -78,7 +68,7 @@ class JobDefinition:
 
     def to_dict(self) -> dict[str, Any]:
         """
-        Convert to dictionary for storage (with timezone and retry settings).
+        Convert to dictionary for storage (with timezone and state).
 
         Returns:
             Dictionary representation
@@ -101,6 +91,9 @@ class JobDefinition:
         else:
             func_name = f"{self.func.__module__}.{self.func.__name__}"
 
+        # Set initial status to SCHEDULED if next_run_time exists
+        initial_status = JobStatus.SCHEDULED if next_run_time_utc else self.status
+
         return {
             "job_id": self.job_id,
             "name": self.name,
@@ -110,7 +103,7 @@ class JobDefinition:
             "func_name": func_name,
             "args": self.args,
             "kwargs": self.kwargs,
-            "is_active": self.is_active,
+            "status": initial_status.value,
             # UTC time (for internal processing)
             "next_run_time": (next_run_time_utc.isoformat() if next_run_time_utc else None),
             # Local time (for user display)
@@ -118,12 +111,6 @@ class JobDefinition:
                 next_run_time_local.isoformat() if next_run_time_local else None
             ),
             "metadata": self.metadata,
-            # Retry settings
-            "max_retries": self.max_retries,
-            "retry_delay_seconds": self.retry_delay_seconds,
-            "retry_exponential_backoff": self.retry_exponential_backoff,
-            "retry_count": 0,  # Initial retry count
-            "last_error": None,  # Last error message
             "created_at": utc_now().isoformat(),
             "updated_at": utc_now().isoformat(),
         }
@@ -147,7 +134,7 @@ class JobDefinition:
 
 
 class JobInfo:
-    """Job information query result (with timezone support)."""
+    """Job information query result (with timezone and state support)."""
 
     def __init__(self, data: dict[str, Any]) -> None:
         self.job_id: str = data["job_id"]
@@ -155,7 +142,9 @@ class JobInfo:
         self.trigger_type: str = data["trigger_type"]
         self.trigger_args: dict[str, Any] = data["trigger_args"]
         self.timezone: str = data.get("timezone", "UTC")
-        self.is_active: bool = data["is_active"]
+
+        # Status
+        self.status: JobStatus = JobStatus(data["status"])
 
         # UTC time
         self.next_run_time: datetime | None = (
@@ -172,6 +161,26 @@ class JobInfo:
         self.metadata: dict[str, Any] = data.get("metadata", {})
         self.created_at: datetime = datetime.fromisoformat(data["created_at"])
         self.updated_at: datetime = datetime.fromisoformat(data["updated_at"])
+
+    def get_state(self):
+        """Get the state object for this job."""
+        return StateFactory.get_state(self.status)
+
+    def can_execute(self) -> bool:
+        """Check if this job can be executed."""
+        return self.get_state().can_execute()
+
+    def can_pause(self) -> bool:
+        """Check if this job can be paused."""
+        return self.get_state().can_pause()
+
+    def can_cancel(self) -> bool:
+        """Check if this job can be cancelled."""
+        return self.get_state().can_cancel()
+
+    def can_resume(self) -> bool:
+        """Check if this job can be resumed."""
+        return self.get_state().can_resume()
 
     def get_next_run_time(self, timezone: str | None = None) -> datetime | None:
         """

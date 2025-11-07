@@ -43,18 +43,22 @@ class InMemoryStorageAdapter(JobStorageAdapter):
     def list_jobs(self, is_active: bool | None = None, limit: int = 100) -> list[dict[str, Any]]:
         """List jobs."""
         jobs = list(self._jobs.values())
-        if is_active is not None:
-            jobs = [j for j in jobs if j.get("is_active") == is_active]
+
+        # Note: is_active parameter is kept for adapter interface compatibility
+        # but is ignored since we now use status field
         return jobs[:limit]
 
     def query_ready_jobs(self, current_time: datetime) -> list[dict[str, Any]]:
-        """Query jobs ready for execution (next_run_time <= current_time)."""
+        """Query jobs ready for execution (next_run_time <= current_time and status is SCHEDULED)."""
         ready_jobs = []
         current_iso = current_time.isoformat()
         for job in self._jobs.values():
-            if not job.get("is_active"):
+            # Only SCHEDULED jobs are ready to execute
+            if job.get("status") != "scheduled":
                 continue
+
             next_run = job.get("next_run_time")
             if next_run and next_run <= current_iso:
                 ready_jobs.append(job)
+
         return ready_jobs
