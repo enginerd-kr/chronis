@@ -105,54 +105,6 @@ def test_cancel_job():
     assert cancelled_job.can_resume() is False
 
 
-def test_list_jobs_by_status():
-    """Test listing jobs by status."""
-    storage = InMemoryStorageAdapter()
-    lock = InMemoryLockAdapter()
-    scheduler = PollingScheduler(storage_adapter=storage, lock_adapter=lock)
-
-    def dummy_func():
-        print("Job executed")
-
-    scheduler.register_job_function(f"{dummy_func.__module__}.{dummy_func.__name__}", dummy_func)
-
-    # Create multiple jobs
-    for i in range(3):
-        job = JobDefinition(
-            job_id=f"job-{i}",
-            name=f"Job {i}",
-            trigger_type=TriggerType.INTERVAL,
-            trigger_args={"seconds": 60},
-            func=dummy_func,
-        )
-        scheduler.create_job(job)
-
-    # Pause one job
-    scheduler.pause_job("job-1")
-
-    # Cancel one job
-    scheduler.cancel_job("job-2")
-
-    # List scheduled jobs
-    scheduled_jobs = scheduler.list_jobs(status=JobStatus.SCHEDULED)
-    assert len(scheduled_jobs) == 1
-    assert scheduled_jobs[0].job_id == "job-0"
-
-    # List paused jobs
-    paused_jobs = scheduler.list_jobs(status=JobStatus.PAUSED)
-    assert len(paused_jobs) == 1
-    assert paused_jobs[0].job_id == "job-1"
-
-    # List cancelled jobs
-    cancelled_jobs = scheduler.list_jobs(status=JobStatus.CANCELLED)
-    assert len(cancelled_jobs) == 1
-    assert cancelled_jobs[0].job_id == "job-2"
-
-    # List all jobs
-    all_jobs = scheduler.list_jobs()
-    assert len(all_jobs) == 3
-
-
 def test_fire_and_forget_execution():
     """Test fire-and-forget job execution."""
     storage = InMemoryStorageAdapter()

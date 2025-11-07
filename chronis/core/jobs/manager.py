@@ -177,29 +177,6 @@ class JobManager:
             )
             raise
 
-    def list_jobs(
-        self,
-        status: JobStatus | None = None,
-        limit: int = 100,
-    ) -> list[JobInfo]:
-        """
-        List jobs with optional filtering.
-
-        Args:
-            status: Status filter (None=all)
-            limit: Maximum count
-
-        Returns:
-            List of job info objects
-        """
-        jobs_data = self.storage.list_jobs(limit=limit)
-
-        # Filter by status if specified
-        if status:
-            jobs_data = [j for j in jobs_data if j.get("status") == status.value]
-
-        return [JobInfo(job_data) for job_data in jobs_data]
-
     def pause_job(self, job_id: str) -> JobInfo:
         """
         Pause a job.

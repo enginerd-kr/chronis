@@ -207,11 +207,6 @@ scheduler.resume_job("daily-report")
 
 # Cancel a job
 scheduler.cancel_job("daily-report")
-
-# List jobs by status
-jobs = scheduler.list_jobs(status=JobStatus.SCHEDULED)
-for job in jobs:
-    print(f"{job.name}: {job.status}")
 ```
 
 ### Async Function Support
