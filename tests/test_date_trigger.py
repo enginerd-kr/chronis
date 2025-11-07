@@ -6,11 +6,11 @@ from datetime import datetime, timedelta
 from chronis import (
     InMemoryLockAdapter,
     InMemoryStorageAdapter,
-    JobDefinition,
     JobStatus,
     PollingScheduler,
-    TriggerType,
 )
+from chronis.core.common.types import TriggerType
+from chronis.core.jobs.definition import JobDefinition
 
 
 def test_date_trigger_one_time_execution():
