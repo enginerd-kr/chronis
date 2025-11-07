@@ -15,9 +15,9 @@ from chronis.adapters.base import JobStorageAdapter, LockAdapter
 from chronis.core.enums import TriggerType
 from chronis.core.exceptions import JobAlreadyExistsError, JobNotFoundError
 from chronis.core.job import JobDefinition, JobInfo
+from chronis.core.state import JobStatus
 from chronis.core.triggers import TriggerFactory
 from chronis.utils.logging import ContextLogger, _default_logger
-from chronis.utils.retry import RetryStrategy
 from chronis.utils.time import ZoneInfo, utc_now
 
 
@@ -47,9 +47,6 @@ class PollingScheduler:
     """
 
     # Constants
-    MAX_ERROR_MESSAGE_LENGTH = 500
-    DEFAULT_MAX_RETRIES = 3
-    DEFAULT_RETRY_DELAY_SECONDS = 60
     MIN_POLLING_INTERVAL = 1
     MAX_POLLING_INTERVAL = 3600
 
@@ -278,7 +275,7 @@ class PollingScheduler:
 
     def _try_execute_job(self, job_data: dict[str, Any]) -> None:
         """
-        Try to execute job (using lock adapter and error handling).
+        Try to execute job.
 
         Args:
             job_data: Job data from storage
@@ -289,104 +286,104 @@ class PollingScheduler:
 
         job_logger = self.logger.with_context(job_id=job_id, job_name=job_name)
 
+        # Check if job can be executed based on state
+        job_status = JobStatus(job_data.get("status", "scheduled"))
+        if job_status != JobStatus.SCHEDULED:
+            job_logger.debug(
+                f"Job cannot be executed in {job_status} state, skipping",
+                status=job_status.value
+            )
+            return
+
         with self._acquire_lock_context(lock_key, job_logger) as lock_acquired:
             if not lock_acquired:
                 job_logger.debug("Job already locked by another pod, skipping")
                 return
 
-            self._execute_and_update_job(job_data, job_logger)
+            self._trigger_job(job_data, job_logger)
 
-    def _execute_and_update_job(self, job_data: dict[str, Any], job_logger: ContextLogger) -> None:
+    def _trigger_job(self, job_data: dict[str, Any], job_logger: ContextLogger) -> None:
         """
-        Execute job and update next run time.
+        Trigger job execution in background thread.
+
+        The scheduler triggers the job and immediately updates the next run time.
+        Job execution happens asynchronously in a background thread.
 
         Args:
             job_data: Job data
             job_logger: Context logger
         """
+        job_id = job_data["job_id"]
+
         try:
-            # Execute job function (with retry logic)
-            self._execute_job_with_retry(job_data, job_logger)
+            # 1. Update state to RUNNING
+            self._update_job_safely(
+                job_id,
+                {"status": JobStatus.RUNNING.value},
+                "mark job as running"
+            )
 
-            # Update next_run_time on success
-            self._update_next_run_time(job_data)
+            # 2. Fire the job in a background thread (non-blocking)
+            thread = threading.Thread(
+                target=self._execute_job_function_background,
+                args=(job_data, job_logger),
+                daemon=True,
+                name=f"job-{job_id}"
+            )
+            thread.start()
 
-            job_logger.info("Job executed successfully")
+            job_logger.info("Job triggered successfully")
 
         except Exception as e:
             job_logger.error(
-                f"Unexpected error executing job: {e}",
+                f"Failed to trigger job: {e}",
                 exc_info=True,
                 error_type=type(e).__name__,
             )
-            # Record error to storage
-            self._record_job_error(job_data["job_id"], str(e))
+        finally:
+            # 3. Immediately calculate and update next run time
+            # This happens regardless of job execution result
+            self._update_next_run_time(job_data)
 
-    def _execute_job_with_retry(self, job_data: dict[str, Any], job_logger: ContextLogger) -> None:
+    def _execute_job_function_background(
+        self, job_data: dict[str, Any], job_logger: ContextLogger
+    ) -> None:
         """
-        Execute job with retry logic.
+        Execute job function in background thread.
+
+        This runs in a separate daemon thread. Success or failure doesn't affect
+        the scheduler's ability to trigger the job at the next scheduled time.
 
         Args:
             job_data: Job data
             job_logger: Context logger
-
-        Raises:
-            Exception: If all retries fail
         """
-        # Create retry strategy from job configuration
-        retry_strategy = RetryStrategy(
-            max_retries=job_data.get("max_retries", self.DEFAULT_MAX_RETRIES),
-            retry_delay_seconds=job_data.get("retry_delay_seconds", self.DEFAULT_RETRY_DELAY_SECONDS),
-            use_exponential_backoff=job_data.get("retry_exponential_backoff", True),
-        )
-        current_retry = job_data.get("retry_count", 0)
+        job_id = job_data["job_id"]
 
-        job_logger.debug(
-            "Starting job execution with retry settings",
-            max_retries=retry_strategy.max_retries,
-            retry_delay=retry_strategy.retry_delay_seconds,
-            use_backoff=retry_strategy.use_exponential_backoff,
-            current_retry=current_retry,
-        )
+        try:
+            self._execute_job_function(job_data, job_logger)
 
-        last_exception = None
+            # Mark as SCHEDULED again after successful execution
+            self._update_job_safely(
+                job_id,
+                {"status": JobStatus.SCHEDULED.value},
+                "mark job as scheduled after execution"
+            )
 
-        for attempt in range(retry_strategy.max_retries + 1):
-            try:
-                if attempt > 0:
-                    retry_strategy.wait_before_retry(attempt, job_logger)
+        except Exception as e:
+            # Log the error but don't propagate it
+            job_logger.error(
+                f"Job execution failed: {e}",
+                exc_info=True,
+                error_type=type(e).__name__,
+            )
 
-                # Execute job function
-                self._execute_job_function(job_data, job_logger)
-
-                # Reset retry count on success
-                if current_retry > 0:
-                    self._reset_retry_count(job_data["job_id"])
-                    job_logger.info("Job succeeded after retry", retry_attempt=attempt)
-
-                return  # Success
-
-            except Exception as e:
-                last_exception = e
-                job_logger.error(
-                    f"Job execution failed (attempt {attempt + 1}/{retry_strategy.max_retries + 1}): {e}",
-                    exc_info=True,
-                    retry_attempt=attempt,
-                    error_type=type(e).__name__,
-                )
-
-                # Increment retry count on last attempt
-                if attempt == retry_strategy.max_retries:
-                    self._increment_retry_count(job_data["job_id"], str(e))
-                    break
-
-        # All retries failed
-        job_logger.error(
-            f"Job failed after {retry_strategy.max_retries + 1} attempts",
-            max_retries=retry_strategy.max_retries,
-            last_error=str(last_exception),
-        )
-        raise last_exception  # type: ignore
+            # Mark back to SCHEDULED even on failure
+            self._update_job_safely(
+                job_id,
+                {"status": JobStatus.SCHEDULED.value},
+                "mark job as scheduled after failed execution"
+            )
 
     def _execute_job_function(self, job_data: dict[str, Any], job_logger: ContextLogger) -> None:
         """
@@ -473,47 +470,6 @@ class PollingScheduler:
             )
             return False
 
-    def _increment_retry_count(self, job_id: str, error_message: str) -> None:
-        """
-        Increment job retry count and record error.
-
-        Args:
-            job_id: Job ID
-            error_message: Error message
-        """
-        job_data = self.storage.get_job(job_id)
-        if not job_data:
-            return
-
-        retry_count = job_data.get("retry_count", 0) + 1
-        updates = {
-            "retry_count": retry_count,
-            "last_error": error_message[: self.MAX_ERROR_MESSAGE_LENGTH],
-        }
-        self._update_job_safely(
-            job_id, updates, "increment retry count", {"retry_count": retry_count}
-        )
-
-    def _reset_retry_count(self, job_id: str) -> None:
-        """
-        Reset job retry count.
-
-        Args:
-            job_id: Job ID
-        """
-        updates = {"retry_count": 0, "last_error": None}
-        self._update_job_safely(job_id, updates, "reset retry count")
-
-    def _record_job_error(self, job_id: str, error_message: str) -> None:
-        """
-        Record job execution error.
-
-        Args:
-            job_id: Job ID
-            error_message: Error message
-        """
-        updates = {"last_error": error_message[: self.MAX_ERROR_MESSAGE_LENGTH]}
-        self._update_job_safely(job_id, updates, "record job error")
 
     def _update_next_run_time(self, job_data: dict[str, Any]) -> None:
         """
@@ -571,15 +527,19 @@ class PollingScheduler:
 
     def _deactivate_one_time_job(self, job_id: str, trigger_type: str) -> None:
         """
-        Deactivate one-time job after execution.
+        Mark one-time job as completed after execution.
 
         Args:
             job_id: Job ID
             trigger_type: Trigger type for logging
         """
-        updates = {"is_active": False}
-        if self._update_job_safely(job_id, updates, "deactivate one-time job"):
-            self.logger.info("Deactivated one-time job", job_id=job_id, trigger_type=trigger_type)
+        updates = {
+            "status": JobStatus.COMPLETED.value,
+            "next_run_time": None,
+            "next_run_time_local": None,
+        }
+        if self._update_job_safely(job_id, updates, "mark one-time job as completed"):
+            self.logger.info("Marked one-time job as completed", job_id=job_id, trigger_type=trigger_type)
 
     # ------------------------------------------------------------------------
     # Job CRUD Operations
@@ -666,7 +626,7 @@ class PollingScheduler:
         name: str | None = None,
         trigger_type: TriggerType | None = None,
         trigger_args: dict[str, Any] | None = None,
-        is_active: bool | None = None,
+        status: JobStatus | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> JobInfo:
         """
@@ -677,7 +637,7 @@ class PollingScheduler:
             name: New name (optional)
             trigger_type: New trigger type (optional)
             trigger_args: New trigger parameters (optional)
-            is_active: Active status (optional)
+            status: Job status (optional)
             metadata: Metadata (optional)
 
         Returns:
@@ -690,7 +650,7 @@ class PollingScheduler:
             >>> scheduler.update_job(
             ...     "email-001",
             ...     trigger_args={"hour": "10", "minute": "0"},
-            ...     is_active=False
+            ...     status=JobStatus.PAUSED
             ... )
         """
         # Build updates dictionary from non-None parameters
@@ -700,7 +660,7 @@ class PollingScheduler:
                 "name": name,
                 "trigger_type": trigger_type.value if trigger_type else None,
                 "trigger_args": trigger_args,
-                "is_active": is_active,
+                "status": status.value if status else None,
                 "metadata": metadata,
             }.items()
             if v is not None
@@ -755,23 +715,97 @@ class PollingScheduler:
 
     def list_jobs(
         self,
-        is_active: bool | None = None,
+        status: JobStatus | None = None,
         limit: int = 100,
     ) -> list[JobInfo]:
         """
         List jobs (using adapter).
 
         Args:
-            is_active: Active filter (None=all)
+            status: Status filter (None=all)
             limit: Maximum count
 
         Returns:
             Job list
 
         Example:
-            >>> active_jobs = scheduler.list_jobs(is_active=True)
-            >>> for job in active_jobs:
+            >>> scheduled_jobs = scheduler.list_jobs(status=JobStatus.SCHEDULED)
+            >>> for job in scheduled_jobs:
             ...     print(f"{job.name}: {job.next_run_time}")
         """
-        jobs_data = self.storage.list_jobs(is_active=is_active, limit=limit)
+        jobs_data = self.storage.list_jobs(limit=limit)
+
+        # Filter by status if specified
+        if status:
+            jobs_data = [j for j in jobs_data if j.get("status") == status.value]
+
         return [JobInfo(job_data) for job_data in jobs_data]
+
+    def pause_job(self, job_id: str) -> JobInfo:
+        """
+        Pause a job.
+
+        Args:
+            job_id: Job ID
+
+        Returns:
+            Updated job info
+
+        Raises:
+            JobNotFoundError: Job not found
+            ValueError: Job cannot be paused in current state
+        """
+        job = self.get_job(job_id)
+        if not job:
+            raise JobNotFoundError(f"Job {job_id} not found")
+
+        if not job.can_pause():
+            raise ValueError(f"Job cannot be paused in {job.status} state")
+
+        return self.update_job(job_id, status=JobStatus.PAUSED)
+
+    def resume_job(self, job_id: str) -> JobInfo:
+        """
+        Resume a paused job.
+
+        Args:
+            job_id: Job ID
+
+        Returns:
+            Updated job info
+
+        Raises:
+            JobNotFoundError: Job not found
+            ValueError: Job cannot be resumed in current state
+        """
+        job = self.get_job(job_id)
+        if not job:
+            raise JobNotFoundError(f"Job {job_id} not found")
+
+        if not job.can_resume():
+            raise ValueError(f"Job cannot be resumed in {job.status} state")
+
+        return self.update_job(job_id, status=JobStatus.SCHEDULED)
+
+    def cancel_job(self, job_id: str) -> JobInfo:
+        """
+        Cancel a job.
+
+        Args:
+            job_id: Job ID
+
+        Returns:
+            Updated job info
+
+        Raises:
+            JobNotFoundError: Job not found
+            ValueError: Job cannot be cancelled in current state
+        """
+        job = self.get_job(job_id)
+        if not job:
+            raise JobNotFoundError(f"Job {job_id} not found")
+
+        if not job.can_cancel():
+            raise ValueError(f"Job cannot be cancelled in {job.status} state")
+
+        return self.update_job(job_id, status=JobStatus.CANCELLED)
