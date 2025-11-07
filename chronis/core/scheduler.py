@@ -15,9 +15,9 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
-from chronis.core.enums import TriggerType
-from chronis.core.exceptions import JobAlreadyExistsError, JobNotFoundError
-from chronis.core.job import JobDefinition, JobInfo
+from chronis.core.common.exceptions import JobAlreadyExistsError, JobNotFoundError
+from chronis.core.common.types import TriggerType
+from chronis.core.jobs.definition import JobDefinition, JobInfo
 from chronis.core.state import JobStatus
 from chronis.core.triggers import TriggerFactory
 from chronis.utils.logging import ContextLogger, _default_logger

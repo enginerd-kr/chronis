@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Callable
 
-from chronis.core.enums import TriggerType
+from chronis.core.common.types import TriggerType
 from chronis.core.state import JobStatus, StateFactory
 from chronis.utils.time import get_timezone, utc_now
 
