@@ -22,10 +22,10 @@ class DateTrigger(TriggerStrategy):
         Args:
             trigger_args: Must contain "run_date" in ISO 8601 format
             timezone: IANA timezone string
-            current_time: Not used for date trigger
+            current_time: Current time (used to check if run_date has passed)
 
         Returns:
-            Specified run time in UTC, or None if no run_date specified
+            Specified run time in UTC, or None if no run_date specified or already passed
         """
         run_date_str = trigger_args.get("run_date")
         if not run_date_str:
@@ -36,4 +36,11 @@ class DateTrigger(TriggerStrategy):
         next_time = datetime.fromisoformat(run_date_str.replace("Z", "+00:00"))
 
         # Convert to UTC
-        return next_time.astimezone(ZoneInfo("UTC"))
+        next_time_utc = next_time.astimezone(ZoneInfo("UTC"))
+
+        # For date triggers, only return the time if it's in the future
+        # After execution, this will return None, causing the job to be marked as COMPLETED
+        if current_time and next_time_utc <= current_time.astimezone(ZoneInfo("UTC")):
+            return None
+
+        return next_time_utc
