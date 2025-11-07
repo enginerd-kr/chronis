@@ -1,4 +1,4 @@
-"""Enumerations for Chronis."""
+"""Common type definitions for Chronis."""
 
 from enum import Enum
 
