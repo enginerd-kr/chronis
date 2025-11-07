@@ -4,14 +4,14 @@
 
 ## Features
 
-- ✅ **Adapter**: Support for DynamoDB, PostgreSQL, SQLite, InMemory storage
-- ✅ **Distributed Locks**: Redis and InMemory lock adapters
-- ✅ **Polling-based**: Non-blocking scheduling using APScheduler
-- ✅ **High Availability**: Prevents duplicate execution in multi-container environments
-- ✅ **Timezone Support**: IANA timezone-aware scheduling with automatic DST handling
-- ✅ **State Management**: Pause, resume, and cancel jobs with state pattern
-- ✅ **Async Support**: Native support for both sync and async job functions
-- ✅ **Simplified API**: Intuitive methods without exposing internal complexity
+- **Adapter**: Support for DynamoDB, PostgreSQL, SQLite, InMemory storage
+- **Distributed Locks**: Redis and InMemory lock adapters
+- **Polling-based**: Non-blocking scheduling using APScheduler
+- **High Availability**: Prevents duplicate execution in multi-container environments
+- **Timezone Support**: IANA timezone-aware scheduling with automatic DST handling
+- **State Management**: Pause, resume, and cancel jobs with state pattern
+- **Async Support**: Native support for both sync and async job functions
+- **Simplified API**: Intuitive methods without exposing internal complexity
 
 ## Installation
 
