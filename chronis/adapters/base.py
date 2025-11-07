@@ -29,11 +29,6 @@ class JobStorageAdapter(ABC):
         pass
 
     @abstractmethod
-    def list_jobs(self, is_active: bool | None = None, limit: int = 100) -> list[dict[str, Any]]:
-        """List jobs."""
-        pass
-
-    @abstractmethod
     def query_ready_jobs(self, current_time: datetime) -> list[dict[str, Any]]:
         """Query jobs ready for execution (next_run_time <= current_time)."""
         pass

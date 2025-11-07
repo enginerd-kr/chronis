@@ -704,34 +704,6 @@ class PollingScheduler:
             self.logger.error(f"Delete failed: {e}", job_id=job_id)
             raise
 
-    def list_jobs(
-        self,
-        status: JobStatus | None = None,
-        limit: int = 100,
-    ) -> list[JobInfo]:
-        """
-        List jobs (using adapter).
-
-        Args:
-            status: Status filter (None=all)
-            limit: Maximum count
-
-        Returns:
-            Job list
-
-        Example:
-            >>> scheduled_jobs = scheduler.list_jobs(status=JobStatus.SCHEDULED)
-            >>> for job in scheduled_jobs:
-            ...     print(f"{job.name}: {job.next_run_time}")
-        """
-        jobs_data = self.storage.list_jobs(limit=limit)
-
-        # Filter by status if specified
-        if status:
-            jobs_data = [j for j in jobs_data if j.get("status") == status.value]
-
-        return [JobInfo(job_data) for job_data in jobs_data]
-
     def pause_job(self, job_id: str) -> JobInfo:
         """
         Pause a job.
