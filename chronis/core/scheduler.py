@@ -905,3 +905,245 @@ class PollingScheduler:
             raise ValueError(f"Job cannot be cancelled in {job.status} state")
 
         return self.update_job(job_id, status=JobStatus.CANCELLED)
+
+    # ========================================
+    # Simplified Public API (TriggerType hidden)
+    # ========================================
+
+    def create_interval_job(
+        self,
+        job_id: str,
+        name: str,
+        func: Callable | str,
+        seconds: int | None = None,
+        minutes: int | None = None,
+        hours: int | None = None,
+        days: int | None = None,
+        weeks: int | None = None,
+        timezone: str = "UTC",
+        args: tuple | None = None,
+        kwargs: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> JobInfo:
+        """
+        Create interval job (runs repeatedly at fixed intervals).
+
+        Args:
+            job_id: Unique job identifier
+            name: Human-readable job name
+            func: Function to execute (callable or import path string)
+            seconds: Interval in seconds
+            minutes: Interval in minutes
+            hours: Interval in hours
+            days: Interval in days
+            weeks: Interval in weeks
+            timezone: IANA timezone (e.g., "Asia/Seoul", "UTC")
+            args: Positional arguments for func
+            kwargs: Keyword arguments for func
+            metadata: Additional metadata
+
+        Returns:
+            Created job info
+
+        Example:
+            >>> # Run every 30 seconds
+            >>> scheduler.create_interval_job(
+            ...     job_id="heartbeat",
+            ...     name="System Heartbeat",
+            ...     func=send_heartbeat,
+            ...     seconds=30
+            ... )
+            >>>
+            >>> # Run every 2 hours
+            >>> scheduler.create_interval_job(
+            ...     job_id="cleanup",
+            ...     name="Cleanup Task",
+            ...     func=cleanup_old_data,
+            ...     hours=2,
+            ...     timezone="Asia/Seoul"
+            ... )
+        """
+        trigger_args = {}
+        if seconds is not None:
+            trigger_args["seconds"] = seconds
+        if minutes is not None:
+            trigger_args["minutes"] = minutes
+        if hours is not None:
+            trigger_args["hours"] = hours
+        if days is not None:
+            trigger_args["days"] = days
+        if weeks is not None:
+            trigger_args["weeks"] = weeks
+
+        if not trigger_args:
+            raise ValueError("At least one interval parameter must be specified")
+
+        job = JobDefinition(
+            job_id=job_id,
+            name=name,
+            trigger_type=TriggerType.INTERVAL,
+            trigger_args=trigger_args,
+            func=func,
+            timezone=timezone,
+            args=args,
+            kwargs=kwargs,
+            metadata=metadata,
+        )
+        return self.create_job(job)
+
+    def create_cron_job(
+        self,
+        job_id: str,
+        name: str,
+        func: Callable | str,
+        year: int | str | None = None,
+        month: int | str | None = None,
+        day: int | str | None = None,
+        week: int | str | None = None,
+        day_of_week: int | str | None = None,
+        hour: int | str | None = None,
+        minute: int | str | None = None,
+        second: int | str | None = None,
+        timezone: str = "UTC",
+        args: tuple | None = None,
+        kwargs: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> JobInfo:
+        """
+        Create cron job (runs on specific date/time patterns).
+
+        Args:
+            job_id: Unique job identifier
+            name: Human-readable job name
+            func: Function to execute (callable or import path string)
+            year: 4-digit year
+            month: Month (1-12)
+            day: Day of month (1-31)
+            week: ISO week (1-53)
+            day_of_week: Day of week (0-6 or mon,tue,wed,thu,fri,sat,sun)
+            hour: Hour (0-23)
+            minute: Minute (0-59)
+            second: Second (0-59)
+            timezone: IANA timezone (e.g., "Asia/Seoul", "UTC")
+            args: Positional arguments for func
+            kwargs: Keyword arguments for func
+            metadata: Additional metadata
+
+        Returns:
+            Created job info
+
+        Example:
+            >>> # Run every day at 9 AM Seoul time
+            >>> scheduler.create_cron_job(
+            ...     job_id="daily-report",
+            ...     name="Daily Report",
+            ...     func=generate_report,
+            ...     hour=9,
+            ...     minute=0,
+            ...     timezone="Asia/Seoul"
+            ... )
+            >>>
+            >>> # Run every Monday at 6 PM
+            >>> scheduler.create_cron_job(
+            ...     job_id="weekly-summary",
+            ...     name="Weekly Summary",
+            ...     func=send_summary,
+            ...     day_of_week="mon",
+            ...     hour=18,
+            ...     minute=0
+            ... )
+        """
+        trigger_args = {}
+        if year is not None:
+            trigger_args["year"] = year
+        if month is not None:
+            trigger_args["month"] = month
+        if day is not None:
+            trigger_args["day"] = day
+        if week is not None:
+            trigger_args["week"] = week
+        if day_of_week is not None:
+            trigger_args["day_of_week"] = day_of_week
+        if hour is not None:
+            trigger_args["hour"] = hour
+        if minute is not None:
+            trigger_args["minute"] = minute
+        if second is not None:
+            trigger_args["second"] = second
+
+        job = JobDefinition(
+            job_id=job_id,
+            name=name,
+            trigger_type=TriggerType.CRON,
+            trigger_args=trigger_args,
+            func=func,
+            timezone=timezone,
+            args=args,
+            kwargs=kwargs,
+            metadata=metadata,
+        )
+        return self.create_job(job)
+
+    def create_date_job(
+        self,
+        job_id: str,
+        name: str,
+        func: Callable | str,
+        run_date: str | datetime,
+        timezone: str = "UTC",
+        args: tuple | None = None,
+        kwargs: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> JobInfo:
+        """
+        Create one-time job (runs once at specific date/time).
+
+        Args:
+            job_id: Unique job identifier
+            name: Human-readable job name
+            func: Function to execute (callable or import path string)
+            run_date: ISO format datetime string or datetime object
+            timezone: IANA timezone (e.g., "Asia/Seoul", "UTC")
+            args: Positional arguments for func
+            kwargs: Keyword arguments for func
+            metadata: Additional metadata
+
+        Returns:
+            Created job info
+
+        Example:
+            >>> # Run once at specific time
+            >>> scheduler.create_date_job(
+            ...     job_id="welcome-email",
+            ...     name="Send Welcome Email",
+            ...     func=send_welcome_email,
+            ...     run_date="2025-11-08 10:00:00",
+            ...     timezone="Asia/Seoul",
+            ...     kwargs={"user_id": 123}
+            ... )
+            >>>
+            >>> # Run once using datetime object
+            >>> from datetime import datetime, timedelta
+            >>> run_time = datetime.now() + timedelta(hours=1)
+            >>> scheduler.create_date_job(
+            ...     job_id="reminder",
+            ...     name="Reminder",
+            ...     func=send_reminder,
+            ...     run_date=run_time
+            ... )
+        """
+        if isinstance(run_date, datetime):
+            run_date = run_date.isoformat()
+
+        job = JobDefinition(
+            job_id=job_id,
+            name=name,
+            trigger_type=TriggerType.DATE,
+            trigger_args={"run_date": run_date},
+            func=func,
+            timezone=timezone,
+            args=args,
+            kwargs=kwargs,
+            metadata=metadata,
+        )
+        return self.create_job(job)

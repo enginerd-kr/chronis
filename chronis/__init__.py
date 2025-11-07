@@ -2,7 +2,7 @@
 Chronis - Distributed Scheduler Framework for Multi-Container Environments
 
 Usage:
-    from chronis import PollingScheduler, JobDefinition, TriggerType, JobStatus
+    from chronis import PollingScheduler
     from chronis.adapters.storage import InMemoryStorageAdapter
     from chronis.adapters.locks import InMemoryLockAdapter
 
@@ -10,17 +10,38 @@ Usage:
     lock = InMemoryLockAdapter()
     scheduler = PollingScheduler(storage_adapter=storage, lock_adapter=lock)
 
-    # Create a job with timezone support and state management
-    job = JobDefinition(
-        job_id="daily-report",
-        name="Daily Report (Seoul Time)",
-        trigger_type=TriggerType.CRON,
-        trigger_args={"hour": 9, "minute": 0},
+    # Register job function
+    scheduler.register_function("send_daily_report", send_daily_report)
+
+    # Create jobs using simplified API (TriggerType hidden)
+
+    # Interval job - runs every 30 seconds
+    scheduler.create_interval_job(
+        job_id="heartbeat",
+        name="System Heartbeat",
         func="send_daily_report",
-        timezone="Asia/Seoul",  # Run at 9 AM Seoul time
-        status=JobStatus.SCHEDULED  # Initial state
+        seconds=30
     )
-    scheduler.create_job(job)
+
+    # Cron job - runs daily at 9 AM Seoul time
+    scheduler.create_cron_job(
+        job_id="daily-report",
+        name="Daily Report",
+        func="send_daily_report",
+        hour=9,
+        minute=0,
+        timezone="Asia/Seoul"
+    )
+
+    # Date job - runs once at specific time
+    scheduler.create_date_job(
+        job_id="welcome-email",
+        name="Welcome Email",
+        func="send_daily_report",
+        run_date="2025-11-08 10:00:00",
+        timezone="Asia/Seoul"
+    )
+
     scheduler.start()
 
     # Manage job state
@@ -35,22 +56,18 @@ from chronis.adapters.storage import InMemoryStorageAdapter
 from chronis.core import (
     ConnectionError,
     JobAlreadyExistsError,
-    JobDefinition,
     JobInfo,
     JobNotFoundError,
     JobStatus,
     PollingScheduler,
     SchedulerError,
-    TriggerType,
     ValidationError,
 )
 
 __all__ = [
     # Core
     "PollingScheduler",
-    "JobDefinition",
     "JobInfo",
-    "TriggerType",
     "JobStatus",
     # Exceptions
     "SchedulerError",

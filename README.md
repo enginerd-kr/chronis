@@ -9,7 +9,9 @@
 - ✅ **Polling-based**: Non-blocking scheduling using APScheduler
 - ✅ **High Availability**: Prevents duplicate execution in multi-container environments
 - ✅ **Timezone Support**: IANA timezone-aware scheduling with automatic DST handling
-- ✅ **Retry Logic**: Automatic retry with exponential backoff
+- ✅ **State Management**: Pause, resume, and cancel jobs with state pattern
+- ✅ **Async Support**: Native support for both sync and async job functions
+- ✅ **Simplified API**: Intuitive methods without exposing internal complexity
 
 ## Installation
 
@@ -27,13 +29,9 @@ pip install chronis[all]       # All adapters
 ## Quick Start
 
 ```python
-from chronis import (
-    PollingScheduler,
-    JobDefinition,
-    TriggerType,
-    InMemoryStorageAdapter,
-    InMemoryLockAdapter,
-)
+from chronis import PollingScheduler
+from chronis.adapters.storage import InMemoryStorageAdapter
+from chronis.adapters.locks import InMemoryLockAdapter
 
 # 1. Create adapters
 storage = InMemoryStorageAdapter()
@@ -53,16 +51,34 @@ def send_daily_email():
 # 4. Register function
 scheduler.register_job_function("send_daily_email", send_daily_email)
 
-# 5. Create job
-job = JobDefinition(
-    job_id="email-001",
-    name="Daily Email",
-    trigger_type=TriggerType.CRON,
-    trigger_args={"hour": 9, "minute": 0},
+# 5. Create jobs using simplified API
+
+# Interval job - runs every 30 seconds
+scheduler.create_interval_job(
+    job_id="heartbeat",
+    name="System Heartbeat",
     func="send_daily_email",
-    timezone="Asia/Seoul",  # Run at 9 AM Seoul time
+    seconds=30
 )
-scheduler.create_job(job)
+
+# Cron job - runs daily at 9 AM Seoul time
+scheduler.create_cron_job(
+    job_id="daily-report",
+    name="Daily Report",
+    func="send_daily_email",
+    hour=9,
+    minute=0,
+    timezone="Asia/Seoul"
+)
+
+# Date job - runs once at specific time
+scheduler.create_date_job(
+    job_id="welcome-email",
+    name="Welcome Email",
+    func="send_daily_email",
+    run_date="2025-11-08 10:00:00",
+    timezone="Asia/Seoul"
+)
 
 # 6. Start scheduler
 scheduler.start()
@@ -70,45 +86,167 @@ scheduler.start()
 
 ## Core Concepts
 
-### Trigger Types
+### Simplified Job Creation API
 
-- **INTERVAL**: Execute periodically (e.g., every 5 minutes)
-- **CRON**: Execute based on cron expression
-- **DATE**: One-time execution at specific time
+Chronis provides three intuitive methods for creating jobs without needing to understand internal implementation details:
+
+#### Interval Jobs
+Execute jobs repeatedly at fixed intervals:
+
+```python
+# Run every 30 seconds
+scheduler.create_interval_job(
+    job_id="heartbeat",
+    name="System Heartbeat",
+    func=send_heartbeat,
+    seconds=30
+)
+
+# Run every 2 hours
+scheduler.create_interval_job(
+    job_id="cleanup",
+    name="Cleanup Task",
+    func=cleanup_old_data,
+    hours=2,
+    timezone="Asia/Seoul"
+)
+```
+
+**Parameters**: `seconds`, `minutes`, `hours`, `days`, `weeks`
+
+#### Cron Jobs
+Execute jobs based on cron-style patterns:
+
+```python
+# Run every day at 9 AM
+scheduler.create_cron_job(
+    job_id="daily-report",
+    name="Daily Report",
+    func=generate_report,
+    hour=9,
+    minute=0,
+    timezone="Asia/Seoul"
+)
+
+# Run every Monday at 6 PM
+scheduler.create_cron_job(
+    job_id="weekly-summary",
+    name="Weekly Summary",
+    func=send_summary,
+    day_of_week="mon",
+    hour=18,
+    minute=0
+)
+```
+
+**Parameters**: `year`, `month`, `day`, `week`, `day_of_week`, `hour`, `minute`, `second`
+
+#### Date Jobs
+Execute jobs once at a specific date/time:
+
+```python
+# Run once at specific time
+scheduler.create_date_job(
+    job_id="welcome-email",
+    name="Send Welcome Email",
+    func=send_welcome_email,
+    run_date="2025-11-08 10:00:00",
+    timezone="Asia/Seoul",
+    kwargs={"user_id": 123}
+)
+
+# Run once using datetime object
+from datetime import datetime, timedelta
+run_time = datetime.now() + timedelta(hours=1)
+scheduler.create_date_job(
+    job_id="reminder",
+    name="Reminder",
+    func=send_reminder,
+    run_date=run_time
+)
+```
 
 ### Timezone Support
 
+All job types support IANA timezones with automatic DST handling:
+
 ```python
 # Korean time
-job_kr = JobDefinition(
+scheduler.create_cron_job(
     job_id="korea-report",
-    trigger_type=TriggerType.CRON,
-    trigger_args={"hour": 9, "minute": 0},
-    func="generate_report",
+    name="Korea Report",
+    func=generate_report,
+    hour=9,
+    minute=0,
     timezone="Asia/Seoul"  # Runs at 9 AM KST
 )
 
 # US Eastern time (DST auto-handled)
-job_us = JobDefinition(
+scheduler.create_cron_job(
     job_id="us-report",
-    trigger_type=TriggerType.CRON,
-    trigger_args={"hour": 8, "minute": 0},
-    func="generate_report",
+    name="US Report",
+    func=generate_report,
+    hour=8,
+    minute=0,
     timezone="America/New_York"  # Runs at 8 AM EST/EDT
 )
 ```
 
-### Retry Logic
+### Job State Management
+
+Manage job lifecycle with pause, resume, and cancel operations:
 
 ```python
-job = JobDefinition(
-    job_id="api-sync",
-    trigger_type=TriggerType.INTERVAL,
-    trigger_args={"minutes": 30},
-    func="sync_api_data",
-    max_retries=5,  # Retry up to 5 times
-    retry_delay_seconds=60,  # Wait 60 seconds
-    retry_exponential_backoff=True  # Use exponential backoff
+from chronis import JobStatus
+
+# Pause a running job
+scheduler.pause_job("daily-report")
+
+# Resume a paused job
+scheduler.resume_job("daily-report")
+
+# Cancel a job
+scheduler.cancel_job("daily-report")
+
+# List jobs by status
+jobs = scheduler.list_jobs(status=JobStatus.SCHEDULED)
+for job in jobs:
+    print(f"{job.name}: {job.status}")
+```
+
+### Async Function Support
+
+Chronis natively supports both synchronous and asynchronous job functions:
+
+```python
+import asyncio
+
+# Async job function
+async def async_send_email():
+    await asyncio.sleep(1)
+    print("Async email sent!")
+
+# Sync job function
+def sync_send_email():
+    print("Sync email sent!")
+
+# Register both
+scheduler.register_job_function("async_email", async_send_email)
+scheduler.register_job_function("sync_email", sync_send_email)
+
+# Create jobs - Chronis handles async automatically
+scheduler.create_interval_job(
+    job_id="async-job",
+    name="Async Job",
+    func="async_email",
+    seconds=30
+)
+
+scheduler.create_interval_job(
+    job_id="sync-job",
+    name="Sync Job",
+    func="sync_email",
+    seconds=30
 )
 ```
 
@@ -157,7 +295,7 @@ scheduler = PollingScheduler(
 
 See the [examples/](examples/) directory for more examples:
 
-- `quickstart.py` - Basic usage example
+- `quickstart.py` - Basic usage with simplified API
 
 Run examples:
 
@@ -246,3 +384,7 @@ uv run ruff format chronis/
 # Type check
 uv run mypy chronis/
 ```
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.

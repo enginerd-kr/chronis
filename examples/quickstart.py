@@ -1,15 +1,13 @@
-"""Chronis Quick Start Example."""
+"""Chronis Quick Start Example - Simplified API."""
 
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from chronis import (
     InMemoryLockAdapter,
     InMemoryStorageAdapter,
-    JobDefinition,
     JobStatus,
     PollingScheduler,
-    TriggerType,
 )
 
 
@@ -30,7 +28,7 @@ def generate_report(report_type: str):
 
 def main():
     """Main function to demonstrate Chronis usage."""
-    print("=== Chronis Quick Start ===\n")
+    print("=== Chronis Quick Start - Simplified API ===\n")
 
     # 1. Create storage and lock adapters
     print("1. Creating adapters...")
@@ -52,47 +50,50 @@ def main():
     scheduler.register_job_function("cleanup_logs", cleanup_logs)
     scheduler.register_job_function("generate_report", generate_report)
 
-    # 4. Create jobs
-    print("4. Creating jobs...\n")
+    # 4. Create jobs using simplified API (TriggerType hidden)
+    print("4. Creating jobs with simplified API...\n")
 
-    # Interval job (every 10 seconds)
-    job1 = JobDefinition(
+    # Interval job - runs every 10 seconds
+    job1 = scheduler.create_interval_job(
         job_id="email-001",
-        name="Email Job",
-        trigger_type=TriggerType.INTERVAL,
-        trigger_args={"seconds": 10},
+        name="Send Email (Interval)",
         func="send_email",
-        timezone="UTC",
+        seconds=10,
     )
-    scheduler.create_job(job1)
-    print(f"   ✓ Created job: {job1.name} (runs every 10 seconds)")
+    print(f"   ✓ Created interval job: {job1.name} (runs every 10 seconds)")
 
-    # Cron job (at specific time - example: every minute at :30 seconds)
-    job2 = JobDefinition(
+    # Cron job - runs daily at 9 AM
+    job2 = scheduler.create_cron_job(
         job_id="cleanup-001",
-        name="Log Cleanup Job",
-        trigger_type=TriggerType.CRON,
-        trigger_args={"minute": "*", "second": "30"},  # Every minute at :30
+        name="Cleanup Logs (Daily 9 AM)",
         func="cleanup_logs",
-        timezone="UTC",
+        hour=9,
+        minute=0,
+        timezone="Asia/Seoul",
     )
-    scheduler.create_job(job2)
-    print(f"   ✓ Created job: {job2.name} (runs every minute at :30)")
+    print(f"   ✓ Created cron job: {job2.name} (runs daily at 9 AM Seoul time)")
 
-    # Job with parameters
-    job3 = JobDefinition(
+    # Interval job - runs every 15 seconds
+    job3 = scheduler.create_interval_job(
         job_id="report-001",
-        name="Report Generation Job",
-        trigger_type=TriggerType.INTERVAL,
-        trigger_args={"seconds": 15},
+        name="Generate Report",
         func="generate_report",
-        args=("daily",),
-        timezone="UTC",
+        seconds=15,
+        kwargs={"report_type": "sales"},
     )
-    scheduler.create_job(job3)
-    print(f"   ✓ Created job: {job3.name} (runs every 15 seconds)\n")
+    print(f"   ✓ Created interval job: {job3.name} (runs every 15 seconds)\n")
 
-    # 5. List jobs
+    # Date job - runs once after 30 seconds
+    future_time = datetime.now() + timedelta(seconds=30)
+    job4 = scheduler.create_date_job(
+        job_id="oneshot-001",
+        name="One-time Email",
+        func="send_email",
+        run_date=future_time,
+    )
+    print(f"   ✓ Created date job: {job4.name} (runs once at {future_time})\n")
+
+    # 5. List scheduled jobs
     print("5. Listing scheduled jobs:")
     jobs = scheduler.list_jobs(status=JobStatus.SCHEDULED)
     for job in jobs:
@@ -102,26 +103,20 @@ def main():
     # 6. Start scheduler
     print("\n6. Starting scheduler...")
     scheduler.start()
-    print("   ✓ Scheduler started (running in background)\n")
+    print("   ✓ Scheduler started (polling every 5 seconds)")
 
-    # 7. Let it run for a while
-    print("7. Running for 30 seconds...")
-    print("   (Watch the job execution logs below)\n")
-    print("=" * 60)
-
-    try:
-        time.sleep(30)
-    except KeyboardInterrupt:
-        print("\n\nInterrupted by user")
+    # 7. Let it run for 40 seconds
+    print("\n7. Running scheduler for 40 seconds...")
+    print("   (Watch the jobs execute)\n")
+    time.sleep(40)
 
     # 8. Stop scheduler
-    print("\n" + "=" * 60)
     print("\n8. Stopping scheduler...")
     scheduler.stop()
-    print("   ✓ Scheduler stopped\n")
+    print("   ✓ Scheduler stopped")
 
-    # 9. Check job status
-    print("9. Final job status:")
+    # 9. Final job status
+    print("\n9. Final job status:")
     jobs = scheduler.list_jobs()
     for job in jobs:
         print(f"   - {job.name}: Status={job.status.value}")
