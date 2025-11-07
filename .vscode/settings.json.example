@@ -1,0 +1,31 @@
+{
+  // Python interpreter
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+
+  // General editor settings
+  "editor.formatOnSave": true,
+  "editor.formatOnPaste": false,
+
+  // Python-specific settings
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports.ruff": "explicit",
+      "source.fixAll.ruff": "explicit"
+    }
+  },
+
+  // Ruff LSP configuration
+  "ruff.enable": true,
+  "ruff.importStrategy": "fromEnvironment",
+  "ruff.nativeServer": true,
+
+  // Optional: Show rulers at line length
+  "editor.rulers": [88],
+
+  // Optional: Trim trailing whitespace
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "files.trimFinalNewlines": true
+}
