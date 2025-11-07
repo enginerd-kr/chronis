@@ -29,8 +29,19 @@ class JobStorageAdapter(ABC):
         pass
 
     @abstractmethod
-    def query_ready_jobs(self, current_time: datetime) -> list[dict[str, Any]]:
-        """Query jobs ready for execution (next_run_time <= current_time)."""
+    def query_ready_jobs(
+        self, current_time: datetime, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        """
+        Query jobs ready for execution (next_run_time <= current_time).
+
+        Args:
+            current_time: Current time for comparison
+            limit: Maximum number of jobs to return (None for unlimited)
+
+        Returns:
+            List of job dictionaries, sorted by next_run_time (oldest first)
+        """
         pass
 
 

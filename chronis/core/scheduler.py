@@ -17,6 +17,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
 from chronis.core.common.exceptions import JobAlreadyExistsError, JobNotFoundError
 from chronis.core.common.types import TriggerType
+from chronis.core.job_queue import JobQueue
 from chronis.core.jobs.definition import JobDefinition, JobInfo
 from chronis.core.state import JobStatus
 from chronis.core.triggers import TriggerFactory
@@ -62,6 +63,7 @@ class PollingScheduler:
         lock_ttl_seconds: int = 300,
         lock_prefix: str = "scheduler:lock:",
         max_workers: int | None = None,
+        max_queue_size: int | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         """
@@ -74,6 +76,7 @@ class PollingScheduler:
             lock_ttl_seconds: Lock TTL (seconds)
             lock_prefix: Lock key prefix
             max_workers: Maximum number of worker threads (default: 20)
+            max_queue_size: Maximum queue size for backpressure control (default: max_workers * 5)
             logger: Custom logger (uses default if None)
 
         Raises:
@@ -100,6 +103,7 @@ class PollingScheduler:
         self.lock_ttl_seconds = lock_ttl_seconds
         self.lock_prefix = lock_prefix
         self.max_workers = max_workers or self.DEFAULT_MAX_WORKERS
+        self.max_queue_size = max_queue_size or (self.max_workers * 5)
 
         self._running = False
         self._job_registry: dict[str, Callable] = {}
@@ -108,6 +112,9 @@ class PollingScheduler:
         # Initialize structured logger
         base_logger = logger or _default_logger
         self.logger = ContextLogger(base_logger, {"component": "PollingScheduler"})
+
+        # Initialize job queue for backpressure control
+        self._job_queue = JobQueue(max_queue_size=self.max_queue_size)
 
         # Initialize ThreadPoolExecutor for job execution
         self._executor = ThreadPoolExecutor(
@@ -164,12 +171,21 @@ class PollingScheduler:
         # Start dedicated event loop for async jobs
         self._start_async_loop()
 
-        # Register polling job to APScheduler
-        trigger = IntervalTrigger(seconds=self.polling_interval_seconds, timezone="UTC")
-
+        # Register executor job to APScheduler (1 second interval)
+        executor_trigger = IntervalTrigger(seconds=1, timezone="UTC")
         self._apscheduler.add_job(
-            func=self._poll_and_execute_jobs,
-            trigger=trigger,
+            func=self._execute_queued_jobs,
+            trigger=executor_trigger,
+            id="executor_job",
+            name="Job Executor",
+            replace_existing=True,
+        )
+
+        # Register polling job to APScheduler
+        polling_trigger = IntervalTrigger(seconds=self.polling_interval_seconds, timezone="UTC")
+        self._apscheduler.add_job(
+            func=self._poll_and_add_to_queue,
+            trigger=polling_trigger,
             id="polling_job",
             name="Job Polling",
             replace_existing=True,
@@ -205,6 +221,20 @@ class PollingScheduler:
     def is_running(self) -> bool:
         """Check if scheduler is running."""
         return self._running
+
+    def get_queue_status(self) -> dict[str, Any]:
+        """
+        Get job queue status for monitoring.
+
+        Returns:
+            Dictionary with queue statistics including:
+            - pending_jobs: Number of jobs waiting in queue
+            - running_jobs: Number of jobs currently executing
+            - total_in_flight: Total jobs (pending + running)
+            - available_slots: Available queue capacity
+            - utilization: Queue utilization ratio (0.0 to 1.0)
+        """
+        return self._job_queue.get_status()
 
     # ------------------------------------------------------------------------
     # Async Event Loop Management
@@ -256,42 +286,82 @@ class PollingScheduler:
     # Internal Methods (APScheduler Polling Logic)
     # ------------------------------------------------------------------------
 
-    def _poll_and_execute_jobs(self) -> None:
+    def _poll_and_add_to_queue(self) -> None:
         """
-        Poll and execute jobs (called periodically by APScheduler).
+        Poll ready jobs from storage and add to queue (called periodically by APScheduler).
 
         This method runs in APScheduler's background thread.
         """
         try:
-            # UTC aware time
-            current_time = utc_now()
+            # Get available slots in queue
+            available_slots = self._job_queue.get_available_slots()
 
-            # 1. Query ready jobs from storage
-            jobs = self._query_ready_jobs(current_time)
+            if available_slots <= 0:
+                self.logger.warning(
+                    "Job queue is full, skipping poll",
+                    queue_status=self._job_queue.get_status()
+                )
+                return
+
+            # Query ready jobs from storage (limit to available slots)
+            current_time = utc_now()
+            jobs = self._query_ready_jobs(current_time, limit=available_slots)
 
             if jobs:
-                self.logger.info("Found jobs", count=len(jobs))
+                self.logger.info(
+                    "Found ready jobs",
+                    count=len(jobs),
+                    queue_status=self._job_queue.get_status()
+                )
 
-                # 2. Try to execute each job
+                # Add jobs to queue
                 for job_data in jobs:
-                    self._try_execute_job(job_data)
+                    if not self._job_queue.add_job(job_data):
+                        self.logger.warning(
+                            "Failed to add job to queue",
+                            job_id=job_data.get("job_id")
+                        )
 
             self._last_poll_time = current_time
 
         except Exception as e:
             self.logger.error(f"Polling error: {e}", exc_info=True)
 
-    def _query_ready_jobs(self, current_time: datetime) -> list[dict[str, Any]]:
+    def _execute_queued_jobs(self) -> None:
+        """
+        Execute jobs from queue (called every 1 second by APScheduler).
+
+        This method runs in APScheduler's background thread.
+        """
+        try:
+            # Execute jobs while queue is not empty and workers are available
+            while not self._job_queue.is_empty():
+                job_data = self._job_queue.get_next_job()
+                if job_data is None:
+                    break
+
+                # Try to execute the job
+                self._try_execute_job(job_data)
+
+        except Exception as e:
+            self.logger.error(f"Executor error: {e}", exc_info=True)
+
+    def _query_ready_jobs(
+        self,
+        current_time: datetime,
+        limit: int | None = None
+    ) -> list[dict[str, Any]]:
         """
         Query ready jobs from storage (using adapter).
 
         Args:
             current_time: Current time
+            limit: Maximum number of jobs to return
 
         Returns:
             List of ready jobs
         """
-        return self.storage.query_ready_jobs(current_time)
+        return self.storage.query_ready_jobs(current_time, limit=limit)
 
     @contextmanager
     def _acquire_lock_context(
@@ -334,10 +404,12 @@ class PollingScheduler:
         # Check if job can be executed based on state
         job_status = JobStatus(job_data.get("status", "scheduled"))
         if job_status != JobStatus.SCHEDULED:
+            self._job_queue.mark_completed(job_id)
             return
 
         with self._acquire_lock_context(lock_key, job_logger) as lock_acquired:
             if not lock_acquired:
+                self._job_queue.mark_completed(job_id)
                 return
 
             self._trigger_job(job_data, job_logger)
@@ -363,19 +435,23 @@ class PollingScheduler:
                 "mark job as running"
             )
 
-            # 2. Submit job to thread pool executor (non-blocking)
-            self._executor.submit(
+            # 2. Submit job to thread pool executor with completion callback
+            future = self._executor.submit(
                 self._execute_job_function_background,
                 job_data,
                 job_logger
             )
 
+            # 3. Add done callback to remove from queue when complete
+            future.add_done_callback(lambda f: self._on_job_complete(job_id))
+
             job_logger.info("Job triggered")
 
         except Exception as e:
             job_logger.error(f"Trigger failed: {e}", exc_info=True)
+            self._job_queue.mark_completed(job_id)
         finally:
-            # 3. Immediately calculate and update next run time
+            # 4. Immediately calculate and update next run time
             # This happens regardless of job execution result
             self._update_next_run_time(job_data)
 
@@ -414,6 +490,18 @@ class PollingScheduler:
                 {"status": JobStatus.SCHEDULED.value},
                 "mark job as scheduled after failed execution"
             )
+
+    def _on_job_complete(self, job_id: str) -> None:
+        """
+        Callback invoked when job execution completes.
+
+        This is called automatically by Future.add_done_callback()
+        when the job function finishes (success or failure).
+
+        Args:
+            job_id: Job ID that completed
+        """
+        self._job_queue.mark_completed(job_id)
 
     def _execute_job_function(self, job_data: dict[str, Any], job_logger: ContextLogger) -> None:
         """
