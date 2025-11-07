@@ -5,11 +5,11 @@ import time
 from chronis import (
     InMemoryLockAdapter,
     InMemoryStorageAdapter,
-    JobDefinition,
     JobStatus,
     PollingScheduler,
-    TriggerType,
 )
+from chronis.core.common.types import TriggerType
+from chronis.core.jobs.definition import JobDefinition
 
 
 def test_job_state_transitions():
