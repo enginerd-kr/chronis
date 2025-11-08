@@ -4,14 +4,11 @@
 
 ## Features
 
-- **Adapter**: Support for DynamoDB, PostgreSQL, SQLite, InMemory storage
+- **Distributed Scheduling**: Prevents duplicate execution in multi-container environments
+- **Multiple Storage Adapters**: DynamoDB, PostgreSQL, SQLite, InMemory
 - **Distributed Locks**: Redis and InMemory lock adapters
-- **Polling-based**: Non-blocking scheduling using APScheduler
-- **High Availability**: Prevents duplicate execution in multi-container environments
 - **Timezone Support**: IANA timezone-aware scheduling with automatic DST handling
-- **State Management**: Pause, resume, and cancel jobs with state pattern
 - **Async Support**: Native support for both sync and async job functions
-- **Simplified API**: Intuitive methods without exposing internal complexity
 
 ## Installation
 
@@ -91,6 +88,7 @@ scheduler.start()
 Chronis provides three intuitive methods for creating jobs without needing to understand internal implementation details:
 
 #### Interval Jobs
+
 Execute jobs repeatedly at fixed intervals:
 
 ```python
@@ -115,6 +113,7 @@ scheduler.create_interval_job(
 **Parameters**: `seconds`, `minutes`, `hours`, `days`, `weeks`
 
 #### Cron Jobs
+
 Execute jobs based on cron-style patterns:
 
 ```python
@@ -142,6 +141,7 @@ scheduler.create_cron_job(
 **Parameters**: `year`, `month`, `day`, `week`, `day_of_week`, `hour`, `minute`, `second`
 
 #### Date Jobs
+
 Execute jobs once at a specific date/time:
 
 ```python
@@ -288,98 +288,16 @@ scheduler = PollingScheduler(
 
 ## Examples
 
-See the [examples/](examples/) directory for more examples:
-
-- `quickstart.py` - Basic usage with simplified API
-
-Run examples:
+See the [examples/](examples/) directory for complete examples:
 
 ```bash
 uv run python examples/quickstart.py
 ```
 
-## Testing
-
-```bash
-# Run tests
-uv run pytest
-
-# Run with coverage
-uv run pytest --cov=chronis --cov-report=html
-
-# Run specific test file
-uv run pytest tests/test_basic.py -v
-```
-
-## Development
-
-### Quick Setup
-
-```bash
-# Clone repository
-git clone https://github.com/yourusername/chronis.git
-cd chronis
-
-# Setup development environment
-make setup-dev
-```
-
-### Using Makefile
-
-```bash
-# Show all available commands
-make help
-
-# Install dependencies
-make install
-
-# Run tests with coverage
-make test
-
-# Run linter
-make lint
-
-# Format code
-make format
-
-# Run all checks (lint + type-check)
-make check
-
-# Fix linting issues and format
-make fix
-
-# Run CI pipeline
-make ci
-
-# Clean build artifacts
-make clean
-
-# Build package
-make build
-
-# Show project info
-make info
-```
-
-### Manual Commands
-
-```bash
-# Install dependencies
-uv sync
-
-# Run tests
-uv run pytest
-
-# Run linter
-uv run ruff check chronis/
-
-# Format code
-uv run ruff format chronis/
-
-# Type check
-uv run mypy chronis/
-```
-
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing guidelines, and how to submit pull requests.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
