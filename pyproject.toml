@@ -3,13 +3,45 @@ name = "chronis"
 version = "0.1.0"
 description = "Distributed scheduler framework for multi-container environments"
 readme = "README.md"
-requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "enginerd-kr", email = "enginerd-kr@gmail.com" }]
+maintainers = [{ name = "enginerd-kr", email = "enginerd-kr@gmail.com" }]
+keywords = [
+    "scheduler",
+    "distributed",
+    "cron",
+    "apscheduler",
+    "task-scheduler",
+    "job-scheduler",
+    "multi-container",
+    "high-availability",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Distributed Computing",
+    "Typing :: Typed",
+]
+requires-python = ">=3.12"
 dependencies = [
     "apscheduler>=3.10.4",
     "croniter>=2.0.1",
     "python-dateutil>=2.8.2",
     "tzdata>=2024.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/enginerd-kr/chronis"
+Documentation = "https://github.com/enginerd-kr/chronis#readme"
+Repository = "https://github.com/enginerd-kr/chronis.git"
+Issues = "https://github.com/enginerd-kr/chronis/issues"
+Changelog = "https://github.com/enginerd-kr/chronis/releases"
 
 [project.optional-dependencies]
 dev = [
@@ -32,7 +64,7 @@ all = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py312"
 
 # Exclude directories
 extend-exclude = [

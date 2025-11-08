@@ -1,0 +1,199 @@
+# Contributing to Chronis
+
+Thank you for your interest in contributing to Chronis! This document provides guidelines and instructions for contributing to the project.
+
+## Development Setup
+
+### Quick Setup
+
+```bash
+# Clone repository
+git clone https://github.com/enginerd-kr/chronis.git
+cd chronis
+
+# Setup development environment
+make setup-dev
+```
+
+### Using Makefile
+
+The project includes a Makefile for common development tasks:
+
+```bash
+# Show all available commands
+make help
+
+# Install dependencies
+make install
+
+# Run tests with coverage
+make test
+
+# Run linter
+make lint
+
+# Format code
+make format
+
+# Run all checks (lint + type-check)
+make check
+
+# Fix linting issues and format
+make fix
+
+# Run CI pipeline
+make ci
+
+# Clean build artifacts
+make clean
+
+# Build package
+make build
+
+# Show project info
+make info
+```
+
+### Manual Commands
+
+If you prefer to run commands directly:
+
+```bash
+# Install dependencies
+uv sync
+
+# Run tests
+uv run pytest
+
+# Run linter
+uv run ruff check chronis/
+
+# Format code
+uv run ruff format chronis/
+
+# Type check
+uv run mypy chronis/
+```
+
+## Testing
+
+### Running Tests
+
+```bash
+# Run all tests
+uv run pytest
+
+# Run with coverage
+uv run pytest --cov=chronis --cov-report=html
+
+# Run specific test file
+uv run pytest tests/test_basic.py -v
+
+# Run with verbose output
+uv run pytest -v
+```
+
+### Writing Tests
+
+- Place test files in the `tests/` directory
+- Name test files with `test_*.py` pattern
+- Use pytest fixtures for common setup
+- Aim for high test coverage (80%+)
+- Include both unit tests and integration tests
+
+## Code Style
+
+This project follows strict code quality standards:
+
+- **Python Version**: 3.12+
+- **Formatter**: Ruff (Black-compatible)
+- **Linter**: Ruff
+- **Type Checker**: MyPy
+- **Line Length**: 100 characters
+
+### Code Quality Checks
+
+Before submitting a pull request, ensure your code passes all checks:
+
+```bash
+# Run all checks
+make check
+
+# Or run individually
+make lint      # Linting
+make format    # Code formatting
+```
+
+## Pull Request Process
+
+1. **Fork the repository** and create your branch from `main`
+2. **Make your changes** following the code style guidelines
+3. **Add tests** for any new functionality
+4. **Update documentation** if needed (README.md, docstrings)
+5. **Run all tests and checks** to ensure they pass
+6. **Commit your changes** with a clear commit message
+7. **Push to your fork** and submit a pull request
+
+### Commit Message Guidelines
+
+Follow conventional commit format:
+
+- `feat:` - New feature
+- `fix:` - Bug fix
+- `docs:` - Documentation changes
+- `test:` - Adding or updating tests
+- `refactor:` - Code refactoring
+- `chore:` - Maintenance tasks
+
+Example:
+```
+feat(scheduler): add support for recurring jobs
+
+- Implement RecurringJobTrigger
+- Add tests for recurring jobs
+- Update documentation
+```
+
+## Development Guidelines
+
+### Project Structure
+
+```
+chronis/
+├── chronis/              # Main package
+│   ├── core/            # Core scheduler logic
+│   ├── adapters/        # Storage and lock adapters
+│   ├── integrations/    # Third-party integrations
+│   └── utils/           # Utility functions
+├── tests/               # Test files
+├── examples/            # Example scripts
+└── docs/                # Documentation
+```
+
+### Adding New Features
+
+1. **Discuss first** - Open an issue to discuss the feature before implementing
+2. **Follow patterns** - Use existing patterns (adapters, state pattern, etc.)
+3. **Write tests** - Include comprehensive tests for new features
+4. **Document** - Add docstrings and update relevant documentation
+5. **Keep it simple** - Maintain the simplified API philosophy
+
+### Adding New Adapters
+
+When adding storage or lock adapters:
+
+1. Inherit from the appropriate base class (`JobStorageAdapter` or `LockAdapter`)
+2. Implement all required methods
+3. Add tests for the adapter
+4. Update documentation with usage examples
+5. Add to `[project.optional-dependencies]` in pyproject.toml if it requires external dependencies
+
+## Questions or Issues?
+
+- **Bug reports**: Open an issue with detailed description and reproduction steps
+- **Feature requests**: Open an issue describing the feature and use case
+- **Questions**: Open a discussion or issue
+
+## License
+
+By contributing to Chronis, you agree that your contributions will be licensed under the MIT License.
