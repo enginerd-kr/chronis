@@ -197,3 +197,73 @@ class JobInfo:
 
         target_tz = get_timezone(timezone or self.timezone)
         return self.next_run_time.astimezone(target_tz)
+
+
+class TriggerInfo:
+    """Trigger information."""
+
+    def __init__(self, trigger_type: str, trigger_args: dict[str, Any]) -> None:
+        """
+        Initialize trigger info.
+
+        Args:
+            trigger_type: Type of trigger ("interval", "cron", "date")
+            trigger_args: Trigger-specific arguments
+        """
+        self.trigger_type = TriggerType(trigger_type)
+        self.trigger_args = trigger_args
+
+        # Parse specific trigger fields for easy access
+        if self.trigger_type == TriggerType.INTERVAL:
+            self.interval_seconds = (
+                trigger_args.get("seconds", 0)
+                + trigger_args.get("minutes", 0) * 60
+                + trigger_args.get("hours", 0) * 3600
+            )
+        elif self.trigger_type == TriggerType.CRON:
+            self.cron_expression = self._format_cron_expression(trigger_args)
+        elif self.trigger_type == TriggerType.DATE:
+            run_date_str = trigger_args.get("run_date")
+            self.run_date = (
+                datetime.fromisoformat(run_date_str) if run_date_str else None
+            )
+
+    def _format_cron_expression(self, args: dict[str, Any]) -> str:
+        """Format cron expression from arguments."""
+        minute = args.get("minute", "*")
+        hour = args.get("hour", "*")
+        day = args.get("day", "*")
+        month = args.get("month", "*")
+        day_of_week = args.get("day_of_week", "*")
+        return f"{minute} {hour} {day} {month} {day_of_week}"
+
+
+class ScheduleInfo:
+    """Schedule information with trigger details."""
+
+    def __init__(self, data: dict[str, Any]) -> None:
+        """
+        Initialize schedule info from job data.
+
+        Args:
+            data: Job data dictionary
+        """
+        self.job_id: str = data["job_id"]
+        self.timezone: str = data.get("timezone", "UTC")
+
+        # Parse trigger
+        trigger_type = data["trigger_type"]
+        trigger_args = data["trigger_args"]
+        self.trigger = TriggerInfo(trigger_type, trigger_args)
+
+        # UTC time
+        self.next_run_time: datetime | None = (
+            datetime.fromisoformat(data["next_run_time"]) if data.get("next_run_time") else None
+        )
+
+        # Local time (if available)
+        self.next_run_time_local: datetime | None = (
+            datetime.fromisoformat(data["next_run_time_local"])
+            if data.get("next_run_time_local")
+            else None
+        )
