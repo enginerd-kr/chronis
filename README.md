@@ -197,7 +197,7 @@ scheduler.create_cron_job(
 Manage job lifecycle with pause, resume, and cancel operations:
 
 ```python
-from chronis import JobStatus
+from chronis import JobStatus, TriggerType
 
 # Get a specific job
 job = scheduler.get_job("daily-report")
@@ -207,6 +207,19 @@ print(f"Status: {job.status}, Next run: {job.next_run_time}")
 all_jobs = scheduler.get_all_jobs()
 for job in all_jobs:
     print(f"{job.job_id}: {job.status}")
+
+# Get all schedules with trigger details
+all_schedules = scheduler.get_all_schedules()
+for schedule in all_schedules:
+    print(f"Job: {schedule.job_id}")
+    print(f"  Trigger: {schedule.trigger.trigger_type}")
+    print(f"  Next run: {schedule.next_run_time}")
+
+    # Access trigger-specific information
+    if schedule.trigger.trigger_type == TriggerType.INTERVAL:
+        print(f"  Interval: {schedule.trigger.interval_seconds}s")
+    elif schedule.trigger.trigger_type == TriggerType.CRON:
+        print(f"  Cron: {schedule.trigger.cron_expression}")
 
 # Pause a running job
 scheduler.pause_job("daily-report")

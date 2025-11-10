@@ -735,6 +735,23 @@ class PollingScheduler:
         all_jobs_data = self.storage.get_all_jobs()
         return [JobInfo(job_data) for job_data in all_jobs_data]
 
+    def get_all_schedules(self) -> list:
+        """
+        Get all schedules with trigger details.
+
+        Returns:
+            List of ScheduleInfo objects
+
+        Example:
+            >>> schedules = scheduler.get_all_schedules()
+            >>> for schedule in schedules:
+            ...     print(f"{schedule.job_id}: {schedule.trigger.trigger_type}")
+        """
+        from chronis.core.jobs.definition import ScheduleInfo
+
+        all_jobs_data = self.storage.get_all_jobs()
+        return [ScheduleInfo(job_data) for job_data in all_jobs_data]
+
     def update_job(
         self,
         job_id: str,
