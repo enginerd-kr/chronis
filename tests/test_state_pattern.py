@@ -223,3 +223,73 @@ def test_paused_job_not_executed():
 
     # Paused job should not execute
     assert execution_count["count"] == 0
+
+
+def test_get_all_schedules():
+    """Test get_all_schedules method."""
+    storage = InMemoryStorageAdapter()
+    lock = InMemoryLockAdapter()
+    scheduler = PollingScheduler(storage_adapter=storage, lock_adapter=lock)
+
+    def dummy_func():
+        print("Job executed")
+
+    scheduler.register_job_function(f"{dummy_func.__module__}.{dummy_func.__name__}", dummy_func)
+
+    # Create multiple jobs with different trigger types
+    interval_job = JobDefinition(
+        job_id="interval-job",
+        name="Interval Job",
+        trigger_type=TriggerType.INTERVAL,
+        trigger_args={"seconds": 10},
+        func=dummy_func,
+    )
+
+    cron_job = JobDefinition(
+        job_id="cron-job",
+        name="Cron Job",
+        trigger_type=TriggerType.CRON,
+        trigger_args={"hour": 9, "minute": 0},
+        func=dummy_func,
+        timezone="Asia/Seoul",
+    )
+
+    date_job = JobDefinition(
+        job_id="date-job",
+        name="Date Job",
+        trigger_type=TriggerType.DATE,
+        trigger_args={"run_date": "2025-12-31T23:59:59Z"},
+        func=dummy_func,
+    )
+
+    scheduler.create_job(interval_job)
+    scheduler.create_job(cron_job)
+    scheduler.create_job(date_job)
+
+    # Get all schedules
+    schedules = scheduler.get_all_schedules()
+
+    # Verify we got all schedules
+    assert len(schedules) == 3
+
+    # Find each schedule by job_id
+    schedule_dict = {s.job_id: s for s in schedules}
+
+    # Verify interval job schedule
+    interval_schedule = schedule_dict["interval-job"]
+    assert interval_schedule.trigger.trigger_type == TriggerType.INTERVAL
+    assert interval_schedule.trigger.interval_seconds == 10
+    assert interval_schedule.next_run_time is not None
+
+    # Verify cron job schedule
+    cron_schedule = schedule_dict["cron-job"]
+    assert cron_schedule.trigger.trigger_type == TriggerType.CRON
+    assert cron_schedule.trigger.cron_expression == "0 9 * * *"
+    assert cron_schedule.timezone == "Asia/Seoul"
+    assert cron_schedule.next_run_time is not None
+
+    # Verify date job schedule
+    date_schedule = schedule_dict["date-job"]
+    assert date_schedule.trigger.trigger_type == TriggerType.DATE
+    assert date_schedule.trigger.run_date is not None
+    assert date_schedule.next_run_time is not None
