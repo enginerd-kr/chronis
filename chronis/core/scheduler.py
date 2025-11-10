@@ -720,6 +720,21 @@ class PollingScheduler:
         job_data = self.storage.get_job(job_id)
         return JobInfo(job_data) if job_data else None
 
+    def get_all_jobs(self) -> list[JobInfo]:
+        """
+        Get all jobs (for testing purposes).
+
+        Returns:
+            List of all jobs
+
+        Example:
+            >>> jobs = scheduler.get_all_jobs()
+            >>> for job in jobs:
+            ...     print(f"{job.job_id}: {job.status}")
+        """
+        all_jobs_data = self.storage.get_all_jobs()
+        return [JobInfo(job_data) for job_data in all_jobs_data]
+
     def update_job(
         self,
         job_id: str,
