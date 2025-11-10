@@ -92,23 +92,30 @@ def main():
     )
     print(f"   ✓ Created date job: {job4.name} (runs once at {future_time})\n")
 
-    # 5. Start scheduler
-    print("5. Starting scheduler...")
+    # 5. View all jobs
+    print("5. Viewing all jobs...")
+    all_jobs = scheduler.get_all_jobs()
+    print(f"   ✓ Total jobs created: {len(all_jobs)}")
+    for job in all_jobs:
+        print(f"      - {job.job_id}: {job.name} ({job.status.value})")
+
+    # 6. Start scheduler
+    print("\n6. Starting scheduler...")
     scheduler.start()
     print("   ✓ Scheduler started (polling every 5 seconds)")
 
-    # 6. Let it run for 40 seconds
-    print("\n6. Running scheduler for 40 seconds...")
+    # 7. Let it run for 40 seconds
+    print("\n7. Running scheduler for 40 seconds...")
     print("   (Watch the jobs execute)\n")
     time.sleep(40)
 
-    # 7. Stop scheduler
-    print("\n7. Stopping scheduler...")
+    # 8. Stop scheduler
+    print("\n8. Stopping scheduler...")
     scheduler.stop()
     print("   ✓ Scheduler stopped")
 
-    # 8. Demonstrate state transitions
-    print("\n8. Demonstrating state transitions:")
+    # 9. Demonstrate state transitions
+    print("\n9. Demonstrating state transitions:")
     print("   Pausing email job...")
     scheduler.pause_job("email-001")
     paused_job = scheduler.get_job("email-001")

@@ -199,6 +199,15 @@ Manage job lifecycle with pause, resume, and cancel operations:
 ```python
 from chronis import JobStatus
 
+# Get a specific job
+job = scheduler.get_job("daily-report")
+print(f"Status: {job.status}, Next run: {job.next_run_time}")
+
+# Get all jobs (useful for testing and monitoring)
+all_jobs = scheduler.get_all_jobs()
+for job in all_jobs:
+    print(f"{job.job_id}: {job.status}")
+
 # Pause a running job
 scheduler.pause_job("daily-report")
 
