@@ -64,6 +64,8 @@ uv sync
 
 # Run tests
 uv run pytest
+uv run pytest tests/ -m "not slow"
+uv run pytest tests/ -m "slow"
 
 # Run linter
 uv run ruff check chronis/

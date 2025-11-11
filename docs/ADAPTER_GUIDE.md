@@ -35,10 +35,6 @@ class MyCustomAdapter(JobStorageAdapter):
     ) -> list[dict[str, Any]]:
         """Query jobs with filters."""
         pass
-
-    def get_all_jobs(self) -> list[dict[str, Any]]:
-        """Get all jobs."""
-        pass
 ```
 
 ## Job Data Structure
