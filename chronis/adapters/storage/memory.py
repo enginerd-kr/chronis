@@ -68,7 +68,8 @@ class InMemoryStorageAdapter(JobStorageAdapter):
                 jobs = [
                     j
                     for j in jobs
-                    if j.get("next_run_time", "") <= filters["next_run_time_lte"]
+                    if j.get("next_run_time") is not None
+                    and j.get("next_run_time") <= filters["next_run_time_lte"]
                 ]
 
             # Metadata filters (support nested keys like "metadata.tenant_id")
