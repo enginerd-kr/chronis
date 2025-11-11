@@ -325,6 +325,15 @@ metadata = {
 }
 ```
 
+## Custom Adapters
+
+Want to implement your own storage adapter for a specific database? See the [Adapter Implementation Guide](docs/ADAPTER_GUIDE.md) for:
+
+- Interface contract and required methods
+- Reference implementations (PostgreSQL, DynamoDB, Redis)
+- Performance optimization guidelines
+- Testing patterns
+
 ## Examples
 
 See the [examples/](examples/) directory for complete examples:
