@@ -1,8 +1,8 @@
 """Multi-tenant scheduler example."""
 
 from chronis import PollingScheduler
-from chronis.adapters.storage import InMemoryStorageAdapter
 from chronis.adapters.locks import InMemoryLockAdapter
+from chronis.adapters.storage import InMemoryStorageAdapter
 
 
 def send_report(tenant_name: str):

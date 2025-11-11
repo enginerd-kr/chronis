@@ -180,14 +180,14 @@ def test_job_state_validation():
     # Try to pause cancelled job (should fail)
     try:
         scheduler.pause_job("validation-test")
-        assert False, "Should have raised ValueError"
+        raise AssertionError("Should have raised ValueError")
     except ValueError as e:
         assert "cannot be paused" in str(e).lower()
 
     # Try to resume cancelled job (should fail)
     try:
         scheduler.resume_job("validation-test")
-        assert False, "Should have raised ValueError"
+        raise AssertionError("Should have raised ValueError")
     except ValueError as e:
         assert "cannot be resumed" in str(e).lower()
 
