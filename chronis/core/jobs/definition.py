@@ -171,18 +171,6 @@ class JobInfo:
         """Check if this job can be executed."""
         return self.get_state().can_execute()
 
-    def can_pause(self) -> bool:
-        """Check if this job can be paused."""
-        return self.get_state().can_pause()
-
-    def can_cancel(self) -> bool:
-        """Check if this job can be cancelled."""
-        return self.get_state().can_cancel()
-
-    def can_resume(self) -> bool:
-        """Check if this job can be resumed."""
-        return self.get_state().can_resume()
-
     def get_next_run_time(self, timezone: str | None = None) -> datetime | None:
         """
         Get next_run_time in desired timezone.
