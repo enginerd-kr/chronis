@@ -761,18 +761,6 @@ class PollingScheduler:
         jobs_data = self.storage.query_jobs(filters=filters, limit=limit)
         return [JobInfo(job_data) for job_data in jobs_data]
 
-    def get_all_jobs(self) -> list[JobInfo]:
-        """
-        Get all jobs.
-
-        Deprecated: Use query_jobs() instead.
-            >>> jobs = scheduler.query_jobs()  # Recommended
-
-        Returns:
-            List of all jobs
-        """
-        return self.query_jobs()
-
     def get_all_schedules(self) -> list[JobInfo]:
         """
         Get all schedules with trigger details.
