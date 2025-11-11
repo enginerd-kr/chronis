@@ -30,7 +30,7 @@ def test_prevent_duplicate_execution():
     # Create 3 schedulers sharing same storage/lock
     # IMPORTANT: Use same lock_prefix for all schedulers to share the same lock
     schedulers = []
-    for i in range(3):
+    for _ in range(3):
         scheduler = PollingScheduler(
             storage_adapter=storage,
             lock_adapter=lock,
@@ -44,7 +44,7 @@ def test_prevent_duplicate_execution():
         schedulers.append(scheduler)
 
     # Schedule a job that runs with short interval
-    job_id = schedulers[0].create_interval_job(
+    schedulers[0].create_interval_job(
         job_id="test_job",
         name="Test Job",
         func="test_func",  # Use string reference
@@ -96,7 +96,7 @@ def test_lock_contention_with_many_jobs():
     # Create 5 schedulers
     # IMPORTANT: Use same lock_prefix for all schedulers to share the same lock
     schedulers = []
-    for i in range(5):
+    for _ in range(5):
         scheduler = PollingScheduler(
             storage_adapter=storage,
             lock_adapter=lock,
@@ -199,7 +199,7 @@ def test_job_distribution_across_schedulers():
     # Create 3 schedulers
     # IMPORTANT: Use same lock_prefix for all schedulers to share the same lock
     schedulers = []
-    for i in range(3):
+    for _ in range(3):
         scheduler = PollingScheduler(
             storage_adapter=storage,
             lock_adapter=lock,
@@ -304,7 +304,7 @@ def test_lock_timeout_recovery():
     scheduler2.register_job_function("test_func", test_func)
 
     # Schedule a job
-    job_id = scheduler1.create_date_job(
+    scheduler1.create_date_job(
         job_id="test_job",
         name="Test Job",
         func="test_func",
@@ -354,7 +354,7 @@ def test_concurrent_polling_with_queue_limit():
     # IMPORTANT: Use same lock_prefix for all schedulers to share the same lock
     max_queue_size = 5
     schedulers = []
-    for i in range(2):
+    for _ in range(2):
         scheduler = PollingScheduler(
             storage_adapter=storage,
             lock_adapter=lock,
