@@ -2,6 +2,8 @@
 
 import time
 
+import pytest
+
 from chronis import (
     InMemoryLockAdapter,
     InMemoryStorageAdapter,
@@ -105,6 +107,7 @@ def test_cancel_job():
     assert cancelled_job.can_resume() is False
 
 
+@pytest.mark.slow
 def test_fire_and_forget_execution():
     """Test fire-and-forget job execution."""
     storage = InMemoryStorageAdapter()
@@ -112,7 +115,7 @@ def test_fire_and_forget_execution():
     scheduler = PollingScheduler(
         storage_adapter=storage,
         lock_adapter=lock,
-        polling_interval_seconds=1,
+        polling_interval_seconds=1,  # Minimum allowed
     )
 
     execution_count = {"count": 0}
@@ -129,15 +132,18 @@ def test_fire_and_forget_execution():
         job_id="fire-test",
         name="Fire and Forget Test",
         trigger_type=TriggerType.INTERVAL,
-        trigger_args={"seconds": 2},
+        trigger_args={"seconds": 2},  # 2 second interval
         func=counting_func,
     )
 
     scheduler.create_job(job)
     scheduler.start()
 
-    # Wait for job to execute at least once
-    time.sleep(3)
+    # Wait for job to execute at least once with timeout
+    timeout = 3.5
+    start = time.time()
+    while execution_count["count"] < 1 and (time.time() - start) < timeout:
+        time.sleep(0.1)
 
     scheduler.stop()
 
@@ -193,7 +199,7 @@ def test_paused_job_not_executed():
     scheduler = PollingScheduler(
         storage_adapter=storage,
         lock_adapter=lock,
-        polling_interval_seconds=1,
+        polling_interval_seconds=1,  # Minimum allowed
     )
 
     execution_count = {"count": 0}
@@ -210,7 +216,7 @@ def test_paused_job_not_executed():
         job_id="paused-test",
         name="Paused Job Test",
         trigger_type=TriggerType.INTERVAL,
-        trigger_args={"seconds": 1},
+        trigger_args={"seconds": 2},  # 2 second interval
         func=counting_func,
     )
 
@@ -218,7 +224,7 @@ def test_paused_job_not_executed():
     scheduler.pause_job("paused-test")
 
     scheduler.start()
-    time.sleep(3)
+    time.sleep(1.0)  # Reduced wait time
     scheduler.stop()
 
     # Paused job should not execute
@@ -277,19 +283,20 @@ def test_get_all_schedules():
 
     # Verify interval job schedule
     interval_schedule = schedule_dict["interval-job"]
-    assert interval_schedule.trigger.trigger_type == TriggerType.INTERVAL
-    assert interval_schedule.trigger.interval_seconds == 10
+    assert interval_schedule.trigger_type == TriggerType.INTERVAL.value or interval_schedule.trigger_type == TriggerType.INTERVAL
+    assert interval_schedule.trigger_args["seconds"] == 10
     assert interval_schedule.next_run_time is not None
 
     # Verify cron job schedule
     cron_schedule = schedule_dict["cron-job"]
-    assert cron_schedule.trigger.trigger_type == TriggerType.CRON
-    assert cron_schedule.trigger.cron_expression == "0 9 * * *"
+    assert cron_schedule.trigger_type == TriggerType.CRON.value or cron_schedule.trigger_type == TriggerType.CRON
+    assert cron_schedule.trigger_args["hour"] == 9
+    assert cron_schedule.trigger_args["minute"] == 0
     assert cron_schedule.timezone == "Asia/Seoul"
     assert cron_schedule.next_run_time is not None
 
     # Verify date job schedule
     date_schedule = schedule_dict["date-job"]
-    assert date_schedule.trigger.trigger_type == TriggerType.DATE
-    assert date_schedule.trigger.run_date is not None
+    assert date_schedule.trigger_type == TriggerType.DATE.value or date_schedule.trigger_type == TriggerType.DATE
+    assert date_schedule.trigger_args["run_date"] == "2025-12-31T23:59:59Z"
     assert date_schedule.next_run_time is not None

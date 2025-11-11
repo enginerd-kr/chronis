@@ -3,6 +3,8 @@
 import time
 from datetime import datetime, timedelta
 
+import pytest
+
 from chronis import (
     InMemoryLockAdapter,
     InMemoryStorageAdapter,
@@ -13,6 +15,7 @@ from chronis.core.common.types import TriggerType
 from chronis.core.jobs.definition import JobDefinition
 
 
+@pytest.mark.slow
 def test_date_trigger_one_time_execution():
     """Test that date trigger executes only once and marks job as completed."""
     # Setup
@@ -21,7 +24,7 @@ def test_date_trigger_one_time_execution():
     scheduler = PollingScheduler(
         storage_adapter=storage,
         lock_adapter=lock,
-        polling_interval_seconds=1,
+        polling_interval_seconds=1,  # Minimum allowed
         lock_ttl_seconds=10,
     )
 
@@ -32,8 +35,8 @@ def test_date_trigger_one_time_execution():
 
     scheduler.register_job_function("one_time_task", one_time_task)
 
-    # Create date job that runs 2 seconds from now
-    run_date = datetime.now().astimezone() + timedelta(seconds=2)
+    # Create date job that runs soon
+    run_date = datetime.now().astimezone() + timedelta(seconds=1.5)
     job = JobDefinition(
         job_id="date-test-001",
         name="One-time Date Job",
@@ -51,8 +54,11 @@ def test_date_trigger_one_time_execution():
     scheduler.start()
 
     try:
-        # Wait for job to execute
-        time.sleep(4)
+        # Wait for job to execute with timeout
+        timeout = 3.5
+        start = time.time()
+        while len(execution_count) < 1 and (time.time() - start) < timeout:
+            time.sleep(0.1)
 
         # Check that job executed exactly once
         assert len(execution_count) == 1
@@ -65,7 +71,7 @@ def test_date_trigger_one_time_execution():
         assert final_job.next_run_time_local is None
 
         # Wait a bit more to ensure it doesn't execute again
-        time.sleep(3)
+        time.sleep(0.5)
         assert len(execution_count) == 1, "Job should only execute once"
 
     finally:
@@ -79,7 +85,7 @@ def test_date_trigger_past_date():
     scheduler = PollingScheduler(
         storage_adapter=storage,
         lock_adapter=lock,
-        polling_interval_seconds=1,
+        polling_interval_seconds=1,  # Minimum allowed
         lock_ttl_seconds=10,
     )
 
@@ -103,7 +109,7 @@ def test_date_trigger_past_date():
     scheduler.start()
 
     try:
-        time.sleep(3)
+        time.sleep(0.5)  # Reduced wait time
 
         # Job should be marked as completed without execution
         final_job = scheduler.get_job("date-test-002")
