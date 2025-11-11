@@ -69,16 +69,6 @@ class JobStorageAdapter(ABC):
         """
         pass
 
-    @abstractmethod
-    def get_all_jobs(self) -> list[dict[str, Any]]:
-        """
-        Get all jobs.
-
-        Returns:
-            List of all job dictionaries
-        """
-        pass
-
 
 class LockAdapter(ABC):
     """Distributed lock adapter abstract class."""

@@ -92,12 +92,3 @@ class InMemoryStorageAdapter(JobStorageAdapter):
             jobs = jobs[:limit]
 
         return jobs
-
-    def get_all_jobs(self) -> list[dict[str, Any]]:
-        """
-        Get all jobs.
-
-        Returns:
-            List of all job dictionaries
-        """
-        return list(self._jobs.values())
