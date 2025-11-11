@@ -1,7 +1,6 @@
 """Abstract base classes for adapters."""
 
 from abc import ABC, abstractmethod
-from datetime import datetime
 from typing import Any
 
 
@@ -10,12 +9,26 @@ class JobStorageAdapter(ABC):
 
     @abstractmethod
     def create_job(self, job_data: dict[str, Any]) -> dict[str, Any]:
-        """Create a job."""
+        """
+        Create a job.
+
+        Required fields in job_data:
+            - job_id: str
+            - status: str
+            - next_run_time: str (ISO format, UTC)
+
+        Optional fields:
+            - metadata: dict (user-defined, for extensions like multi-tenancy)
+            - Any other adapter-specific fields
+
+        Returns:
+            Created job data
+        """
         pass
 
     @abstractmethod
     def get_job(self, job_id: str) -> dict[str, Any] | None:
-        """Get a job."""
+        """Get a job by ID."""
         pass
 
     @abstractmethod
@@ -29,18 +42,30 @@ class JobStorageAdapter(ABC):
         pass
 
     @abstractmethod
-    def query_ready_jobs(
-        self, current_time: datetime, limit: int | None = None
+    def query_jobs(
+        self,
+        filters: dict[str, Any] | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
     ) -> list[dict[str, Any]]:
         """
-        Query jobs ready for execution (next_run_time <= current_time).
+        Query jobs with flexible filters.
+
+        Common filter patterns:
+            - {"status": "scheduled"}
+            - {"status": "scheduled", "next_run_time_lte": "2025-01-01T00:00:00Z"}
+            - {"metadata.tenant_id": "acme"}  # Multi-tenancy example
+            - Custom filters based on metadata or other fields
+
+        Filter format and interpretation is adapter-specific.
 
         Args:
-            current_time: Current time for comparison
-            limit: Maximum number of jobs to return (None for unlimited)
+            filters: Dictionary of filter conditions
+            limit: Maximum number of jobs to return
+            offset: Number of jobs to skip (for pagination)
 
         Returns:
-            List of job dictionaries, sorted by next_run_time (oldest first)
+            List of jobs matching filters, sorted by next_run_time (oldest first)
         """
         pass
 
