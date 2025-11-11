@@ -480,26 +480,36 @@ class PollingScheduler:
             job_logger: Context logger
         """
         job_id = job_data["job_id"]
+        trigger_type = job_data["trigger_type"]
 
         try:
             self._execute_job_function(job_data, job_logger)
 
-            # Mark as SCHEDULED again after successful execution
-            self._update_job_safely(
-                job_id,
-                {"status": JobStatus.SCHEDULED.value},
-                "mark job as scheduled after execution"
-            )
+            # For one-time jobs (DATE trigger), delete after execution
+            if trigger_type == TriggerType.DATE.value:
+                try:
+                    self.storage.delete_job(job_id)
+                    if self.verbose:
+                        job_logger.info("One-time job deleted after execution")
+                except Exception as e:
+                    job_logger.error(f"Failed to delete one-time job: {e}")
+            else:
+                # Mark as SCHEDULED again after successful execution for recurring jobs
+                self._update_job_safely(
+                    job_id,
+                    {"status": JobStatus.SCHEDULED.value},
+                    "mark job as scheduled after execution"
+                )
 
         except Exception as e:
             # Log the error but don't propagate it
             job_logger.error(f"Execution failed: {e}", exc_info=True)
 
-            # Mark back to SCHEDULED even on failure
+            # Mark as FAILED
             self._update_job_safely(
                 job_id,
-                {"status": JobStatus.SCHEDULED.value},
-                "mark job as scheduled after failed execution"
+                {"status": JobStatus.FAILED.value},
+                "mark job as failed after execution error"
             )
 
     def _on_job_complete(self, job_id: str) -> None:
@@ -618,6 +628,11 @@ class PollingScheduler:
         trigger_args = job_data["trigger_args"]
         timezone = job_data.get("timezone", "UTC")
 
+        # For one-time jobs (DATE trigger), skip next_run_time update
+        # They will be deleted after execution in _execute_job_function_background
+        if trigger_type == TriggerType.DATE.value:
+            return
+
         # Current time (timezone aware)
         tz = ZoneInfo(timezone)
         current_time_local = datetime.now(tz)
@@ -630,8 +645,6 @@ class PollingScheduler:
 
         if next_run_time_utc:
             self._update_job_schedule(job_id, next_run_time_utc, timezone)
-        else:
-            self._deactivate_one_time_job(job_id, trigger_type)
 
     def _update_job_schedule(
         self, job_id: str, next_run_time_utc: datetime, timezone: str
@@ -652,21 +665,6 @@ class PollingScheduler:
             "next_run_time_local": next_run_time_local.isoformat(),
         }
         self._update_job_safely(job_id, updates, "update next_run_time")
-
-    def _deactivate_one_time_job(self, job_id: str, trigger_type: str) -> None:
-        """
-        Mark one-time job as completed after execution.
-
-        Args:
-            job_id: Job ID
-            trigger_type: Trigger type for logging
-        """
-        updates = {
-            "status": JobStatus.COMPLETED.value,
-            "next_run_time": None,
-            "next_run_time_local": None,
-        }
-        self._update_job_safely(job_id, updates, "mark one-time job as completed")
 
     # ------------------------------------------------------------------------
     # Job CRUD Operations
@@ -859,74 +857,6 @@ class PollingScheduler:
             self.logger.error(f"Delete failed: {e}", job_id=job_id)
             raise
 
-    def pause_job(self, job_id: str) -> JobInfo:
-        """
-        Pause a job.
-
-        Args:
-            job_id: Job ID
-
-        Returns:
-            Updated job info
-
-        Raises:
-            JobNotFoundError: Job not found
-            ValueError: Job cannot be paused in current state
-        """
-        job = self.get_job(job_id)
-        if not job:
-            raise JobNotFoundError(f"Job {job_id} not found")
-
-        if not job.can_pause():
-            raise ValueError(f"Job cannot be paused in {job.status} state")
-
-        return self.update_job(job_id, status=JobStatus.PAUSED)
-
-    def resume_job(self, job_id: str) -> JobInfo:
-        """
-        Resume a paused job.
-
-        Args:
-            job_id: Job ID
-
-        Returns:
-            Updated job info
-
-        Raises:
-            JobNotFoundError: Job not found
-            ValueError: Job cannot be resumed in current state
-        """
-        job = self.get_job(job_id)
-        if not job:
-            raise JobNotFoundError(f"Job {job_id} not found")
-
-        if not job.can_resume():
-            raise ValueError(f"Job cannot be resumed in {job.status} state")
-
-        return self.update_job(job_id, status=JobStatus.SCHEDULED)
-
-    def cancel_job(self, job_id: str) -> JobInfo:
-        """
-        Cancel a job.
-
-        Args:
-            job_id: Job ID
-
-        Returns:
-            Updated job info
-
-        Raises:
-            JobNotFoundError: Job not found
-            ValueError: Job cannot be cancelled in current state
-        """
-        job = self.get_job(job_id)
-        if not job:
-            raise JobNotFoundError(f"Job {job_id} not found")
-
-        if not job.can_cancel():
-            raise ValueError(f"Job cannot be cancelled in {job.status} state")
-
-        return self.update_job(job_id, status=JobStatus.CANCELLED)
 
     # ========================================
     # Simplified Public API (TriggerType hidden)

@@ -17,7 +17,7 @@ from chronis.core.jobs.definition import JobDefinition
 
 @pytest.mark.slow
 def test_date_trigger_one_time_execution():
-    """Test that date trigger executes only once and marks job as completed."""
+    """Test that date trigger executes only once and deletes the job."""
     # Setup
     storage = InMemoryStorageAdapter()
     lock = InMemoryLockAdapter()
@@ -63,12 +63,9 @@ def test_date_trigger_one_time_execution():
         # Check that job executed exactly once
         assert len(execution_count) == 1
 
-        # Check that job is marked as completed
+        # Check that job is deleted after execution (one-time jobs are deleted)
         final_job = scheduler.get_job("date-test-001")
-        assert final_job is not None
-        assert final_job.status == JobStatus.COMPLETED
-        assert final_job.next_run_time is None
-        assert final_job.next_run_time_local is None
+        assert final_job is None, "One-time job should be deleted after execution"
 
         # Wait a bit more to ensure it doesn't execute again
         time.sleep(0.5)

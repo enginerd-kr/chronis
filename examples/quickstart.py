@@ -109,22 +109,25 @@ def main():
     print("   (Watch the jobs execute)\n")
     time.sleep(40)
 
-    # 8. Stop scheduler
-    print("\n8. Stopping scheduler...")
+    # 8. Check one-time job was deleted after execution
+    print("\n8. Checking one-time job status...")
+    oneshot_job = scheduler.get_job("oneshot-001")
+    if oneshot_job is None:
+        print("   ✓ One-time job was automatically deleted after execution")
+    else:
+        print(f"   ℹ One-time job status: {oneshot_job.status.value}")
+
+    # 9. Stop scheduler
+    print("\n9. Stopping scheduler...")
     scheduler.stop()
     print("   ✓ Scheduler stopped")
 
-    # 9. Demonstrate state transitions
-    print("\n9. Demonstrating state transitions:")
-    print("   Pausing email job...")
-    scheduler.pause_job("email-001")
-    paused_job = scheduler.get_job("email-001")
-    print(f"   ✓ Email job status: {paused_job.status.value}")
-
-    print("   Resuming email job...")
-    scheduler.resume_job("email-001")
-    resumed_job = scheduler.get_job("email-001")
-    print(f"   ✓ Email job status: {resumed_job.status.value}")
+    # 10. Query remaining jobs
+    print("\n10. Querying remaining jobs...")
+    remaining_jobs = scheduler.query_jobs()
+    print(f"   ✓ Remaining jobs: {len(remaining_jobs)}")
+    for job in remaining_jobs:
+        print(f"      - {job.job_id}: {job.name} ({job.status.value})")
 
     print("\n=== Example Complete ===")
 

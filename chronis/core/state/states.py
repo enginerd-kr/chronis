@@ -14,21 +14,6 @@ class JobState(ABC):
         pass
 
     @abstractmethod
-    def can_pause(self) -> bool:
-        """Check if job can be paused in this state."""
-        pass
-
-    @abstractmethod
-    def can_cancel(self) -> bool:
-        """Check if job can be cancelled in this state."""
-        pass
-
-    @abstractmethod
-    def can_resume(self) -> bool:
-        """Check if job can be resumed in this state."""
-        pass
-
-    @abstractmethod
     def get_status(self) -> JobStatus:
         """Get the current status."""
         pass
@@ -40,15 +25,6 @@ class PendingState(JobState):
     def can_execute(self) -> bool:
         return True
 
-    def can_pause(self) -> bool:
-        return True
-
-    def can_cancel(self) -> bool:
-        return True
-
-    def can_resume(self) -> bool:
-        return False
-
     def get_status(self) -> JobStatus:
         return JobStatus.PENDING
 
@@ -58,15 +34,6 @@ class ScheduledState(JobState):
 
     def can_execute(self) -> bool:
         return True
-
-    def can_pause(self) -> bool:
-        return True
-
-    def can_cancel(self) -> bool:
-        return True
-
-    def can_resume(self) -> bool:
-        return False
 
     def get_status(self) -> JobStatus:
         return JobStatus.SCHEDULED
@@ -78,74 +45,18 @@ class RunningState(JobState):
     def can_execute(self) -> bool:
         return False  # Cannot execute while already running
 
-    def can_pause(self) -> bool:
-        return False  # Cannot pause while running
-
-    def can_cancel(self) -> bool:
-        return True  # Can cancel running job
-
-    def can_resume(self) -> bool:
-        return False
-
     def get_status(self) -> JobStatus:
         return JobStatus.RUNNING
 
 
-class CompletedState(JobState):
-    """One-time job completed successfully."""
+class FailedState(JobState):
+    """Job execution failed."""
 
     def can_execute(self) -> bool:
-        return False
-
-    def can_pause(self) -> bool:
-        return False
-
-    def can_cancel(self) -> bool:
-        return False
-
-    def can_resume(self) -> bool:
-        return False
+        return True  # Can retry failed jobs
 
     def get_status(self) -> JobStatus:
-        return JobStatus.COMPLETED
-
-
-class PausedState(JobState):
-    """Job is temporarily paused."""
-
-    def can_execute(self) -> bool:
-        return False
-
-    def can_pause(self) -> bool:
-        return False
-
-    def can_cancel(self) -> bool:
-        return True
-
-    def can_resume(self) -> bool:
-        return True
-
-    def get_status(self) -> JobStatus:
-        return JobStatus.PAUSED
-
-
-class CancelledState(JobState):
-    """Job is cancelled."""
-
-    def can_execute(self) -> bool:
-        return False
-
-    def can_pause(self) -> bool:
-        return False
-
-    def can_cancel(self) -> bool:
-        return False
-
-    def can_resume(self) -> bool:
-        return False
-
-    def get_status(self) -> JobStatus:
-        return JobStatus.CANCELLED
+        return JobStatus.FAILED
 
 
 class StateFactory:
@@ -155,9 +66,7 @@ class StateFactory:
         JobStatus.PENDING: PendingState(),
         JobStatus.SCHEDULED: ScheduledState(),
         JobStatus.RUNNING: RunningState(),
-        JobStatus.COMPLETED: CompletedState(),
-        JobStatus.PAUSED: PausedState(),
-        JobStatus.CANCELLED: CancelledState(),
+        JobStatus.FAILED: FailedState(),
     }
 
     @classmethod
