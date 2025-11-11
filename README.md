@@ -187,7 +187,7 @@ scheduler.create_cron_job(
 
 ### Job State Management
 
-Manage job lifecycle with pause, resume, and cancel operations:
+Query and manage your scheduled jobs:
 
 ```python
 # Get a specific job
@@ -202,18 +202,26 @@ for job in all_jobs:
 # Query scheduled jobs only
 scheduled_jobs = scheduler.query_jobs(filters={"status": "scheduled"})
 
+# Query failed jobs
+failed_jobs = scheduler.query_jobs(filters={"status": "failed"})
+
 # Query with limit
 recent_jobs = scheduler.query_jobs(limit=10)
 
-# Pause a running job
-scheduler.pause_job("daily-report")
-
-# Resume a paused job
-scheduler.resume_job("daily-report")
-
-# Cancel a job
-scheduler.cancel_job("daily-report")
+# Delete a job
+scheduler.delete_job("daily-report")
 ```
+
+### Job States
+
+Chronis uses a simple state model:
+
+- **PENDING**: Job created, waiting for first run
+- **SCHEDULED**: Job is scheduled for next execution
+- **RUNNING**: Job is currently executing
+- **FAILED**: Job execution failed (can be retried)
+
+Note: One-time jobs (DATE trigger) are automatically deleted after successful execution.
 
 ### Async Function Support
 
