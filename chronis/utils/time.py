@@ -1,6 +1,6 @@
 """Time utilities for Chronis."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 
 # Python 3.9+ zoneinfo, fallback to pytz for Python 3.8
 try:
@@ -13,7 +13,7 @@ except ImportError:
 
         def __new__(cls, key: str) -> timezone:  # type: ignore
             if key == "UTC":
-                return timezone.utc
+                return UTC
             return pytz.timezone(key)  # type: ignore
 
 

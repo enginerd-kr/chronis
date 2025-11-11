@@ -555,10 +555,10 @@ class PollingScheduler:
                     self._async_loop
                 )
                 # Wait for result (blocks current thread, but doesn't block event loop)
-                result = future.result()
+                future.result()
             else:
                 # Run sync function normally
-                result = func(*args, **kwargs)
+                func(*args, **kwargs)
 
             execution_time = time.time() - start_time
             # Log only in verbose mode
