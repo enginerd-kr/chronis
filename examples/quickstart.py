@@ -92,26 +92,12 @@ def main():
     )
     print(f"   ✓ Created date job: {job4.name} (runs once at {future_time})\n")
 
-    # 5. View all jobs
-    print("5. Viewing all jobs...")
-    all_jobs = scheduler.get_all_jobs()
+    # 5. Query all jobs
+    print("5. Querying all jobs...")
+    all_jobs = scheduler.query_jobs()
     print(f"   ✓ Total jobs created: {len(all_jobs)}")
     for job in all_jobs:
-        print(f"      - {job.job_id}: {job.name} ({job.status.value})")
-
-    # 5-1. View all schedules
-    print("\n5-1. Viewing all schedules...")
-    all_schedules = scheduler.get_all_schedules()
-    print(f"   ✓ Total schedules: {len(all_schedules)}")
-    for schedule in all_schedules:
-        print(f"      - Job: {schedule.job_id}")
-        print(f"        Trigger: {schedule.trigger.trigger_type.value}")
-        print(f"        Next run: {schedule.next_run_time}")
-        if hasattr(schedule.trigger, 'interval_seconds'):
-            print(f"        Interval: {schedule.trigger.interval_seconds}s")
-        elif hasattr(schedule.trigger, 'cron_expression'):
-            print(f"        Cron: {schedule.trigger.cron_expression}")
-        print()
+        print(f"      - {job.job_id}: {job.name} ({job.status.value}) - {job.trigger_type}")
 
     # 6. Start scheduler
     print("\n6. Starting scheduler...")

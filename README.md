@@ -5,22 +5,15 @@
 ## Features
 
 - **Distributed Scheduling**: Prevents duplicate execution in multi-container environments
-- **Multiple Storage Adapters**: DynamoDB, PostgreSQL, SQLite, InMemory
-- **Distributed Locks**: Redis and InMemory lock adapters
+- **Pluggable Storage**: Implement custom storage adapters for any database
+- **Pluggable Locks**: Implement custom lock adapters for distributed locking
 - **Timezone Support**: IANA timezone-aware scheduling with automatic DST handling
 - **Async Support**: Native support for both sync and async job functions
 
 ## Installation
 
 ```bash
-# Basic installation
 pip install chronis
-
-# With optional dependencies
-pip install chronis[aws]      # DynamoDB support
-pip install chronis[postgres]  # PostgreSQL support
-pip install chronis[redis]     # Redis lock support
-pip install chronis[all]       # All adapters
 ```
 
 ## Quick Start
@@ -197,29 +190,20 @@ scheduler.create_cron_job(
 Manage job lifecycle with pause, resume, and cancel operations:
 
 ```python
-from chronis import JobStatus, TriggerType
-
 # Get a specific job
 job = scheduler.get_job("daily-report")
 print(f"Status: {job.status}, Next run: {job.next_run_time}")
 
-# Get all jobs (useful for testing and monitoring)
-all_jobs = scheduler.get_all_jobs()
+# Query all jobs
+all_jobs = scheduler.query_jobs()
 for job in all_jobs:
-    print(f"{job.job_id}: {job.status}")
+    print(f"{job.job_id}: {job.status} - {job.trigger_type}")
 
-# Get all schedules with trigger details
-all_schedules = scheduler.get_all_schedules()
-for schedule in all_schedules:
-    print(f"Job: {schedule.job_id}")
-    print(f"  Trigger: {schedule.trigger.trigger_type}")
-    print(f"  Next run: {schedule.next_run_time}")
+# Query scheduled jobs only
+scheduled_jobs = scheduler.query_jobs(filters={"status": "scheduled"})
 
-    # Access trigger-specific information
-    if schedule.trigger.trigger_type == TriggerType.INTERVAL:
-        print(f"  Interval: {schedule.trigger.interval_seconds}s")
-    elif schedule.trigger.trigger_type == TriggerType.CRON:
-        print(f"  Cron: {schedule.trigger.cron_expression}")
+# Query with limit
+recent_jobs = scheduler.query_jobs(limit=10)
 
 # Pause a running job
 scheduler.pause_job("daily-report")
@@ -267,45 +251,78 @@ scheduler.create_interval_job(
 )
 ```
 
-## Production Usage
+## Multi-Tenancy Support (Optional)
 
-### DynamoDB + Redis
+Chronis supports multi-tenancy through the `metadata` field, allowing you to isolate jobs by tenant, user, or organization:
 
 ```python
-from chronis.adapters.storage import DynamoDBAdapter
-from chronis.adapters.locks import RedisLockAdapter
-
-storage = DynamoDBAdapter(
-    table_name="scheduled_jobs",
-    region="us-east-1"
+# Create tenant-specific job
+scheduler.create_interval_job(
+    job_id="daily-report",
+    name="Daily Report",
+    func=generate_report,
+    hours=24,
+    metadata={"tenant_id": "acme"}
 )
-lock = RedisLockAdapter(host="redis.example.com")
 
-scheduler = PollingScheduler(
-    storage_adapter=storage,
-    lock_adapter=lock,
-    polling_interval_seconds=10,
+# Query jobs for specific tenant
+tenant_jobs = scheduler.query_jobs(
+    filters={"metadata.tenant_id": "acme", "status": "scheduled"}
 )
+
+# FastAPI integration example
+from fastapi import FastAPI, Depends
+
+app = FastAPI()
+
+def get_current_tenant() -> str:
+    """Extract tenant from JWT token."""
+    return "tenant:acme"
+
+@app.post("/jobs/create")
+def create_job(
+    job_id: str,
+    schedule_hours: int,
+    current_tenant: str = Depends(get_current_tenant)
+):
+    job = scheduler.create_interval_job(
+        job_id=job_id,
+        name="Tenant Job",
+        func=process_job,
+        hours=schedule_hours,
+        metadata={"tenant_id": current_tenant}
+    )
+    return {"status": "created", "job": job}
+
+@app.get("/jobs")
+def list_my_jobs(current_tenant: str = Depends(get_current_tenant)):
+    """Users can only see their own tenant's jobs."""
+    jobs = scheduler.query_jobs(
+        filters={"metadata.tenant_id": current_tenant},
+        limit=100
+    )
+    return {"jobs": jobs}
 ```
 
-### PostgreSQL + Redis
+### Metadata Patterns
 
 ```python
-from chronis.adapters.storage import PostgreSQLAdapter
-from chronis.adapters.locks import RedisLockAdapter
+# Simple tenant ID
+metadata = {"tenant_id": "acme"}
 
-storage = PostgreSQLAdapter(
-    host="localhost",
-    database="scheduler",
-    user="postgres",
-    password="secret"
-)
-lock = RedisLockAdapter(host="localhost")
+# Hierarchical organization
+metadata = {
+    "org_id": "acme",
+    "team_id": "engineering",
+    "project_id": "website"
+}
 
-scheduler = PollingScheduler(
-    storage_adapter=storage,
-    lock_adapter=lock
-)
+# Custom tags
+metadata = {
+    "priority": "high",
+    "environment": "production",
+    "region": "us-east-1"
+}
 ```
 
 ## Examples
@@ -314,6 +331,7 @@ See the [examples/](examples/) directory for complete examples:
 
 ```bash
 uv run python examples/quickstart.py
+uv run python examples/multitenant.py
 ```
 
 ## Contributing

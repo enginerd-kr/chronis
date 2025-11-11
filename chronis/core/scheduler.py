@@ -5,11 +5,11 @@ import inspect
 import logging
 import threading
 import time
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -366,7 +366,11 @@ class PollingScheduler:
         Returns:
             List of ready jobs
         """
-        return self.storage.query_ready_jobs(current_time, limit=limit)
+        filters = {
+            "status": "scheduled",
+            "next_run_time_lte": current_time.isoformat()
+        }
+        return self.storage.query_jobs(filters=filters, limit=limit)
 
     @contextmanager
     def _acquire_lock_context(
@@ -720,37 +724,68 @@ class PollingScheduler:
         job_data = self.storage.get_job(job_id)
         return JobInfo(job_data) if job_data else None
 
+    def query_jobs(
+        self,
+        filters: dict[str, Any] | None = None,
+        limit: int | None = None
+    ) -> list[JobInfo]:
+        """
+        Query jobs with flexible filters.
+
+        Args:
+            filters: Dictionary of filter conditions (None = get all jobs)
+                - {"status": "scheduled"}: Filter by status
+                - {"metadata.tenant_id": "acme"}: Filter by tenant (multi-tenancy)
+                - {"metadata.priority": "high", "status": "scheduled"}: Multiple filters
+            limit: Maximum number of jobs to return
+
+        Returns:
+            List of jobs matching filters
+
+        Example:
+            >>> # Get all jobs
+            >>> all_jobs = scheduler.query_jobs()
+            >>>
+            >>> # Get all scheduled jobs
+            >>> jobs = scheduler.query_jobs(filters={"status": "scheduled"})
+            >>>
+            >>> # Multi-tenancy: Get tenant-specific jobs
+            >>> jobs = scheduler.query_jobs(
+            ...     filters={"metadata.tenant_id": "acme", "status": "scheduled"}
+            ... )
+            >>>
+            >>> # Access trigger info from JobInfo
+            >>> for job in jobs:
+            ...     print(f"{job.job_id}: {job.trigger_type} - {job.next_run_time}")
+        """
+        jobs_data = self.storage.query_jobs(filters=filters, limit=limit)
+        return [JobInfo(job_data) for job_data in jobs_data]
+
     def get_all_jobs(self) -> list[JobInfo]:
         """
-        Get all jobs (for testing purposes).
+        Get all jobs.
+
+        Deprecated: Use query_jobs() instead.
+            >>> jobs = scheduler.query_jobs()  # Recommended
 
         Returns:
             List of all jobs
-
-        Example:
-            >>> jobs = scheduler.get_all_jobs()
-            >>> for job in jobs:
-            ...     print(f"{job.job_id}: {job.status}")
         """
-        all_jobs_data = self.storage.get_all_jobs()
-        return [JobInfo(job_data) for job_data in all_jobs_data]
+        return self.query_jobs()
 
-    def get_all_schedules(self) -> list:
+    def get_all_schedules(self) -> list[JobInfo]:
         """
         Get all schedules with trigger details.
 
+        Deprecated: Use query_jobs() instead. JobInfo already contains trigger information.
+            >>> jobs = scheduler.query_jobs()
+            >>> for job in jobs:
+            ...     print(f"{job.job_id}: {job.trigger_type}")
+
         Returns:
-            List of ScheduleInfo objects
-
-        Example:
-            >>> schedules = scheduler.get_all_schedules()
-            >>> for schedule in schedules:
-            ...     print(f"{schedule.job_id}: {schedule.trigger.trigger_type}")
+            List of all jobs (same as query_jobs)
         """
-        from chronis.core.jobs.definition import ScheduleInfo
-
-        all_jobs_data = self.storage.get_all_jobs()
-        return [ScheduleInfo(job_data) for job_data in all_jobs_data]
+        return self.query_jobs()
 
     def update_job(
         self,
@@ -939,7 +974,9 @@ class PollingScheduler:
             timezone: IANA timezone (e.g., "Asia/Seoul", "UTC")
             args: Positional arguments for func
             kwargs: Keyword arguments for func
-            metadata: Additional metadata
+            metadata: User-defined metadata (optional)
+                - For multi-tenancy: {"tenant_id": "acme"}
+                - For custom tags: {"priority": "high", "team": "eng"}
 
         Returns:
             Created job info
@@ -953,13 +990,13 @@ class PollingScheduler:
             ...     seconds=30
             ... )
             >>>
-            >>> # Run every 2 hours
+            >>> # Multi-tenant job
             >>> scheduler.create_interval_job(
-            ...     job_id="cleanup",
-            ...     name="Cleanup Task",
-            ...     func=cleanup_old_data,
-            ...     hours=2,
-            ...     timezone="Asia/Seoul"
+            ...     job_id="report",
+            ...     name="Daily Report",
+            ...     func=generate_report,
+            ...     hours=24,
+            ...     metadata={"tenant_id": "acme"}
             ... )
         """
         trigger_args = {}

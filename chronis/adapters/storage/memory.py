@@ -1,6 +1,5 @@
 """In-memory storage adapter for testing."""
 
-from datetime import datetime
 from typing import Any
 
 from chronis.adapters.base import JobStorageAdapter
@@ -40,39 +39,58 @@ class InMemoryStorageAdapter(JobStorageAdapter):
             return True
         return False
 
-    def query_ready_jobs(
-        self, current_time: datetime, limit: int | None = None
+    def query_jobs(
+        self,
+        filters: dict[str, Any] | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
     ) -> list[dict[str, Any]]:
         """
-        Query jobs ready for execution (next_run_time <= current_time and status is SCHEDULED).
+        Query jobs with flexible filters.
 
         Args:
-            current_time: Current time for comparison
-            limit: Maximum number of jobs to return (None for unlimited)
+            filters: Dictionary of filter conditions
+            limit: Maximum number of jobs to return
+            offset: Number of jobs to skip
 
         Returns:
-            List of ready jobs, sorted by next_run_time (oldest first)
+            List of jobs matching filters, sorted by next_run_time
         """
-        ready_jobs = []
-        current_iso = current_time.isoformat()
+        jobs = list(self._jobs.values())
 
-        for job in self._jobs.values():
-            # Only SCHEDULED jobs are ready to execute
-            if job.get("status") != "scheduled":
-                continue
+        if filters:
+            # Status filter
+            if "status" in filters:
+                jobs = [j for j in jobs if j.get("status") == filters["status"]]
 
-            next_run = job.get("next_run_time")
-            if next_run and next_run <= current_iso:
-                ready_jobs.append(job)
+            # Time filter
+            if "next_run_time_lte" in filters:
+                jobs = [
+                    j
+                    for j in jobs
+                    if j.get("next_run_time", "") <= filters["next_run_time_lte"]
+                ]
+
+            # Metadata filters (support nested keys like "metadata.tenant_id")
+            for key, value in filters.items():
+                if key.startswith("metadata."):
+                    metadata_key = key.replace("metadata.", "")
+                    jobs = [
+                        j
+                        for j in jobs
+                        if j.get("metadata", {}).get(metadata_key) == value
+                    ]
 
         # Sort by next_run_time (oldest first)
-        ready_jobs.sort(key=lambda j: j.get("next_run_time", ""))
+        jobs.sort(key=lambda j: j.get("next_run_time", ""))
 
-        # Apply limit if specified
-        if limit is not None and limit > 0:
-            return ready_jobs[:limit]
+        # Apply offset and limit
+        if offset:
+            jobs = jobs[offset:]
+        if limit:
+            jobs = jobs[:limit]
 
-        return ready_jobs
+        return jobs
 
     def get_all_jobs(self) -> list[dict[str, Any]]:
         """
