@@ -11,10 +11,12 @@ keywords = [
     "distributed",
     "cron",
     "apscheduler",
-    "task-scheduler",
     "job-scheduler",
+    "distributed-locking",
     "multi-container",
-    "high-availability",
+    "multi-tenancy",
+    "timezone",
+    "async",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -24,8 +26,10 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Framework :: AsyncIO",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
     "Topic :: System :: Distributed Computing",
+    "Topic :: Office/Business :: Scheduling",
     "Typing :: Typed",
 ]
 requires-python = ">=3.12"
