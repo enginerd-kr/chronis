@@ -3,7 +3,6 @@
 import asyncio
 import logging
 import threading
-from typing import Any
 
 
 class AsyncExecutor:
@@ -67,24 +66,36 @@ class AsyncExecutor:
         finally:
             self._loop.close()
 
-    def execute_coroutine(self, coro) -> Any:
+    def execute_coroutine(self, coro) -> asyncio.Future:
         """
-        Execute coroutine in the dedicated event loop.
+        Execute coroutine in the dedicated event loop (non-blocking).
+
+        This method schedules the coroutine for execution without waiting
+        for it to complete, allowing the calling thread to continue immediately.
 
         Args:
             coro: Coroutine to execute
 
         Returns:
-            Result of coroutine execution
+            Future object representing the coroutine execution.
+            Use future.result() to wait for completion if needed.
 
         Raises:
             RuntimeError: If event loop is not running
+
+        Example:
+            >>> async def my_task():
+            ...     await asyncio.sleep(1)
+            ...     return "done"
+            >>> future = executor.execute_coroutine(my_task())
+            >>> # Continue working while task runs
+            >>> result = future.result()  # Wait only if you need the result
         """
         if self._loop is None:
             raise RuntimeError("AsyncExecutor is not running. Call start() first.")
 
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-        return future.result()
+        return future
 
     def stop(self) -> None:
         """

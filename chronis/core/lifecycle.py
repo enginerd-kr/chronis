@@ -69,7 +69,9 @@ class JobLifecycleManager:
         return job.next_run_time <= current_time
 
     @staticmethod
-    def determine_next_status_after_execution(job: JobInfo, execution_succeeded: bool) -> JobStatus:
+    def determine_next_status_after_execution(
+        trigger_type: str | TriggerType, execution_succeeded: bool
+    ) -> JobStatus:
         """
         Determine what status a job should transition to after execution.
 
@@ -79,7 +81,7 @@ class JobLifecycleManager:
         - Any job + failure: FAILED
 
         Args:
-            job: Job information
+            trigger_type: Job trigger type (string or enum)
             execution_succeeded: Whether execution was successful
 
         Returns:
@@ -90,7 +92,9 @@ class JobLifecycleManager:
 
         # One-time jobs should be deleted after successful execution
         # Returning None signals that the job should be removed
-        trigger_type = TriggerType(job.trigger_type)
+        if isinstance(trigger_type, str):
+            trigger_type = TriggerType(trigger_type)
+
         if trigger_type == TriggerType.DATE:
             return None  # Signal for deletion
 

@@ -152,9 +152,6 @@ class ExecutionCoordinator:
 
         except Exception as e:
             job_logger.error(f"Trigger failed: {e}", exc_info=True)
-        finally:
-            # 5. Immediately calculate and update next run time
-            self._update_next_run_time(job_data)
 
     def _execute_in_background(self, job_data: dict[str, Any], job_logger: ContextLogger) -> None:
         """
@@ -171,11 +168,8 @@ class ExecutionCoordinator:
             self._execute_job_function(job_data, job_logger)
 
             # Determine next status after successful execution
-            from chronis.core.jobs.definition import JobInfo
-
-            job_info = JobInfo.from_dict(job_data)
             next_status = JobLifecycleManager.determine_next_status_after_execution(
-                job_info, execution_succeeded=True
+                trigger_type=job_data["trigger_type"], execution_succeeded=True
             )
 
             if next_status is None:
@@ -184,7 +178,8 @@ class ExecutionCoordinator:
                 if self.verbose:
                     job_logger.info("One-time job deleted after execution")
             else:
-                # Recurring job - mark as SCHEDULED
+                # Recurring job - update next_run_time and mark as SCHEDULED
+                self._update_next_run_time(job_data)
                 self._update_job_status(job_id, next_status)
 
         except Exception as e:
@@ -212,11 +207,25 @@ class ExecutionCoordinator:
 
         # Execute based on function type
         if inspect.iscoroutinefunction(func):
-            # Async function
+            # Async function - execute without blocking
+            # Note: Async jobs are fire-and-forget. The calling thread doesn't wait.
             coro = func(*args, **kwargs)
-            self.async_executor.execute_coroutine(coro)
+            future = self.async_executor.execute_coroutine(coro)
+
+            # Add error callback to log async failures and update job status
+            job_id = job_data["job_id"]
+
+            def _handle_async_completion(fut):
+                try:
+                    fut.result()  # This will raise if the coroutine raised
+                except Exception as e:
+                    job_logger.error(f"Async job execution failed: {e}", exc_info=True)
+                    # Update job status to FAILED if async execution fails
+                    self._update_job_status(job_id, JobStatus.FAILED)
+
+            future.add_done_callback(_handle_async_completion)
         else:
-            # Sync function
+            # Sync function - executes and blocks until complete
             func(*args, **kwargs)
 
     def _update_job_status(self, job_id: str, status: JobStatus) -> None:

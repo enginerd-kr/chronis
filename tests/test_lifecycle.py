@@ -123,30 +123,24 @@ class TestDetermineNextStatusAfterExecution:
 
     def test_successful_interval_job_becomes_scheduled(self):
         """Successful interval job transitions to SCHEDULED."""
-        job = create_test_job(trigger_type=TriggerType.INTERVAL)
-
         next_status = JobLifecycleManager.determine_next_status_after_execution(
-            job, execution_succeeded=True
+            TriggerType.INTERVAL, execution_succeeded=True
         )
 
         assert next_status == JobStatus.SCHEDULED
 
     def test_successful_cron_job_becomes_scheduled(self):
         """Successful cron job transitions to SCHEDULED."""
-        job = create_test_job(trigger_type=TriggerType.CRON)
-
         next_status = JobLifecycleManager.determine_next_status_after_execution(
-            job, execution_succeeded=True
+            TriggerType.CRON, execution_succeeded=True
         )
 
         assert next_status == JobStatus.SCHEDULED
 
     def test_successful_date_job_returns_none(self):
         """Successful date job returns None (should be deleted)."""
-        job = create_test_job(trigger_type=TriggerType.DATE)
-
         next_status = JobLifecycleManager.determine_next_status_after_execution(
-            job, execution_succeeded=True
+            TriggerType.DATE, execution_succeeded=True
         )
 
         assert next_status is None
@@ -154,10 +148,8 @@ class TestDetermineNextStatusAfterExecution:
     def test_failed_job_becomes_failed(self):
         """Failed job transitions to FAILED regardless of trigger type."""
         for trigger_type in [TriggerType.INTERVAL, TriggerType.CRON, TriggerType.DATE]:
-            job = create_test_job(trigger_type=trigger_type)
-
             next_status = JobLifecycleManager.determine_next_status_after_execution(
-                job, execution_succeeded=False
+                trigger_type, execution_succeeded=False
             )
 
             assert next_status == JobStatus.FAILED

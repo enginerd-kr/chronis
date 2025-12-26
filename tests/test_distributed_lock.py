@@ -386,10 +386,10 @@ def test_concurrent_polling_with_queue_limit():
         status = schedulers[0].get_queue_status()
 
         # Queue should respect limits
-        total_in_flight = status["pending_jobs"] + status["running_jobs"]
+        total_in_flight = status["pending_jobs"] + status["in_flight_jobs"]
         assert total_in_flight <= max_queue_size, (
             f"Expected total in-flight <= {max_queue_size}, "
-            f"got {total_in_flight} (pending={status['pending_jobs']}, running={status['running_jobs']})"
+            f"got {total_in_flight} (pending={status['pending_jobs']}, in_flight={status['in_flight_jobs']})"
         )
 
     finally:
