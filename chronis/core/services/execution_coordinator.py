@@ -194,6 +194,12 @@ class ExecutionCoordinator:
             # Execute the actual job function
             self._execute_job_function(job_data, job_logger)
 
+            # Success - reset retry count if it was retried before
+            if job_data.get("retry_count", 0) > 0:
+                self.storage.update_job(
+                    job_id, {"retry_count": 0, "updated_at": utc_now().isoformat()}
+                )
+
             # Determine next status after successful execution
             next_status = lifecycle.determine_next_status_after_execution(
                 trigger_type=job_data["trigger_type"], execution_succeeded=True
@@ -214,8 +220,18 @@ class ExecutionCoordinator:
 
         except Exception as e:
             job_logger.error(f"Execution failed: {e}", exc_info=True)
-            self._update_job_status(job_id, JobStatus.FAILED)
-            self._invoke_failure_handler(job_id, e, job_data)
+
+            # Check if retry is possible
+            retry_count = job_data.get("retry_count", 0)
+            max_retries = job_data.get("max_retries", 0)
+
+            if retry_count < max_retries:
+                # Schedule retry with exponential backoff
+                self._schedule_retry(job_data, retry_count + 1, job_logger)
+            else:
+                # No more retries - mark as FAILED
+                self._update_job_status(job_id, JobStatus.FAILED)
+                self._invoke_failure_handler(job_id, e, job_data)
 
     def _execute_job_function(self, job_data: dict[str, Any], job_logger: ContextLogger) -> None:
         """
@@ -261,6 +277,58 @@ class ExecutionCoordinator:
         else:
             # Sync function - executes and blocks until complete
             func(*args, **kwargs)
+
+    def _schedule_retry(
+        self, job_data: dict[str, Any], next_retry_count: int, job_logger: ContextLogger
+    ) -> None:
+        """
+        Schedule job retry with exponential backoff.
+
+        Args:
+            job_data: Job data
+            next_retry_count: Next retry attempt number (1-indexed)
+            job_logger: Context logger
+        """
+        from datetime import timedelta
+
+        from chronis.utils.time import get_timezone
+
+        job_id = job_data["job_id"]
+        base_delay = job_data.get("retry_delay_seconds", 60)
+        timezone = job_data.get("timezone", "UTC")
+
+        # Exponential backoff: base_delay * (2 ^ (retry_count - 1))
+        # Examples: 60s, 120s, 240s, 480s, ...
+        delay_seconds = base_delay * (2 ** (next_retry_count - 1))
+
+        # Cap at 1 hour to prevent excessive delays
+        delay_seconds = min(delay_seconds, 3600)
+
+        next_run_time = utc_now() + timedelta(seconds=delay_seconds)
+
+        # Calculate local time for user display
+        tz = get_timezone(timezone)
+        next_run_time_local = next_run_time.astimezone(tz)
+
+        try:
+            self.storage.update_job(
+                job_id,
+                {
+                    "retry_count": next_retry_count,
+                    "next_run_time": next_run_time.isoformat(),
+                    "next_run_time_local": next_run_time_local.isoformat(),
+                    "status": JobStatus.SCHEDULED.value,
+                    "updated_at": utc_now().isoformat(),
+                },
+            )
+
+            max_retries = job_data.get("max_retries", 0)
+            job_logger.info(
+                f"Retry scheduled: attempt {next_retry_count}/{max_retries} in {delay_seconds}s"
+            )
+
+        except Exception as e:
+            job_logger.error(f"Failed to schedule retry: {e}", exc_info=True)
 
     def _update_job_status(self, job_id: str, status: JobStatus) -> None:
         """

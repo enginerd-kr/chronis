@@ -40,6 +40,9 @@ class JobDefinition(BaseModel):
     metadata: dict[str, Any] | None = None
     on_failure: "OnFailureCallback | None" = None
     on_success: "OnSuccessCallback | None" = None
+    # Retry configuration
+    max_retries: int = 0
+    retry_delay_seconds: int = 60
 
     def model_post_init(self, __context: Any) -> None:
         """Normalize None values to defaults after validation."""
@@ -105,6 +108,10 @@ class JobDefinition(BaseModel):
                 next_run_time_local.isoformat() if next_run_time_local else None
             ),
             "metadata": self.metadata,
+            # Retry configuration
+            "max_retries": self.max_retries,
+            "retry_delay_seconds": self.retry_delay_seconds,
+            "retry_count": 0,
             "created_at": utc_now().isoformat(),
             "updated_at": utc_now().isoformat(),
         }
@@ -146,6 +153,10 @@ class JobInfo:
     metadata: dict[str, Any]
     created_at: datetime
     updated_at: datetime
+    # Retry information
+    max_retries: int = 0
+    retry_delay_seconds: int = 60
+    retry_count: int = 0
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "JobInfo":
@@ -168,6 +179,9 @@ class JobInfo:
             metadata=data.get("metadata", {}),
             created_at=datetime.fromisoformat(data["created_at"]),
             updated_at=datetime.fromisoformat(data["updated_at"]),
+            max_retries=data.get("max_retries", 0),
+            retry_delay_seconds=data.get("retry_delay_seconds", 60),
+            retry_count=data.get("retry_count", 0),
         )
 
     def can_execute(self) -> bool:
