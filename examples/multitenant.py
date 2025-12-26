@@ -1,7 +1,7 @@
 """Multi-tenant scheduler example."""
 
 from chronis import PollingScheduler
-from chronis.adapters.locks import InMemoryLockAdapter
+from chronis.adapters.lock import InMemoryLockAdapter
 from chronis.adapters.storage import InMemoryStorageAdapter
 
 

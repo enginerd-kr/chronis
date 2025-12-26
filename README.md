@@ -4,9 +4,12 @@
 
 ## Why Chronis?
 
-AI agents and LLM workflows need reliable scheduling in production. Chronis provides:
+**Agentic AI needs autonomous scheduling.** For AI agents to truly work independently, they must manage their own schedules - setting reminders, scheduling follow-ups, and orchestrating time-based workflows without human intervention. Chronis makes this possible with a simple, LLM-friendly API designed for autonomous operation.
+
+Traditional schedulers require complex configuration and aren't built for AI agents to self-manage. Chronis provides:
 
 - **AI Agent Ready**: Simple API perfect for LLM function calling and agent workflows
+- **Autonomous Scheduling**: Agents can create, modify, and manage their own jobs
 - **Distributed by Default**: No duplicate executions across containers or processes
 - **Pluggable Everything**: Bring your own database and distributed locks
 - **Timezone Aware**: IANA timezones with automatic DST handling
@@ -23,7 +26,7 @@ pip install chronis
 ```python
 from chronis import PollingScheduler
 from chronis.adapters.storage import InMemoryStorageAdapter
-from chronis.adapters.locks import InMemoryLockAdapter
+from chronis.adapters.lock import InMemoryLockAdapter
 
 # 1. Create adapters
 storage = InMemoryStorageAdapter()
