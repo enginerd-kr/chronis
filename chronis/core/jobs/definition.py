@@ -3,13 +3,19 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from chronis.core.common.types import TriggerType
 from chronis.core.state import JobStatus
 from chronis.utils.time import get_timezone, utc_now
+
+if TYPE_CHECKING:
+    from chronis.core.callbacks import OnFailureCallback, OnSuccessCallback
+else:
+    OnFailureCallback = Any
+    OnSuccessCallback = Any
 
 
 class JobDefinition(BaseModel):
@@ -32,6 +38,8 @@ class JobDefinition(BaseModel):
     status: JobStatus = JobStatus.PENDING
     next_run_time: datetime | None = None
     metadata: dict[str, Any] | None = None
+    on_failure: "OnFailureCallback | None" = None
+    on_success: "OnSuccessCallback | None" = None
 
     def model_post_init(self, __context: Any) -> None:
         """Normalize None values to defaults after validation."""

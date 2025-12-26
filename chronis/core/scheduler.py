@@ -12,6 +12,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
+from chronis.core.callbacks import OnFailureCallback, OnSuccessCallback
 from chronis.core.common.types import TriggerType
 from chronis.core.execution.async_loop import AsyncExecutor
 from chronis.core.job_queue import JobQueue
@@ -64,6 +65,8 @@ class PollingScheduler:
         executor_interval_seconds: int | None = None,
         verbose: bool = False,
         logger: logging.Logger | None = None,
+        on_failure: OnFailureCallback | None = None,
+        on_success: OnSuccessCallback | None = None,
     ) -> None:
         """
         Initialize polling scheduler.
@@ -79,6 +82,8 @@ class PollingScheduler:
             executor_interval_seconds: Executor check interval (default: min(1, polling_interval / 2))
             verbose: Enable verbose logging (default: False)
             logger: Custom logger (uses default if None)
+            on_failure: Global failure handler for all jobs (optional)
+            on_success: Global success handler for all jobs (optional)
 
         Raises:
             ValueError: If parameters are invalid
@@ -110,9 +115,13 @@ class PollingScheduler:
             1, polling_interval_seconds / 2
         )
         self.verbose = verbose
+        self.on_failure = on_failure
+        self.on_success = on_success
 
         self._running = False
         self._job_registry: dict[str, Callable] = {}
+        self._failure_handler_registry: dict[str, OnFailureCallback] = {}
+        self._success_handler_registry: dict[str, OnSuccessCallback] = {}
         self._registry_lock = threading.RLock()
 
         # Initialize structured logger
@@ -155,6 +164,10 @@ class PollingScheduler:
             executor=self._executor,
             async_executor=self._async_executor,
             function_registry=self._job_registry,
+            failure_handler_registry=self._failure_handler_registry,
+            success_handler_registry=self._success_handler_registry,
+            global_on_failure=self.on_failure,
+            global_on_success=self.on_success,
             logger=self.logger,
             lock_prefix=self.lock_prefix,
             lock_ttl_seconds=self.lock_ttl_seconds,
@@ -403,6 +416,16 @@ class PollingScheduler:
             ... )
             >>> scheduler.create_job(job)
         """
+        # Register on_failure handler if provided
+        if job.on_failure:
+            with self._registry_lock:
+                self._failure_handler_registry[job.job_id] = job.on_failure
+
+        # Register on_success handler if provided
+        if job.on_success:
+            with self._registry_lock:
+                self._success_handler_registry[job.job_id] = job.on_success
+
         return self._job_service.create(job)
 
     def get_job(self, job_id: str) -> JobInfo | None:
@@ -535,6 +558,8 @@ class PollingScheduler:
         args: tuple | None = None,
         kwargs: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
+        on_failure: OnFailureCallback | None = None,
+        on_success: OnSuccessCallback | None = None,
     ) -> JobInfo:
         """
         Create interval job (runs repeatedly at fixed intervals).
@@ -554,6 +579,8 @@ class PollingScheduler:
             metadata: User-defined metadata (optional)
                 - For multi-tenancy: {"tenant_id": "acme"}
                 - For custom tags: {"priority": "high", "team": "eng"}
+            on_failure: Failure handler for this specific job (optional)
+            on_success: Success handler for this specific job (optional)
 
         Returns:
             Created job info with generated or provided job_id
@@ -615,6 +642,8 @@ class PollingScheduler:
             args=args,
             kwargs=kwargs,
             metadata=metadata,
+            on_failure=on_failure,
+            on_success=on_success,
         )
         return self.create_job(job)
 
@@ -634,6 +663,8 @@ class PollingScheduler:
         args: tuple | None = None,
         kwargs: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
+        on_failure: OnFailureCallback | None = None,
+        on_success: OnSuccessCallback | None = None,
     ) -> JobInfo:
         """
         Create cron job (runs on specific date/time patterns).
@@ -653,6 +684,8 @@ class PollingScheduler:
             args: Positional arguments for func
             kwargs: Keyword arguments for func
             metadata: Additional metadata
+            on_failure: Failure handler for this specific job (optional)
+            on_success: Success handler for this specific job (optional)
 
         Returns:
             Created job info with generated or provided job_id
@@ -721,6 +754,8 @@ class PollingScheduler:
             args=args,
             kwargs=kwargs,
             metadata=metadata,
+            on_failure=on_failure,
+            on_success=on_success,
         )
         return self.create_job(job)
 
@@ -734,6 +769,8 @@ class PollingScheduler:
         args: tuple | None = None,
         kwargs: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
+        on_failure: OnFailureCallback | None = None,
+        on_success: OnSuccessCallback | None = None,
     ) -> JobInfo:
         """
         Create one-time job (runs once at specific date/time).
@@ -747,6 +784,8 @@ class PollingScheduler:
             args: Positional arguments for func
             kwargs: Keyword arguments for func
             metadata: Additional metadata
+            on_failure: Failure handler for this specific job (optional)
+            on_success: Success handler for this specific job (optional)
 
         Returns:
             Created job info with generated or provided job_id
@@ -796,5 +835,7 @@ class PollingScheduler:
             args=args,
             kwargs=kwargs,
             metadata=metadata,
+            on_failure=on_failure,
+            on_success=on_success,
         )
         return self.create_job(job)

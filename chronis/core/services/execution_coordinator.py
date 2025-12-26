@@ -9,8 +9,10 @@ from tenacity import RetryError, retry, stop_after_attempt, wait_exponential
 
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
 from chronis.core import lifecycle
+from chronis.core.callbacks import OnFailureCallback, OnSuccessCallback
 from chronis.core.common.types import TriggerType
 from chronis.core.execution.async_loop import AsyncExecutor
+from chronis.core.jobs.definition import JobInfo
 from chronis.core.scheduling import NextRunTimeCalculator
 from chronis.core.state import JobStatus
 from chronis.utils.logging import ContextLogger
@@ -38,6 +40,10 @@ class ExecutionCoordinator:
         executor: ThreadPoolExecutor,
         async_executor: AsyncExecutor,
         function_registry: dict[str, Callable],
+        failure_handler_registry: dict[str, OnFailureCallback],
+        success_handler_registry: dict[str, OnSuccessCallback],
+        global_on_failure: OnFailureCallback | None,
+        global_on_success: OnSuccessCallback | None,
         logger: ContextLogger,
         lock_prefix: str = "chronis:lock:",
         lock_ttl_seconds: int = 300,
@@ -52,6 +58,10 @@ class ExecutionCoordinator:
             executor: Thread pool executor for job execution
             async_executor: Async executor for coroutines
             function_registry: Registry of job functions by name
+            failure_handler_registry: Registry of job-specific failure handlers by job_id
+            success_handler_registry: Registry of job-specific success handlers by job_id
+            global_on_failure: Global failure handler for all jobs
+            global_on_success: Global success handler for all jobs
             logger: Context logger
             lock_prefix: Prefix for lock keys
             lock_ttl_seconds: Lock TTL in seconds
@@ -62,6 +72,10 @@ class ExecutionCoordinator:
         self.executor = executor
         self.async_executor = async_executor
         self.function_registry = function_registry
+        self.failure_handler_registry = failure_handler_registry
+        self.success_handler_registry = success_handler_registry
+        self.global_on_failure = global_on_failure
+        self.global_on_success = global_on_success
         self.logger = logger
         self.lock_prefix = lock_prefix
         self.lock_ttl_seconds = lock_ttl_seconds
@@ -195,9 +209,13 @@ class ExecutionCoordinator:
                 self._update_next_run_time(job_data)
                 self._update_job_status(job_id, next_status)
 
+            # Invoke success handler
+            self._invoke_success_handler(job_id, job_data)
+
         except Exception as e:
             job_logger.error(f"Execution failed: {e}", exc_info=True)
             self._update_job_status(job_id, JobStatus.FAILED)
+            self._invoke_failure_handler(job_id, e, job_data)
 
     def _execute_job_function(self, job_data: dict[str, Any], job_logger: ContextLogger) -> None:
         """
@@ -231,10 +249,13 @@ class ExecutionCoordinator:
             def _handle_async_completion(fut):
                 try:
                     fut.result()  # This will raise if the coroutine raised
+                    # Async job succeeded - invoke success handler
+                    self._invoke_success_handler(job_id, job_data)
                 except Exception as e:
                     job_logger.error(f"Async job execution failed: {e}", exc_info=True)
                     # Update job status to FAILED if async execution fails
                     self._update_job_status(job_id, JobStatus.FAILED)
+                    self._invoke_failure_handler(job_id, e, job_data)
 
             future.add_done_callback(_handle_async_completion)
         else:
@@ -295,3 +316,60 @@ class ExecutionCoordinator:
                 )
             except Exception:
                 self.logger.error("Failed to update next run time", job_id=job_id, exc_info=True)
+
+    def _invoke_failure_handler(
+        self, job_id: str, error: Exception, job_data: dict[str, Any]
+    ) -> None:
+        """
+        Invoke failure handler with priority: job-specific > global.
+
+        Args:
+            job_id: Job ID that failed
+            error: Exception that occurred
+            job_data: Job data from storage
+        """
+        # Get job-specific handler (priority 1)
+        handler = self.failure_handler_registry.get(job_id)
+
+        # Fallback to global handler (priority 2)
+        if handler is None:
+            handler = self.global_on_failure
+
+        # Invoke handler if available
+        if handler:
+            try:
+                job_info = JobInfo.from_dict(job_data)
+                handler(job_id, error, job_info)
+            except Exception as handler_error:
+                self.logger.error(
+                    f"Failure handler raised exception: {handler_error}",
+                    job_id=job_id,
+                    exc_info=True,
+                )
+
+    def _invoke_success_handler(self, job_id: str, job_data: dict[str, Any]) -> None:
+        """
+        Invoke success handler with priority: job-specific > global.
+
+        Args:
+            job_id: Job ID that succeeded
+            job_data: Job data from storage
+        """
+        # Get job-specific handler (priority 1)
+        handler = self.success_handler_registry.get(job_id)
+
+        # Fallback to global handler (priority 2)
+        if handler is None:
+            handler = self.global_on_success
+
+        # Invoke handler if available
+        if handler:
+            try:
+                job_info = JobInfo.from_dict(job_data)
+                handler(job_id, job_info)
+            except Exception as handler_error:
+                self.logger.error(
+                    f"Success handler raised exception: {handler_error}",
+                    job_id=job_id,
+                    exc_info=True,
+                )
