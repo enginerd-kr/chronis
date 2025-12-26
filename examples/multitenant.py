@@ -35,7 +35,7 @@ def main():
         func="send_report",
         seconds=30,
         kwargs={"tenant_name": "ACME Corp"},
-        metadata={"tenant_id": "acme", "plan": "enterprise"}
+        metadata={"tenant_id": "acme", "plan": "enterprise"},
     )
 
     # Tenant: Widget Inc
@@ -45,7 +45,7 @@ def main():
         func="send_report",
         seconds=30,
         kwargs={"tenant_name": "Widget Inc"},
-        metadata={"tenant_id": "widget", "plan": "basic"}
+        metadata={"tenant_id": "widget", "plan": "basic"},
     )
 
     # Tenant: TechStart
@@ -55,7 +55,7 @@ def main():
         func="send_report",
         seconds=20,
         kwargs={"tenant_name": "TechStart"},
-        metadata={"tenant_id": "techstart", "plan": "pro"}
+        metadata={"tenant_id": "techstart", "plan": "pro"},
     )
 
     # 5. Query jobs by tenant
@@ -67,16 +67,12 @@ def main():
         print(f"  {job.job_id}: tenant={tenant_id}, plan={plan}")
 
     print("\n=== ACME Jobs Only ===")
-    acme_jobs = scheduler.query_jobs(
-        filters={"metadata.tenant_id": "acme"}
-    )
+    acme_jobs = scheduler.query_jobs(filters={"metadata.tenant_id": "acme"})
     for job in acme_jobs:
         print(f"  {job.job_id}: {job.name}")
 
     print("\n=== Enterprise Plan Jobs ===")
-    enterprise_jobs = scheduler.query_jobs(
-        filters={"metadata.plan": "enterprise"}
-    )
+    enterprise_jobs = scheduler.query_jobs(filters={"metadata.plan": "enterprise"})
     for job in enterprise_jobs:
         print(f"  {job.job_id}: {job.name}")
 

@@ -164,18 +164,20 @@ feat(scheduler): add support for recurring jobs
 chronis/
 ├── chronis/              # Main package
 │   ├── core/            # Core scheduler logic
+│   │   ├── services/   # Application services
+│   │   ├── jobs/       # Job definitions
+│   │   ├── state/      # State management
+│   │   └── triggers/   # Trigger strategies
 │   ├── adapters/        # Storage and lock adapters
-│   ├── integrations/    # Third-party integrations
 │   └── utils/           # Utility functions
 ├── tests/               # Test files
-├── examples/            # Example scripts
-└── docs/                # Documentation
+└── examples/            # Example scripts
 ```
 
 ### Adding New Features
 
 1. **Discuss first** - Open an issue to discuss the feature before implementing
-2. **Follow patterns** - Use existing patterns (adapters, state pattern, etc.)
+2. **Follow patterns** - Use existing patterns (services, adapters, specifications, etc.)
 3. **Write tests** - Include comprehensive tests for new features
 4. **Document** - Add docstrings and update relevant documentation
 5. **Keep it simple** - Maintain the simplified API philosophy

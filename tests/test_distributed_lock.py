@@ -142,9 +142,7 @@ def test_lock_contention_with_many_jobs():
         # Check execution counts
         jobs_executed_once = sum(1 for count in execution_counts.values() if count == 1)
         jobs_executed_multiple = [
-            (job_id, count)
-            for job_id, count in execution_counts.items()
-            if count > 1
+            (job_id, count) for job_id, count in execution_counts.items() if count > 1
         ]
 
         # In distributed environments with lock contention and eventual consistency,
@@ -169,8 +167,10 @@ def test_lock_contention_with_many_jobs():
             f"Sample of jobs with multiple executions: {jobs_executed_multiple[:10]}"
         )
 
-        print(f"\nLock effectiveness: {jobs_executed_once}/100 jobs executed once, "
-              f"total {total_executions} executions (vs 500 without lock)")
+        print(
+            f"\nLock effectiveness: {jobs_executed_once}/100 jobs executed once, "
+            f"total {total_executions} executions (vs 500 without lock)"
+        )
 
     finally:
         for scheduler in schedulers:
@@ -238,15 +238,11 @@ def test_job_distribution_across_schedulers():
             scheduler.stop()
 
         # Verify all jobs executed at least once
-        assert len(execution_times) == 10, (
-            f"Expected 10 jobs executed, got {len(execution_times)}"
-        )
+        assert len(execution_times) == 10, f"Expected 10 jobs executed, got {len(execution_times)}"
 
         # Count duplicates
         jobs_with_duplicates = [
-            (job_id, len(times))
-            for job_id, times in execution_times.items()
-            if len(times) > 1
+            (job_id, len(times)) for job_id, times in execution_times.items() if len(times) > 1
         ]
 
         # Due to InMemoryLockAdapter limitations, allow up to 20% duplicate execution

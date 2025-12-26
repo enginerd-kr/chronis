@@ -49,9 +49,7 @@ class AsyncExecutor:
 
         # Start event loop in dedicated thread
         self._thread = threading.Thread(
-            target=self._run_event_loop,
-            daemon=True,
-            name="chronis-async-loop"
+            target=self._run_event_loop, daemon=True, name="chronis-async-loop"
         )
         self._thread.start()
 

@@ -126,7 +126,7 @@ def test_mixed_sync_async_jobs():
         # Wait for jobs to execute with timeout
         timeout = 3.5
         start = time.time()
-        while (len(execution_log) < 2 and (time.time() - start) < timeout):
+        while len(execution_log) < 2 and (time.time() - start) < timeout:
             time.sleep(0.1)
 
         # Both sync and async jobs should have executed
@@ -257,11 +257,7 @@ def test_async_job_concurrent_execution():
         """Async task that takes some time."""
         start = time.time()
         await asyncio.sleep(0.05)  # Reduced sleep time
-        execution_times.append({
-            "task_id": task_id,
-            "start": start,
-            "end": time.time()
-        })
+        execution_times.append({"task_id": task_id, "start": start, "end": time.time()})
 
     scheduler.register_job_function("long_async_task", long_async_task)
 

@@ -126,9 +126,7 @@ def test_date_trigger_no_run_date():
 
     # No run_date specified
     result = trigger.calculate_next_run_time(
-        trigger_args={},
-        timezone="UTC",
-        current_time=datetime.now().astimezone()
+        trigger_args={}, timezone="UTC", current_time=datetime.now().astimezone()
     )
 
     assert result is None
@@ -146,7 +144,7 @@ def test_date_trigger_calculates_correctly():
     result = trigger.calculate_next_run_time(
         trigger_args={"run_date": future_date.isoformat()},
         timezone="UTC",
-        current_time=datetime.now().astimezone()
+        current_time=datetime.now().astimezone(),
     )
 
     assert result is not None
@@ -164,7 +162,7 @@ def test_date_trigger_returns_none_after_execution():
     result = trigger.calculate_next_run_time(
         trigger_args={"run_date": past_date.isoformat()},
         timezone="UTC",
-        current_time=datetime.now().astimezone()
+        current_time=datetime.now().astimezone(),
     )
 
     assert result is None
