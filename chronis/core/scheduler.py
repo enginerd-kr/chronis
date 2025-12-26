@@ -782,7 +782,6 @@ class PollingScheduler:
             if run_date.tzinfo is None:
                 # Naive datetime is assumed to be in local system timezone
                 # Convert to aware datetime in local timezone, then to UTC
-                from datetime import datetime as dt
 
                 run_date = run_date.astimezone(get_timezone("UTC"))
             run_date = run_date.isoformat()

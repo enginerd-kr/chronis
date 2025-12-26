@@ -31,7 +31,7 @@ lint: ## Run linter (ruff check)
 	uv run ruff check .
 
 lint-fix: ## Run linter with auto-fix (includes unused imports)
-	uv run ruff check . --fix
+	uv run ruff check . --fix --unsafe-fixes
 
 lint-unused: ## Check for unused imports only
 	uv run ruff check . --select F401
@@ -50,7 +50,7 @@ type-check: ## Run type checker (mypy)
 
 check: lint type-check ## Run all checks (lint + type-check)
 
-fix: lint-fix format ## Fix linting issues and format code
+fix: format lint-fix ## Fix linting issues and format code
 
 clean: ## Clean build artifacts and cache files
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
