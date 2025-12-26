@@ -150,7 +150,7 @@ class SchedulingOrchestrator:
         """
         Query ready jobs from storage.
 
-        Uses the jobs_ready_before specification to find jobs that
+        Uses the jobs_ready_before helper to find jobs that
         are scheduled and have next_run_time <= current_time.
 
         Args:
@@ -160,8 +160,7 @@ class SchedulingOrchestrator:
         Returns:
             List of ready job data
         """
-        # Use specification pattern for type-safe query
-        spec = jobs_ready_before(current_time)
-        filters = spec.to_filters()
+        # Get filter for ready jobs
+        filters = jobs_ready_before(current_time)
 
         return self.storage.query_jobs(filters=filters, limit=limit)

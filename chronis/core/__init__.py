@@ -12,12 +12,12 @@ from chronis.core.lifecycle import JobLifecycleManager
 from chronis.core.scheduling import NextRunTimeCalculator
 from chronis.core.services import ExecutionCoordinator, JobService, SchedulingOrchestrator
 from chronis.core.query import (
-    JobQuery,
-    JobQuerySpec,
-    MetadataSpec,
-    NextRunBeforeSpec,
-    StatusSpec,
-    TriggerTypeSpec,
+    combine_filters,
+    jobs_after_time,
+    jobs_before_time,
+    jobs_by_metadata,
+    jobs_by_status,
+    jobs_by_trigger_type,
     jobs_ready_before,
     scheduled_jobs,
 )
@@ -38,15 +38,15 @@ __all__ = [
     "JobLifecycleManager",
     # Scheduling
     "NextRunTimeCalculator",
-    # Query
-    "JobQuery",
-    "JobQuerySpec",
-    "StatusSpec",
-    "MetadataSpec",
-    "NextRunBeforeSpec",
-    "TriggerTypeSpec",
+    # Query helpers
     "scheduled_jobs",
     "jobs_ready_before",
+    "jobs_by_status",
+    "jobs_by_trigger_type",
+    "jobs_by_metadata",
+    "jobs_before_time",
+    "jobs_after_time",
+    "combine_filters",
     # Services
     "JobService",
     "SchedulingOrchestrator",
