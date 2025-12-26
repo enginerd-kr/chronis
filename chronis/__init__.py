@@ -4,7 +4,7 @@ Chronis - Distributed Scheduler Framework for Multi-Container Environments
 Usage:
     from chronis import PollingScheduler
     from chronis.adapters.storage import InMemoryStorageAdapter
-    from chronis.adapters.locks import InMemoryLockAdapter
+    from chronis.adapters.lock import InMemoryLockAdapter
 
     storage = InMemoryStorageAdapter()
     lock = InMemoryLockAdapter()
@@ -51,7 +51,7 @@ Usage:
 """
 
 # Core classes
-from chronis.adapters.locks import InMemoryLockAdapter
+from chronis.adapters.lock import InMemoryLockAdapter
 from chronis.adapters.storage import InMemoryStorageAdapter
 from chronis.core import (
     ConnectionError,

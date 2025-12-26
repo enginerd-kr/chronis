@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from chronis import PollingScheduler
-from chronis.adapters.locks.memory import InMemoryLockAdapter
+from chronis.adapters.lock.memory import InMemoryLockAdapter
 from chronis.adapters.storage.memory import InMemoryStorageAdapter
 
 

@@ -37,7 +37,7 @@ class PollingScheduler:
     Usage:
         >>> # Production: DynamoDB + Redis
         >>> from chronis.adapters.storage import DynamoDBAdapter
-        >>> from chronis.adapters.locks import RedisLockAdapter
+        >>> from chronis.adapters.lock import RedisLockAdapter
         >>> storage = DynamoDBAdapter(table_name="scheduled_jobs")
         >>> lock = RedisLockAdapter(host="localhost")
         >>> scheduler = PollingScheduler(
