@@ -28,16 +28,22 @@ test-watch: ## Run tests in watch mode
 	uv run pytest-watch
 
 lint: ## Run linter (ruff check)
-	uv run ruff check chronis/ tests/ examples/
+	uv run ruff check .
 
-lint-fix: ## Run linter with auto-fix
-	uv run ruff check chronis/ tests/ examples/ --fix
+lint-fix: ## Run linter with auto-fix (includes unused imports)
+	uv run ruff check . --fix
+
+lint-unused: ## Check for unused imports only
+	uv run ruff check . --select F401
+
+lint-unused-fix: ## Remove unused imports automatically
+	uv run ruff check . --select F401 --fix
 
 format: ## Format code with ruff
-	uv run ruff format chronis/ tests/ examples/
+	uv run ruff format .
 
 format-check: ## Check code formatting without changes
-	uv run ruff format chronis/ tests/ examples/ --check
+	uv run ruff format . --check
 
 type-check: ## Run type checker (mypy)
 	uv run mypy chronis/
