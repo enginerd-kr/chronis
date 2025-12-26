@@ -8,7 +8,11 @@ from chronis.core.common import (
 )
 from chronis.core.execution import AsyncExecutor
 from chronis.core.jobs import JobDefinition, JobInfo
-from chronis.core.lifecycle import JobLifecycleManager
+from chronis.core.lifecycle import (
+    can_execute,
+    determine_next_status_after_execution,
+    is_ready_for_execution,
+)
 from chronis.core.scheduling import NextRunTimeCalculator
 from chronis.core.services import ExecutionCoordinator, JobService, SchedulingOrchestrator
 from chronis.core.query import (
@@ -35,7 +39,9 @@ __all__ = [
     # Job Management
     "JobDefinition",
     "JobInfo",
-    "JobLifecycleManager",
+    "can_execute",
+    "determine_next_status_after_execution",
+    "is_ready_for_execution",
     # Scheduling
     "NextRunTimeCalculator",
     # Query helpers

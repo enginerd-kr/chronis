@@ -1,7 +1,7 @@
 """Job queue with backpressure control."""
 
 import threading
-from queue import Empty, Queue
+from queue import Empty, Full, Queue
 from typing import Any
 
 
@@ -62,7 +62,7 @@ class JobQueue:
         try:
             self._pending_queue.put_nowait(job_data)
             return True
-        except Exception:
+        except Full:
             return False
 
     def get_next_job(self) -> dict[str, Any] | None:
@@ -80,7 +80,6 @@ class JobQueue:
             with self._lock:
                 self._in_flight_jobs.add(job_id)
 
-            self._pending_queue.task_done()
             return job_data
 
         except Empty:

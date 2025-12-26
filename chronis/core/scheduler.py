@@ -19,6 +19,7 @@ from chronis.core.jobs.definition import JobDefinition, JobInfo
 from chronis.core.services import ExecutionCoordinator, JobService, SchedulingOrchestrator
 from chronis.core.state import JobStatus
 from chronis.utils.logging import ContextLogger, _default_logger
+from chronis.utils.time import get_timezone
 
 
 class PollingScheduler:
@@ -105,8 +106,8 @@ class PollingScheduler:
         self.max_workers = max_workers or self.DEFAULT_MAX_WORKERS
         self.max_queue_size = max_queue_size or (self.max_workers * 5)
         # Default executor interval: half of polling interval (min 1 second)
-        self.executor_interval_seconds = executor_interval_seconds or min(
-            1, max(0.5, polling_interval_seconds / 2)
+        self.executor_interval_seconds = executor_interval_seconds or max(
+            1, polling_interval_seconds / 2
         )
         self.verbose = verbose
 
@@ -629,7 +630,6 @@ class PollingScheduler:
         day_of_week: int | str | None = None,
         hour: int | str | None = None,
         minute: int | str | None = None,
-        second: int | str | None = None,
         timezone: str = "UTC",
         args: tuple | None = None,
         kwargs: dict[str, Any] | None = None,
@@ -649,7 +649,6 @@ class PollingScheduler:
             day_of_week: Day of week (0-6 or mon,tue,wed,thu,fri,sat,sun)
             hour: Hour (0-23)
             minute: Minute (0-59)
-            second: Second (0-59)
             timezone: IANA timezone (e.g., "Asia/Seoul", "UTC")
             args: Positional arguments for func
             kwargs: Keyword arguments for func
@@ -705,7 +704,6 @@ class PollingScheduler:
                 "day_of_week": day_of_week,
                 "hour": hour,
                 "minute": minute,
-                "second": second,
             }.items()
             if v is not None
         }
@@ -781,6 +779,12 @@ class PollingScheduler:
             job_id = self._generate_job_id(func, name)
 
         if isinstance(run_date, datetime):
+            if run_date.tzinfo is None:
+                # Naive datetime is assumed to be in local system timezone
+                # Convert to aware datetime in local timezone, then to UTC
+                from datetime import datetime as dt
+
+                run_date = run_date.astimezone(get_timezone("UTC"))
             run_date = run_date.isoformat()
 
         job = JobDefinition(

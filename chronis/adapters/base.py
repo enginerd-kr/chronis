@@ -71,6 +71,19 @@ class JobStorageAdapter(ABC):
         """
         pass
 
+    @abstractmethod
+    def count_jobs(self, filters: dict[str, Any] | None = None) -> int:
+        """
+        Count jobs with optional filters.
+
+        Args:
+            filters: Dictionary of filter conditions (None = count all)
+
+        Returns:
+            Number of matching jobs
+        """
+        pass
+
 
 class LockAdapter(ABC):
     """Distributed lock adapter abstract class."""

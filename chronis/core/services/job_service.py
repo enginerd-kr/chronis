@@ -191,5 +191,4 @@ class JobService:
         Returns:
             Number of matching jobs
         """
-        jobs = self.query(filters=filters)
-        return len(jobs)
+        return self.storage.count_jobs(filters=filters)

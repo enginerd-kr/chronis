@@ -88,3 +88,7 @@ class InMemoryStorageAdapter(JobStorageAdapter):
             jobs = jobs[:limit]
 
         return jobs
+
+    def count_jobs(self, filters: dict[str, Any] | None = None) -> int:
+        """Count jobs matching filters."""
+        return len(self.query_jobs(filters=filters))
