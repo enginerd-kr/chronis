@@ -20,7 +20,7 @@ class IntervalTrigger(TriggerStrategy):
         Calculate next run time for interval trigger.
 
         Args:
-            trigger_args: Must contain "seconds", "minutes", and/or "hours"
+            trigger_args: Must contain "seconds", "minutes", "hours", "days", and/or "weeks"
             timezone: IANA timezone string
             current_time: Current time (timezone-aware)
 
@@ -33,8 +33,16 @@ class IntervalTrigger(TriggerStrategy):
         seconds = trigger_args.get("seconds", 0)
         minutes = trigger_args.get("minutes", 0)
         hours = trigger_args.get("hours", 0)
+        days = trigger_args.get("days", 0)
+        weeks = trigger_args.get("weeks", 0)
 
-        next_time = current + timedelta(seconds=seconds, minutes=minutes, hours=hours)
+        next_time = current + timedelta(
+            seconds=seconds,
+            minutes=minutes,
+            hours=hours,
+            days=days,
+            weeks=weeks,
+        )
 
         # Convert to UTC
         return next_time.astimezone(ZoneInfo("UTC"))

@@ -10,7 +10,7 @@ from tenacity import RetryError, retry, stop_after_attempt, wait_exponential
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
 from chronis.core.common.types import TriggerType
 from chronis.core.execution.async_loop import AsyncExecutor
-from chronis.core.lifecycle import JobLifecycleManager
+from chronis.core import lifecycle
 from chronis.core.scheduling import NextRunTimeCalculator
 from chronis.core.state import JobStatus
 from chronis.utils.logging import ContextLogger
@@ -181,7 +181,7 @@ class ExecutionCoordinator:
             self._execute_job_function(job_data, job_logger)
 
             # Determine next status after successful execution
-            next_status = JobLifecycleManager.determine_next_status_after_execution(
+            next_status = lifecycle.determine_next_status_after_execution(
                 trigger_type=job_data["trigger_type"], execution_succeeded=True
             )
 

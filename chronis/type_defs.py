@@ -37,12 +37,13 @@ class IntervalTriggerArgs(TypedDict, total=False):
 class CronTriggerArgs(TypedDict, total=False):
     """Type definition for cron trigger arguments."""
 
+    year: str
     minute: str
     hour: str
     day: str
     month: str
+    week: str
     day_of_week: str
-    year: str
 
 
 class DateTriggerArgs(TypedDict):

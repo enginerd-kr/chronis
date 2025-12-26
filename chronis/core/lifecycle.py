@@ -8,95 +8,77 @@ from chronis.core.state import JobStatus
 from chronis.utils.time import utc_now
 
 
-class JobLifecycleManager:
+def can_execute(job: JobInfo) -> bool:
     """
-    Manages job lifecycle including state transitions and execution eligibility.
+    Check if a job can be executed.
 
-    This is a pure domain service that contains business logic for:
-    - Determining if a job can be executed
-    - Determining state transitions based on execution results
-    - Managing job lifecycle rules
+    A job can be executed if:
+    1. Its state allows execution (via State pattern)
+    2. Its next_run_time has passed (if applicable)
+
+    Args:
+        job: Job information
+
+    Returns:
+        True if job can be executed, False otherwise
     """
+    if not job.can_execute():
+        return False
 
-    @staticmethod
-    def can_execute(job: JobInfo) -> bool:
-        """
-        Check if a job can be executed.
+    if job.next_run_time:
+        return job.next_run_time <= utc_now()
 
-        A job can be executed if:
-        1. Its state allows execution (via State pattern)
-        2. Its next_run_time has passed (if applicable)
+    return True
 
-        Args:
-            job: Job information
 
-        Returns:
-            True if job can be executed, False otherwise
-        """
-        # Check state-based execution eligibility
-        if not job.can_execute():
-            return False
+def is_ready_for_execution(job: JobInfo, current_time: datetime | None = None) -> bool:
+    """
+    Check if a job is ready for execution at a specific time.
 
-        # Check time-based execution eligibility
-        if job.next_run_time:
-            return job.next_run_time <= utc_now()
+    Args:
+        job: Job information
+        current_time: Time to check against (defaults to now)
 
-        return True
+    Returns:
+        True if job is ready, False otherwise
+    """
+    if current_time is None:
+        current_time = utc_now()
 
-    @staticmethod
-    def is_ready_for_execution(job: JobInfo, current_time: datetime | None = None) -> bool:
-        """
-        Check if a job is ready for execution at a specific time.
+    if job.status not in (JobStatus.SCHEDULED, JobStatus.PENDING):
+        return False
 
-        Args:
-            job: Job information
-            current_time: Time to check against (defaults to now)
+    if not job.next_run_time:
+        return False
 
-        Returns:
-            True if job is ready, False otherwise
-        """
-        if current_time is None:
-            current_time = utc_now()
+    return job.next_run_time <= current_time
 
-        # Must be in SCHEDULED or PENDING state
-        if job.status not in (JobStatus.SCHEDULED, JobStatus.PENDING):
-            return False
 
-        # Must have next_run_time set and it must be in the past
-        if not job.next_run_time:
-            return False
+def determine_next_status_after_execution(
+    trigger_type: str | TriggerType, execution_succeeded: bool
+) -> JobStatus | None:
+    """
+    Determine what status a job should transition to after execution.
 
-        return job.next_run_time <= current_time
+    Business rules:
+    - One-time jobs (DATE trigger): Should be deleted (return None)
+    - Recurring jobs + success: SCHEDULED
+    - Any job + failure: FAILED
 
-    @staticmethod
-    def determine_next_status_after_execution(
-        trigger_type: str | TriggerType, execution_succeeded: bool
-    ) -> JobStatus:
-        """
-        Determine what status a job should transition to after execution.
+    Args:
+        trigger_type: Job trigger type (string or enum)
+        execution_succeeded: Whether execution was successful
 
-        Business rules:
-        - One-time jobs (DATE trigger): Should be deleted (return None)
-        - Recurring jobs + success: SCHEDULED
-        - Any job + failure: FAILED
+    Returns:
+        Next status, or None if job should be deleted
+    """
+    if not execution_succeeded:
+        return JobStatus.FAILED
 
-        Args:
-            trigger_type: Job trigger type (string or enum)
-            execution_succeeded: Whether execution was successful
+    if isinstance(trigger_type, str):
+        trigger_type = TriggerType(trigger_type)
 
-        Returns:
-            Next status, or None if job should be deleted
-        """
-        if not execution_succeeded:
-            return JobStatus.FAILED
+    if trigger_type == TriggerType.DATE:
+        return None
 
-        # One-time jobs should be deleted after successful execution
-        # Returning None signals that the job should be removed
-        if isinstance(trigger_type, str):
-            trigger_type = TriggerType(trigger_type)
-
-        if trigger_type == TriggerType.DATE:
-            return None  # Signal for deletion
-
-        # Recurring jobs go back to SCHEDULED
-        return JobStatus.SCHEDULED
+    return JobStatus.SCHEDULED

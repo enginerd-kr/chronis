@@ -108,15 +108,15 @@ class JobDefinition(BaseModel):
         Returns:
             Next run time in UTC, or None
         """
-        from chronis.core.triggers import get_trigger_strategy
+        from chronis.core.scheduling import NextRunTimeCalculator
 
         # Current time (timezone aware)
         tz = get_timezone(self.timezone)
         current_time = datetime.now(tz)
 
-        # Get appropriate strategy and calculate next run time
-        strategy = get_trigger_strategy(self.trigger_type.value)
-        return strategy.calculate_next_run_time(self.trigger_args, self.timezone, current_time)
+        return NextRunTimeCalculator.calculate(
+            self.trigger_type, self.trigger_args, self.timezone, current_time
+        )
 
 
 @dataclass(frozen=True)
