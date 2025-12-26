@@ -5,6 +5,8 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from typing import Any
 
+from tenacity import RetryError, retry, stop_after_attempt, wait_exponential
+
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
 from chronis.core.common.types import TriggerType
 from chronis.core.execution.async_loop import AsyncExecutor
@@ -100,7 +102,7 @@ class ExecutionCoordinator:
         self, lock_key: str, job_logger: ContextLogger
     ) -> Generator[bool, None, None]:
         """
-        Context manager for lock acquisition and release.
+        Context manager for lock acquisition and release with retry.
 
         Args:
             lock_key: Lock key
@@ -116,9 +118,20 @@ class ExecutionCoordinator:
         finally:
             if lock_acquired:
                 try:
-                    self.lock.release(lock_key)
-                except Exception as e:
-                    job_logger.error(f"Lock release failed: {e}", exc_info=True)
+                    self._release_lock_with_retry(lock_key)
+                except RetryError as e:
+                    job_logger.error(
+                        f"Lock release failed after retries: {e}", lock_key=lock_key, exc_info=True
+                    )
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=0.1, min=0.1, max=1),
+        reraise=True,
+    )
+    def _release_lock_with_retry(self, lock_key: str):
+        """Release lock with automatic retry (0.1s, 0.2s, 0.4s backoff)."""
+        self.lock.release(lock_key)
 
     def _trigger_execution(
         self,
@@ -137,16 +150,16 @@ class ExecutionCoordinator:
         job_id = job_data["job_id"]
 
         try:
-            # 1. Update state to RUNNING
+            # Update state to RUNNING
             self._update_job_status(job_id, JobStatus.RUNNING)
 
-            # 2. Submit to thread pool with completion callback
+            # Submit to thread pool with completion callback
             future = self.executor.submit(self._execute_in_background, job_data, job_logger)
 
-            # 3. Add done callback
+            # Add done callback
             future.add_done_callback(lambda f: on_complete(job_id))
 
-            # 4. Log only in verbose mode
+            # Log only in verbose mode
             if self.verbose:
                 job_logger.info("Job triggered")
 
