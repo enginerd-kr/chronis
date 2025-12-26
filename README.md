@@ -46,30 +46,24 @@ def send_daily_email():
 # 4. Register function
 scheduler.register_job_function("send_daily_email", send_daily_email)
 
-# 5. Create jobs using simplified API
+# 5. Create jobs
 
-# Interval job - runs every 30 seconds
-scheduler.create_interval_job(
-    job_id="heartbeat",
-    name="System Heartbeat",
+# Interval - runs every 30 seconds
+job1 = scheduler.create_interval_job(
     func="send_daily_email",
     seconds=30
 )
 
-# Cron job - runs daily at 9 AM Seoul time
-scheduler.create_cron_job(
-    job_id="daily-report",
-    name="Daily Report",
+# Cron - runs daily at 9 AM Seoul time
+job2 = scheduler.create_cron_job(
     func="send_daily_email",
     hour=9,
     minute=0,
     timezone="Asia/Seoul"
 )
 
-# Date job - runs once at specific time
-scheduler.create_date_job(
-    job_id="welcome-email",
-    name="Welcome Email",
+# Date - runs once at specific time
+job3 = scheduler.create_date_job(
     func="send_daily_email",
     run_date="2025-11-08 10:00:00",
     timezone="Asia/Seoul"
@@ -82,17 +76,31 @@ scheduler.start()
 ## Job Management
 
 ```python
+# Create job
+job = scheduler.create_interval_job(func=my_func, hours=1)
+
 # Query jobs
 jobs = scheduler.query_jobs(filters={"status": "scheduled"}, limit=10)
 
 # Get specific job
-job = scheduler.get_job("daily-report")
+job = scheduler.get_job(saved_id)
 
 # Delete job
-scheduler.delete_job("daily-report")
+scheduler.delete_job(saved_id)
 ```
 
 **Job States**: `PENDING` → `SCHEDULED` → `RUNNING` → `FAILED` (one-time jobs auto-delete after success)
+
+**Custom IDs** (optional): You can provide explicit IDs if needed:
+
+```python
+scheduler.create_interval_job(
+    func=my_func,
+    job_id="my-custom-id",  # Explicit ID
+    name="My Job",
+    hours=1
+)
+```
 
 ## Multi-Tenancy & Metadata
 
@@ -100,9 +108,7 @@ Perfect for SaaS applications and multi-agent systems:
 
 ```python
 # Create job with metadata
-scheduler.create_interval_job(
-    job_id="daily-report",
-    name="Daily Report",
+job = scheduler.create_interval_job(
     func=generate_report,
     hours=24,
     metadata={"tenant_id": "acme", "priority": "high"}
@@ -110,6 +116,23 @@ scheduler.create_interval_job(
 
 # Query by metadata
 jobs = scheduler.query_jobs(filters={"metadata.tenant_id": "acme"})
+```
+
+## AI Agent Example
+
+```python
+# LLM function calling - minimal parameters!
+def schedule_reminder(message: str, hours_from_now: int):
+    """AI agent schedules a reminder."""
+    job = scheduler.create_date_job(
+        func="send_notification",
+        run_date=datetime.now() + timedelta(hours=hours_from_now),
+        kwargs={"message": message}
+    )
+    return f"Reminder scheduled with ID: {job.job_id}"
+
+# Agent can now manage its own schedule
+schedule_reminder("Check on customer", 24)
 ```
 
 ## Learn More

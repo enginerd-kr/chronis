@@ -49,48 +49,46 @@ def main():
     scheduler.register_job_function("cleanup_logs", cleanup_logs)
     scheduler.register_job_function("generate_report", generate_report)
 
-    # 4. Create jobs using simplified API (TriggerType hidden)
-    print("4. Creating jobs with simplified API...\n")
+    # 4. Create jobs using AI-friendly API (auto-generated IDs)
+    print("4. Creating jobs with AI-friendly API (auto-generated IDs)...\n")
 
     # Interval job - runs every 10 seconds
     job1 = scheduler.create_interval_job(
-        job_id="email-001",
-        name="Send Email (Interval)",
         func="send_email",
         seconds=10,
     )
-    print(f"   ✓ Created interval job: {job1.name} (runs every 10 seconds)")
+    print(f"   ✓ Created interval job: {job1.name}")
+    print(f"     ID: {job1.job_id} (auto-generated)")
 
-    # Cron job - runs daily at 9 AM
+    # Cron job - runs daily at 9 AM (with explicit name)
     job2 = scheduler.create_cron_job(
-        job_id="cleanup-001",
-        name="Cleanup Logs (Daily 9 AM)",
         func="cleanup_logs",
+        name="Cleanup Logs (Daily 9 AM)",
         hour=9,
         minute=0,
         timezone="Asia/Seoul",
     )
-    print(f"   ✓ Created cron job: {job2.name} (runs daily at 9 AM Seoul time)")
+    print(f"   ✓ Created cron job: {job2.name}")
+    print(f"     ID: {job2.job_id} (auto-generated)")
 
-    # Interval job - runs every 15 seconds
+    # Interval job - runs every 15 seconds (with kwargs)
     job3 = scheduler.create_interval_job(
-        job_id="report-001",
-        name="Generate Report",
         func="generate_report",
         seconds=15,
         kwargs={"report_type": "sales"},
     )
-    print(f"   ✓ Created interval job: {job3.name} (runs every 15 seconds)\n")
+    print(f"   ✓ Created interval job: {job3.name}")
+    print(f"     ID: {job3.job_id} (auto-generated)\n")
 
     # Date job - runs once after 30 seconds
     future_time = datetime.now() + timedelta(seconds=30)
     job4 = scheduler.create_date_job(
-        job_id="oneshot-001",
-        name="One-time Email",
         func="send_email",
         run_date=future_time,
     )
-    print(f"   ✓ Created date job: {job4.name} (runs once at {future_time})\n")
+    print(f"   ✓ Created date job: {job4.name}")
+    print(f"     ID: {job4.job_id} (auto-generated)")
+    print(f"     Scheduled for: {future_time}\n")
 
     # 5. Query all jobs
     print("5. Querying all jobs...")
@@ -111,7 +109,7 @@ def main():
 
     # 8. Check one-time job was deleted after execution
     print("\n8. Checking one-time job status...")
-    oneshot_job = scheduler.get_job("oneshot-001")
+    oneshot_job = scheduler.get_job(job4.job_id)  # Use the auto-generated ID
     if oneshot_job is None:
         print("   ✓ One-time job was automatically deleted after execution")
     else:
