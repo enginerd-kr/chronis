@@ -1,6 +1,6 @@
 """Tests for NextRunTimeCalculator."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from chronis.core.common.types import TriggerType
 from chronis.core.scheduling import NextRunTimeCalculator
@@ -14,7 +14,7 @@ class TestNextRunTimeCalculator:
         next_run = NextRunTimeCalculator.calculate(TriggerType.INTERVAL, {"seconds": 30}, "UTC")
 
         assert next_run is not None
-        assert next_run > datetime.now(timezone.utc)
+        assert next_run > datetime.now(UTC)
 
     def test_calculate_with_string_trigger_type(self):
         """Test calculating with trigger type as string."""
@@ -30,11 +30,11 @@ class TestNextRunTimeCalculator:
 
         assert next_run is not None
         # Should be in the future
-        assert next_run > datetime.now(timezone.utc)
+        assert next_run > datetime.now(UTC)
 
     def test_calculate_date_trigger(self):
         """Test calculating next run time for date trigger."""
-        future_time = datetime(2030, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
+        future_time = datetime(2030, 1, 1, 10, 0, 0, tzinfo=UTC)
 
         next_run = NextRunTimeCalculator.calculate(
             TriggerType.DATE, {"run_date": future_time.isoformat()}, "UTC"
@@ -68,7 +68,7 @@ class TestNextRunTimeCalculator:
 
     def test_calculate_with_local_time_returns_none_for_past_date(self):
         """Test that past DATE triggers return None."""
-        past_time = datetime(2020, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
+        past_time = datetime(2020, 1, 1, 10, 0, 0, tzinfo=UTC)
 
         utc_time, local_time = NextRunTimeCalculator.calculate_with_local_time(
             TriggerType.DATE, {"run_date": past_time.isoformat()}, "UTC"

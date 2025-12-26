@@ -56,7 +56,7 @@ class TestJobService:
         # Try to create again
         try:
             self.service.create(job_def)
-            assert False, "Should have raised JobAlreadyExistsError"
+            raise AssertionError("Should have raised JobAlreadyExistsError")
         except JobAlreadyExistsError:
             pass
 
@@ -174,7 +174,7 @@ class TestJobService:
         """Test updating nonexistent job raises error."""
         try:
             self.service.update("nonexistent", name="New Name")
-            assert False, "Should have raised JobNotFoundError"
+            raise AssertionError("Should have raised JobNotFoundError")
         except JobNotFoundError:
             pass
 
