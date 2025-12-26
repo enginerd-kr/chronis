@@ -1,17 +1,8 @@
 """Job queue with backpressure control."""
 
 import threading
-from dataclasses import dataclass, field
-from queue import Empty, PriorityQueue
+from queue import Empty, Queue
 from typing import Any
-
-
-@dataclass(order=True)
-class QueuedJob:
-    """Priority queue item for jobs."""
-
-    priority: str  # next_run_time (ISO format) - older jobs first
-    job_data: dict[str, Any] = field(compare=False)
 
 
 class JobQueue:
@@ -19,9 +10,12 @@ class JobQueue:
     Internal job queue with backpressure control.
 
     Manages job execution flow:
-    1. Pending queue: Jobs waiting to be executed
+    1. Pending queue: Jobs waiting to be executed (FIFO)
     2. Running set: Jobs currently being executed
     3. Automatic removal on completion via callback
+
+    Note: Jobs are already sorted by next_run_time from storage,
+    so a simple FIFO queue is sufficient.
     """
 
     def __init__(self, max_queue_size: int = 100) -> None:
@@ -33,8 +27,8 @@ class JobQueue:
         """
         self.max_queue_size = max_queue_size
 
-        # Pending queue: jobs waiting to be executed (priority queue)
-        self._pending_queue: PriorityQueue[QueuedJob] = PriorityQueue(maxsize=max_queue_size)
+        # Pending queue: jobs waiting to be executed (FIFO queue)
+        self._pending_queue: Queue[dict[str, Any]] = Queue(maxsize=max_queue_size)
 
         # Running jobs: job_id -> True (thread-safe set)
         self._running_jobs: set[str] = set()
@@ -61,11 +55,8 @@ class JobQueue:
         Returns:
             True if added, False if queue is full
         """
-        priority = job_data.get("next_run_time", "")
-        queued_job = QueuedJob(priority=priority, job_data=job_data)
-
         try:
-            self._pending_queue.put_nowait(queued_job)
+            self._pending_queue.put_nowait(job_data)
             return True
         except Exception:
             return False
@@ -78,8 +69,7 @@ class JobQueue:
             Job data or None if queue is empty
         """
         try:
-            queued_job = self._pending_queue.get_nowait()
-            job_data = queued_job.job_data
+            job_data = self._pending_queue.get_nowait()
             job_id = job_data["job_id"]
 
             # Mark as running

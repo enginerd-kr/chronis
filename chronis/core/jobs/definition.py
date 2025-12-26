@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from chronis.core.common.types import TriggerType
-from chronis.core.state import JobStatus, StateFactory
+from chronis.core.state import JobStatus
 from chronis.utils.time import get_timezone, utc_now
 
 
@@ -123,14 +123,14 @@ class JobDefinition:
         Returns:
             Next run time in UTC, or None
         """
-        from chronis.core.triggers import TriggerFactory
+        from chronis.core.triggers import get_trigger_strategy
 
         # Current time (timezone aware)
         tz = get_timezone(self.timezone)
         current_time = datetime.now(tz)
 
         # Get appropriate strategy and calculate next run time
-        strategy = TriggerFactory.get_strategy(self.trigger_type.value)
+        strategy = get_trigger_strategy(self.trigger_type.value)
         return strategy.calculate_next_run_time(self.trigger_args, self.timezone, current_time)
 
 
@@ -163,13 +163,9 @@ class JobInfo:
         self.created_at: datetime = datetime.fromisoformat(data["created_at"])
         self.updated_at: datetime = datetime.fromisoformat(data["updated_at"])
 
-    def get_state(self):
-        """Get the state object for this job."""
-        return StateFactory.get_state(self.status)
-
     def can_execute(self) -> bool:
         """Check if this job can be executed."""
-        return self.get_state().can_execute()
+        return self.status.can_execute()
 
     def get_next_run_time(self, timezone: str | None = None) -> datetime | None:
         """

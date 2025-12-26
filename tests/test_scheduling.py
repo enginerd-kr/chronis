@@ -77,42 +77,6 @@ class TestNextRunTimeCalculator:
         assert utc_time is None
         assert local_time is None
 
-    def test_should_skip_calculation_for_date_trigger(self):
-        """Test that DATE triggers should skip calculation."""
-        assert NextRunTimeCalculator.should_skip_calculation(TriggerType.DATE) is True
-        assert NextRunTimeCalculator.should_skip_calculation("date") is True
-
-    def test_should_not_skip_calculation_for_recurring_triggers(self):
-        """Test that recurring triggers should not skip calculation."""
-        assert NextRunTimeCalculator.should_skip_calculation(TriggerType.INTERVAL) is False
-        assert NextRunTimeCalculator.should_skip_calculation(TriggerType.CRON) is False
-        assert NextRunTimeCalculator.should_skip_calculation("interval") is False
-        assert NextRunTimeCalculator.should_skip_calculation("cron") is False
-
-    def test_is_recurring_for_interval_and_cron(self):
-        """Test identifying recurring triggers."""
-        assert NextRunTimeCalculator.is_recurring(TriggerType.INTERVAL) is True
-        assert NextRunTimeCalculator.is_recurring(TriggerType.CRON) is True
-        assert NextRunTimeCalculator.is_recurring("interval") is True
-        assert NextRunTimeCalculator.is_recurring("cron") is True
-
-    def test_is_not_recurring_for_date(self):
-        """Test that DATE is not recurring."""
-        assert NextRunTimeCalculator.is_recurring(TriggerType.DATE) is False
-        assert NextRunTimeCalculator.is_recurring("date") is False
-
-    def test_is_one_time_for_date(self):
-        """Test identifying one-time triggers."""
-        assert NextRunTimeCalculator.is_one_time(TriggerType.DATE) is True
-        assert NextRunTimeCalculator.is_one_time("date") is True
-
-    def test_is_not_one_time_for_recurring(self):
-        """Test that recurring triggers are not one-time."""
-        assert NextRunTimeCalculator.is_one_time(TriggerType.INTERVAL) is False
-        assert NextRunTimeCalculator.is_one_time(TriggerType.CRON) is False
-        assert NextRunTimeCalculator.is_one_time("interval") is False
-        assert NextRunTimeCalculator.is_one_time("cron") is False
-
 
 class TestNextRunTimeCalculatorIntegration:
     """Integration tests with actual trigger scenarios."""

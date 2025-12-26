@@ -54,14 +54,12 @@ Usage:
 from chronis.adapters.lock import InMemoryLockAdapter
 from chronis.adapters.storage import InMemoryStorageAdapter
 from chronis.core import (
-    ConnectionError,
     JobAlreadyExistsError,
     JobInfo,
     JobNotFoundError,
     JobStatus,
     PollingScheduler,
     SchedulerError,
-    ValidationError,
 )
 
 __all__ = [
@@ -73,8 +71,6 @@ __all__ = [
     "SchedulerError",
     "JobAlreadyExistsError",
     "JobNotFoundError",
-    "ValidationError",
-    "ConnectionError",
     # Storage Adapters
     "InMemoryStorageAdapter",
     # Lock Adapters
