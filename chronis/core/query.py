@@ -1,12 +1,12 @@
 """Job query helper functions."""
 
 from datetime import datetime
-from typing import Any
 
 from chronis.core.state import JobStatus
+from chronis.type_defs import JobQueryFilter
 
 
-def scheduled_jobs() -> dict[str, Any]:
+def scheduled_jobs() -> JobQueryFilter:
     """
     Get filter for scheduled jobs.
 
@@ -16,7 +16,7 @@ def scheduled_jobs() -> dict[str, Any]:
     return {"status": JobStatus.SCHEDULED.value}
 
 
-def jobs_ready_before(time: datetime) -> dict[str, Any]:
+def jobs_ready_before(time: datetime) -> JobQueryFilter:
     """
     Get filter for jobs ready to run before specified time.
 
@@ -34,7 +34,7 @@ def jobs_ready_before(time: datetime) -> dict[str, Any]:
     }
 
 
-def jobs_by_status(status: JobStatus) -> dict[str, Any]:
+def jobs_by_status(status: JobStatus) -> JobQueryFilter:
     """
     Get filter for jobs by status.
 
@@ -47,7 +47,7 @@ def jobs_by_status(status: JobStatus) -> dict[str, Any]:
     return {"status": status.value}
 
 
-def jobs_by_trigger_type(trigger_type: str) -> dict[str, Any]:
+def jobs_by_trigger_type(trigger_type: str) -> JobQueryFilter:
     """
     Get filter for jobs by trigger type.
 
@@ -60,7 +60,7 @@ def jobs_by_trigger_type(trigger_type: str) -> dict[str, Any]:
     return {"trigger_type": trigger_type}
 
 
-def jobs_by_metadata(key: str, value: Any) -> dict[str, Any]:
+def jobs_by_metadata(key: str, value: str) -> dict[str, str]:
     """
     Get filter for jobs by metadata field.
 
@@ -69,12 +69,12 @@ def jobs_by_metadata(key: str, value: Any) -> dict[str, Any]:
         value: Metadata value
 
     Returns:
-        Filter dictionary
+        Filter dictionary with metadata key
     """
     return {f"metadata.{key}": value}
 
 
-def jobs_before_time(time: datetime) -> dict[str, Any]:
+def jobs_before_time(time: datetime) -> JobQueryFilter:
     """
     Get filter for jobs with next_run_time <= specified time.
 
@@ -87,7 +87,7 @@ def jobs_before_time(time: datetime) -> dict[str, Any]:
     return {"next_run_time_lte": time.isoformat()}
 
 
-def jobs_after_time(time: datetime) -> dict[str, Any]:
+def jobs_after_time(time: datetime) -> JobQueryFilter:
     """
     Get filter for jobs with next_run_time >= specified time.
 
@@ -100,7 +100,7 @@ def jobs_after_time(time: datetime) -> dict[str, Any]:
     return {"next_run_time_gte": time.isoformat()}
 
 
-def combine_filters(*filters: dict[str, Any]) -> dict[str, Any]:
+def combine_filters(*filters: dict[str, str]) -> dict[str, str]:
     """
     Combine multiple filters into one.
 

@@ -64,7 +64,7 @@ class JobService:
             result = self.storage.create_job(job_data)
             if self.verbose and self.logger:
                 self.logger.info("Job created", job_id=job.job_id)
-            return JobInfo(result)
+            return JobInfo.from_dict(result)
         except ValueError as e:
             raise JobAlreadyExistsError(str(e)) from e
 
@@ -79,7 +79,7 @@ class JobService:
             Job info or None if not found
         """
         job_data = self.storage.get_job(job_id)
-        return JobInfo(job_data) if job_data else None
+        return JobInfo.from_dict(job_data) if job_data else None
 
     def query(
         self,
@@ -101,7 +101,7 @@ class JobService:
             >>> jobs = service.query(filters=scheduled_jobs())
         """
         jobs_data = self.storage.query_jobs(filters=filters, limit=limit)
-        return [JobInfo(job_data) for job_data in jobs_data]
+        return [JobInfo.from_dict(job_data) for job_data in jobs_data]
 
     def update(
         self,
@@ -153,7 +153,7 @@ class JobService:
 
         try:
             result = self.storage.update_job(job_id, updates)
-            return JobInfo(result)
+            return JobInfo.from_dict(result)
         except ValueError as e:
             raise JobNotFoundError(str(e)) from e
 

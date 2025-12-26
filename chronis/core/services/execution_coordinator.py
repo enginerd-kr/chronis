@@ -173,7 +173,7 @@ class ExecutionCoordinator:
             # Determine next status after successful execution
             from chronis.core.jobs.definition import JobInfo
 
-            job_info = JobInfo(job_data)
+            job_info = JobInfo.from_dict(job_data)
             next_status = JobLifecycleManager.determine_next_status_after_execution(
                 job_info, execution_succeeded=True
             )
