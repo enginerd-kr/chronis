@@ -3,6 +3,7 @@
 import asyncio
 import inspect
 import logging
+import secrets
 import threading
 import time
 from collections.abc import Callable, Generator
@@ -238,6 +239,64 @@ class PollingScheduler:
             - utilization: Queue utilization ratio (0.0 to 1.0)
         """
         return self._job_queue.get_status()
+
+    # ------------------------------------------------------------------------
+    # Helper Methods for Auto-Generation
+    # ------------------------------------------------------------------------
+
+    def _generate_job_name(self, func: Callable | str) -> str:
+        """
+        Generate human-readable job name from function.
+
+        Args:
+            func: Function object or import path string
+
+        Returns:
+            Human-readable name (e.g., "Send Email", "Generate Report")
+        """
+        if isinstance(func, str):
+            func_name = func.split(".")[-1]
+        else:
+            func_name = func.__name__
+
+        # Convert snake_case to Title Case
+        # send_email -> Send Email
+        return func_name.replace("_", " ").title()
+
+    def _generate_job_id(self, func: Callable | str, name: str) -> str:
+        """
+        Generate unique job ID.
+
+        Format: {func_name}_{timestamp}_{random}
+        Example: send_email_20251226_120530_a1b2c3d4
+
+        Args:
+            func: Function object or import path string
+            name: Job name (for fallback)
+
+        Returns:
+            Unique job identifier
+        """
+        # Extract function name
+        if isinstance(func, str):
+            func_name = func.split(".")[-1]
+        else:
+            func_name = func.__name__
+
+        # Sanitize: only alphanumeric and underscore
+        func_name = "".join(c if c.isalnum() or c == "_" else "_" for c in func_name)
+
+        # Truncate if too long
+        if len(func_name) > 30:
+            func_name = func_name[:30]
+
+        # Timestamp (sortable, UTC)
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+
+        # Random suffix (8 chars) for collision prevention
+        random_suffix = secrets.token_hex(4)
+
+        return f"{func_name}_{timestamp}_{random_suffix}"
 
     # ------------------------------------------------------------------------
     # Async Event Loop Management
@@ -864,9 +923,9 @@ class PollingScheduler:
 
     def create_interval_job(
         self,
-        job_id: str,
-        name: str,
         func: Callable | str,
+        job_id: str | None = None,
+        name: str | None = None,
         seconds: int | None = None,
         minutes: int | None = None,
         hours: int | None = None,
@@ -881,9 +940,9 @@ class PollingScheduler:
         Create interval job (runs repeatedly at fixed intervals).
 
         Args:
-            job_id: Unique job identifier
-            name: Human-readable job name
             func: Function to execute (callable or import path string)
+            job_id: Unique job identifier (auto-generated if None)
+            name: Human-readable job name (auto-generated if None)
             seconds: Interval in seconds
             minutes: Interval in minutes
             hours: Interval in hours
@@ -897,26 +956,39 @@ class PollingScheduler:
                 - For custom tags: {"priority": "high", "team": "eng"}
 
         Returns:
-            Created job info
+            Created job info with generated or provided job_id
 
         Example:
-            >>> # Run every 30 seconds
+            >>> # AI-friendly: Auto-generated ID
+            >>> job = scheduler.create_interval_job(
+            ...     func=send_heartbeat,
+            ...     seconds=30
+            ... )
+            >>> print(job.job_id)  # "send_heartbeat_20251226_120000_abc123"
+            >>>
+            >>> # Human-friendly: Explicit ID
             >>> scheduler.create_interval_job(
+            ...     func=send_heartbeat,
             ...     job_id="heartbeat",
             ...     name="System Heartbeat",
-            ...     func=send_heartbeat,
             ...     seconds=30
             ... )
             >>>
             >>> # Multi-tenant job
             >>> scheduler.create_interval_job(
-            ...     job_id="report",
-            ...     name="Daily Report",
             ...     func=generate_report,
             ...     hours=24,
             ...     metadata={"tenant_id": "acme"}
             ... )
         """
+        # Auto-generate name if not provided
+        if name is None:
+            name = self._generate_job_name(func)
+
+        # Auto-generate job_id if not provided
+        if job_id is None:
+            job_id = self._generate_job_id(func, name)
+
         trigger_args = {}
         if seconds is not None:
             trigger_args["seconds"] = seconds
@@ -947,9 +1019,9 @@ class PollingScheduler:
 
     def create_cron_job(
         self,
-        job_id: str,
-        name: str,
         func: Callable | str,
+        job_id: str | None = None,
+        name: str | None = None,
         year: int | str | None = None,
         month: int | str | None = None,
         day: int | str | None = None,
@@ -967,9 +1039,9 @@ class PollingScheduler:
         Create cron job (runs on specific date/time patterns).
 
         Args:
-            job_id: Unique job identifier
-            name: Human-readable job name
             func: Function to execute (callable or import path string)
+            job_id: Unique job identifier (auto-generated if None)
+            name: Human-readable job name (auto-generated if None)
             year: 4-digit year
             month: Month (1-12)
             day: Day of month (1-31)
@@ -984,14 +1056,23 @@ class PollingScheduler:
             metadata: Additional metadata
 
         Returns:
-            Created job info
+            Created job info with generated or provided job_id
 
         Example:
-            >>> # Run every day at 9 AM Seoul time
+            >>> # AI-friendly: Auto-generated ID
+            >>> job = scheduler.create_cron_job(
+            ...     func=generate_report,
+            ...     hour=9,
+            ...     minute=0,
+            ...     timezone="Asia/Seoul"
+            ... )
+            >>> print(job.job_id)  # "generate_report_20251226_120000_abc123"
+            >>>
+            >>> # Human-friendly: Explicit ID
             >>> scheduler.create_cron_job(
+            ...     func=generate_report,
             ...     job_id="daily-report",
             ...     name="Daily Report",
-            ...     func=generate_report,
             ...     hour=9,
             ...     minute=0,
             ...     timezone="Asia/Seoul"
@@ -999,14 +1080,20 @@ class PollingScheduler:
             >>>
             >>> # Run every Monday at 6 PM
             >>> scheduler.create_cron_job(
-            ...     job_id="weekly-summary",
-            ...     name="Weekly Summary",
             ...     func=send_summary,
             ...     day_of_week="mon",
             ...     hour=18,
             ...     minute=0
             ... )
         """
+        # Auto-generate name if not provided
+        if name is None:
+            name = self._generate_job_name(func)
+
+        # Auto-generate job_id if not provided
+        if job_id is None:
+            job_id = self._generate_job_id(func, name)
+
         trigger_args = {}
         if year is not None:
             trigger_args["year"] = year
@@ -1025,6 +1112,9 @@ class PollingScheduler:
         if second is not None:
             trigger_args["second"] = second
 
+        if not trigger_args:
+            raise ValueError("At least one cron parameter must be specified")
+
         job = JobDefinition(
             job_id=job_id,
             name=name,
@@ -1040,10 +1130,10 @@ class PollingScheduler:
 
     def create_date_job(
         self,
-        job_id: str,
-        name: str,
         func: Callable | str,
         run_date: str | datetime,
+        job_id: str | None = None,
+        name: str | None = None,
         timezone: str = "UTC",
         args: tuple | None = None,
         kwargs: dict[str, Any] | None = None,
@@ -1053,39 +1143,45 @@ class PollingScheduler:
         Create one-time job (runs once at specific date/time).
 
         Args:
-            job_id: Unique job identifier
-            name: Human-readable job name
             func: Function to execute (callable or import path string)
             run_date: ISO format datetime string or datetime object
+            job_id: Unique job identifier (auto-generated if None)
+            name: Human-readable job name (auto-generated if None)
             timezone: IANA timezone (e.g., "Asia/Seoul", "UTC")
             args: Positional arguments for func
             kwargs: Keyword arguments for func
             metadata: Additional metadata
 
         Returns:
-            Created job info
+            Created job info with generated or provided job_id
 
         Example:
-            >>> # Run once at specific time
-            >>> scheduler.create_date_job(
-            ...     job_id="welcome-email",
-            ...     name="Send Welcome Email",
+            >>> # AI-friendly: Auto-generated ID
+            >>> from datetime import datetime, timedelta
+            >>> job = scheduler.create_date_job(
             ...     func=send_welcome_email,
-            ...     run_date="2025-11-08 10:00:00",
-            ...     timezone="Asia/Seoul",
+            ...     run_date=datetime.now() + timedelta(hours=1),
             ...     kwargs={"user_id": 123}
             ... )
+            >>> print(job.job_id)  # "send_welcome_email_20251226_120000_abc123"
             >>>
-            >>> # Run once using datetime object
-            >>> from datetime import datetime, timedelta
-            >>> run_time = datetime.now() + timedelta(hours=1)
+            >>> # Human-friendly: Explicit ID
             >>> scheduler.create_date_job(
-            ...     job_id="reminder",
-            ...     name="Reminder",
             ...     func=send_reminder,
-            ...     run_date=run_time
+            ...     run_date="2025-11-08 10:00:00",
+            ...     job_id="reminder",
+            ...     name="Important Reminder",
+            ...     timezone="Asia/Seoul"
             ... )
         """
+        # Auto-generate name if not provided
+        if name is None:
+            name = self._generate_job_name(func)
+
+        # Auto-generate job_id if not provided
+        if job_id is None:
+            job_id = self._generate_job_id(func, name)
+
         if isinstance(run_date, datetime):
             run_date = run_date.isoformat()
 
