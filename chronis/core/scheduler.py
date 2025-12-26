@@ -60,6 +60,7 @@ class PollingScheduler:
         lock_prefix: str = "scheduler:lock:",
         max_workers: int | None = None,
         max_queue_size: int | None = None,
+        executor_interval_seconds: int | None = None,
         verbose: bool = False,
         logger: logging.Logger | None = None,
     ) -> None:
@@ -74,6 +75,7 @@ class PollingScheduler:
             lock_prefix: Lock key prefix
             max_workers: Maximum number of worker threads (default: 20)
             max_queue_size: Maximum queue size for backpressure control (default: max_workers * 5)
+            executor_interval_seconds: Executor check interval (default: min(1, polling_interval / 2))
             verbose: Enable verbose logging (default: False)
             logger: Custom logger (uses default if None)
 
@@ -102,6 +104,10 @@ class PollingScheduler:
         self.lock_prefix = lock_prefix
         self.max_workers = max_workers or self.DEFAULT_MAX_WORKERS
         self.max_queue_size = max_queue_size or (self.max_workers * 5)
+        # Default executor interval: half of polling interval (min 1 second)
+        self.executor_interval_seconds = executor_interval_seconds or min(
+            1, max(0.5, polling_interval_seconds / 2)
+        )
         self.verbose = verbose
 
         self._running = False
@@ -192,8 +198,8 @@ class PollingScheduler:
         # Start dedicated event loop for async jobs
         self._start_async_loop()
 
-        # Register executor job to APScheduler (1 second interval)
-        executor_trigger = IntervalTrigger(seconds=1, timezone="UTC")
+        # Register executor job to APScheduler with configurable interval
+        executor_trigger = IntervalTrigger(seconds=self.executor_interval_seconds, timezone="UTC")
         self._apscheduler.add_job(
             func=self._execute_queued_jobs,
             trigger=executor_trigger,
@@ -250,10 +256,11 @@ class PollingScheduler:
         Returns:
             Dictionary with queue statistics including:
             - pending_jobs: Number of jobs waiting in queue
-            - running_jobs: Number of jobs currently executing
-            - total_in_flight: Total jobs (pending + running)
+            - in_flight_jobs: Number of jobs dequeued for execution
+            - total_in_flight: Total jobs (pending + in-flight)
             - available_slots: Available queue capacity
             - utilization: Queue utilization ratio (0.0 to 1.0)
+            - in_flight_job_ids: List of job IDs currently in-flight
         """
         return self._scheduling_orchestrator.get_queue_status()
 

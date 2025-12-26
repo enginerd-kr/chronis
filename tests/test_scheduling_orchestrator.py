@@ -167,9 +167,9 @@ class TestSchedulingOrchestrator:
         # Mark completed
         self.orchestrator.mark_job_completed("test-1")
 
-        # Should be removed from running set
+        # Should be removed from in-flight set
         status = self.orchestrator.get_queue_status()
-        assert status["running_jobs"] == 0
+        assert status["in_flight_jobs"] == 0
 
     def test_get_queue_status(self):
         """Test getting queue status."""
@@ -195,7 +195,7 @@ class TestSchedulingOrchestrator:
         status = self.orchestrator.get_queue_status()
 
         assert status["pending_jobs"] == 3
-        assert status["running_jobs"] == 0
+        assert status["in_flight_jobs"] == 0
         assert status["available_slots"] == 7
 
     def test_poll_when_queue_full(self):
