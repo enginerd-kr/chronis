@@ -4,7 +4,7 @@ from chronis.adapters.storage.memory import InMemoryStorageAdapter
 from chronis.core.common.exceptions import JobAlreadyExistsError, JobNotFoundError
 from chronis.core.common.types import TriggerType
 from chronis.core.jobs.definition import JobDefinition
-from chronis.core.query import scheduled_jobs, StatusSpec
+from chronis.core.query import jobs_by_metadata, jobs_by_status, scheduled_jobs
 from chronis.core.services import JobService
 from chronis.core.state import JobStatus
 
@@ -104,7 +104,7 @@ class TestJobService:
             self.service.create(job_def)
 
         # Query all scheduled jobs
-        jobs = self.service.query(spec=scheduled_jobs())
+        jobs = self.service.query(filters=scheduled_jobs())
 
         assert len(jobs) == 3
 
@@ -146,7 +146,7 @@ class TestJobService:
             self.service.create(job_def)
 
         # Query with limit
-        jobs = self.service.query(spec=scheduled_jobs(), limit=3)
+        jobs = self.service.query(filters=scheduled_jobs(), limit=3)
 
         assert len(jobs) == 3
 
@@ -266,7 +266,7 @@ class TestJobService:
         assert total == 3
 
         # Count scheduled
-        scheduled_count = self.service.count(spec=scheduled_jobs())
+        scheduled_count = self.service.count(filters=scheduled_jobs())
         assert scheduled_count == 3
 
     def test_count_with_specific_status(self):
@@ -289,11 +289,11 @@ class TestJobService:
         self.service.update("test-1", status=JobStatus.FAILED)
 
         # Count failed jobs
-        failed_count = self.service.count(spec=StatusSpec(JobStatus.FAILED))
+        failed_count = self.service.count(filters=jobs_by_status(JobStatus.FAILED))
         assert failed_count == 1
 
         # Count scheduled jobs
-        scheduled_count = self.service.count(spec=scheduled_jobs())
+        scheduled_count = self.service.count(filters=scheduled_jobs())
         assert scheduled_count == 0
 
 
@@ -368,9 +368,7 @@ class TestJobServiceIntegration:
             self.service.create(job_def)
 
         # Query by metadata
-        from chronis.core.query import MetadataSpec
-
-        tenant_a_jobs = self.service.query(spec=MetadataSpec("tenant", "a"))
+        tenant_a_jobs = self.service.query(filters=jobs_by_metadata("tenant", "a"))
 
         assert len(tenant_a_jobs) == 3
         for job in tenant_a_jobs:

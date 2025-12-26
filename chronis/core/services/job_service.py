@@ -5,7 +5,6 @@ from typing import Any
 from chronis.adapters.base import JobStorageAdapter
 from chronis.core.common.exceptions import JobAlreadyExistsError, JobNotFoundError
 from chronis.core.jobs.definition import JobDefinition, JobInfo
-from chronis.core.query import JobQuerySpec
 from chronis.core.state import JobStatus
 from chronis.utils.logging import ContextLogger
 from chronis.utils.time import utc_now
@@ -84,33 +83,23 @@ class JobService:
 
     def query(
         self,
-        spec: JobQuerySpec | None = None,
         filters: dict[str, Any] | None = None,
         limit: int | None = None,
     ) -> list[JobInfo]:
         """
-        Query jobs using specification or raw filters.
+        Query jobs using filter dictionary.
 
         Args:
-            spec: Query specification (preferred)
-            filters: Raw filter dictionary (fallback for backward compatibility)
+            filters: Filter dictionary (e.g., from scheduled_jobs() helper)
             limit: Maximum number of results
 
         Returns:
             List of matching jobs
 
         Example:
-            >>> # Using specification (preferred)
             >>> from chronis.core.query import scheduled_jobs
-            >>> jobs = service.query(spec=scheduled_jobs())
-            >>>
-            >>> # Using raw filters (backward compatibility)
-            >>> jobs = service.query(filters={"status": "scheduled"})
+            >>> jobs = service.query(filters=scheduled_jobs())
         """
-        # Convert spec to filters if provided
-        if spec:
-            filters = spec.to_filters()
-
         jobs_data = self.storage.query_jobs(filters=filters, limit=limit)
         return [JobInfo(job_data) for job_data in jobs_data]
 
@@ -192,15 +181,15 @@ class JobService:
         """
         return self.get(job_id) is not None
 
-    def count(self, spec: JobQuerySpec | None = None) -> int:
+    def count(self, filters: dict[str, Any] | None = None) -> int:
         """
-        Count jobs matching specification.
+        Count jobs matching filters.
 
         Args:
-            spec: Query specification (None = count all)
+            filters: Filter dictionary (None = count all)
 
         Returns:
             Number of matching jobs
         """
-        jobs = self.query(spec=spec)
+        jobs = self.query(filters=filters)
         return len(jobs)
