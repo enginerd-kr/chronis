@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from chronis.core.common.types import TriggerType
-from chronis.core.triggers import TriggerFactory
+from chronis.core.triggers import get_trigger_strategy
 from chronis.utils.time import get_timezone
 
 
@@ -54,7 +54,7 @@ class NextRunTimeCalculator:
             current_time = datetime.now(tz)
 
         # Get appropriate strategy and calculate
-        strategy = TriggerFactory.get_strategy(trigger_type)
+        strategy = get_trigger_strategy(trigger_type)
         return strategy.calculate_next_run_time(trigger_args, timezone, current_time)
 
     @staticmethod
@@ -97,53 +97,3 @@ class NextRunTimeCalculator:
         next_run_time_local = next_run_time_utc.astimezone(tz)
 
         return next_run_time_utc, next_run_time_local
-
-    @staticmethod
-    def should_skip_calculation(trigger_type: TriggerType | str) -> bool:
-        """
-        Check if next run time calculation should be skipped.
-
-        DATE triggers are one-time only, so we skip calculation after execution.
-
-        Args:
-            trigger_type: Type of trigger
-
-        Returns:
-            True if calculation should be skipped
-        """
-        if isinstance(trigger_type, str):
-            trigger_type = TriggerType(trigger_type)
-
-        return trigger_type == TriggerType.DATE
-
-    @staticmethod
-    def is_recurring(trigger_type: TriggerType | str) -> bool:
-        """
-        Check if a trigger type represents a recurring job.
-
-        Args:
-            trigger_type: Type of trigger
-
-        Returns:
-            True if the trigger is recurring (INTERVAL or CRON)
-        """
-        if isinstance(trigger_type, str):
-            trigger_type = TriggerType(trigger_type)
-
-        return trigger_type in (TriggerType.INTERVAL, TriggerType.CRON)
-
-    @staticmethod
-    def is_one_time(trigger_type: TriggerType | str) -> bool:
-        """
-        Check if a trigger type represents a one-time job.
-
-        Args:
-            trigger_type: Type of trigger
-
-        Returns:
-            True if the trigger is one-time (DATE)
-        """
-        if isinstance(trigger_type, str):
-            trigger_type = TriggerType(trigger_type)
-
-        return trigger_type == TriggerType.DATE

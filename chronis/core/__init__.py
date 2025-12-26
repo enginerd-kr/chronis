@@ -1,12 +1,10 @@
 """Core scheduler components."""
 
 from chronis.core.common import (
-    ConnectionError,
     JobAlreadyExistsError,
     JobNotFoundError,
     SchedulerError,
     TriggerType,
-    ValidationError,
 )
 from chronis.core.execution import AsyncExecutor
 from chronis.core.jobs import JobDefinition, JobInfo
@@ -34,8 +32,6 @@ __all__ = [
     "SchedulerError",
     "JobAlreadyExistsError",
     "JobNotFoundError",
-    "ValidationError",
-    "ConnectionError",
     # Job Management
     "JobDefinition",
     "JobInfo",

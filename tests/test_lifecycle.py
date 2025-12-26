@@ -2,8 +2,6 @@
 
 from datetime import datetime, timedelta
 
-import pytest
-
 from chronis.core.common.types import TriggerType
 from chronis.core.jobs.definition import JobInfo
 from chronis.core.lifecycle import JobLifecycleManager
@@ -162,79 +160,3 @@ class TestDetermineNextStatusAfterExecution:
             )
 
             assert next_status == JobStatus.FAILED
-
-
-class TestShouldDeleteAfterExecution:
-    """Tests for should_delete_after_execution method."""
-
-    def test_date_trigger_should_delete(self):
-        """DATE trigger jobs should be deleted after execution."""
-        job = create_test_job(trigger_type=TriggerType.DATE)
-
-        assert JobLifecycleManager.should_delete_after_execution(job) is True
-
-    def test_interval_trigger_should_not_delete(self):
-        """INTERVAL trigger jobs should not be deleted."""
-        job = create_test_job(trigger_type=TriggerType.INTERVAL)
-
-        assert JobLifecycleManager.should_delete_after_execution(job) is False
-
-    def test_cron_trigger_should_not_delete(self):
-        """CRON trigger jobs should not be deleted."""
-        job = create_test_job(trigger_type=TriggerType.CRON)
-
-        assert JobLifecycleManager.should_delete_after_execution(job) is False
-
-
-class TestCanRetry:
-    """Tests for can_retry method."""
-
-    def test_failed_job_can_retry(self):
-        """Failed job can be retried."""
-        job = create_test_job(status=JobStatus.FAILED)
-
-        assert JobLifecycleManager.can_retry(job) is True
-
-    def test_scheduled_job_cannot_retry(self):
-        """Scheduled job cannot be retried (not failed)."""
-        job = create_test_job(status=JobStatus.SCHEDULED)
-
-        assert JobLifecycleManager.can_retry(job) is False
-
-    def test_running_job_cannot_retry(self):
-        """Running job cannot be retried."""
-        job = create_test_job(status=JobStatus.RUNNING)
-
-        assert JobLifecycleManager.can_retry(job) is False
-
-
-class TestValidateStateTransition:
-    """Tests for validate_state_transition method."""
-
-    def test_valid_transitions(self):
-        """All valid state transitions should pass."""
-        valid_transitions = [
-            (JobStatus.PENDING, JobStatus.SCHEDULED),
-            (JobStatus.PENDING, JobStatus.RUNNING),
-            (JobStatus.SCHEDULED, JobStatus.RUNNING),
-            (JobStatus.SCHEDULED, JobStatus.FAILED),
-            (JobStatus.RUNNING, JobStatus.SCHEDULED),
-            (JobStatus.RUNNING, JobStatus.FAILED),
-            (JobStatus.FAILED, JobStatus.SCHEDULED),
-            (JobStatus.FAILED, JobStatus.RUNNING),
-        ]
-
-        for current, next_status in valid_transitions:
-            assert JobLifecycleManager.validate_state_transition(current, next_status) is True
-
-    def test_invalid_transitions(self):
-        """Invalid state transitions should raise ValueError."""
-        invalid_transitions = [
-            (JobStatus.RUNNING, JobStatus.PENDING),
-            (JobStatus.SCHEDULED, JobStatus.PENDING),
-            (JobStatus.FAILED, JobStatus.PENDING),
-        ]
-
-        for current, next_status in invalid_transitions:
-            with pytest.raises(ValueError, match="Invalid state transition"):
-                JobLifecycleManager.validate_state_transition(current, next_status)

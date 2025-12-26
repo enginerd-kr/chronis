@@ -86,8 +86,8 @@ def test_fire_and_forget_execution():
     assert execution_count["count"] >= 1
 
 
-def test_get_all_schedules():
-    """Test get_all_schedules method."""
+def test_query_jobs():
+    """Test query_jobs method."""
     storage = InMemoryStorageAdapter()
     lock = InMemoryLockAdapter()
     scheduler = PollingScheduler(storage_adapter=storage, lock_adapter=lock)
@@ -128,7 +128,7 @@ def test_get_all_schedules():
     scheduler.create_job(date_job)
 
     # Get all schedules
-    schedules = scheduler.get_all_schedules()
+    schedules = scheduler.query_jobs()
 
     # Verify we got all schedules
     assert len(schedules) == 3

@@ -13,3 +13,7 @@ class JobStatus(str, Enum):
 
     def __str__(self) -> str:
         return self.value
+
+    def can_execute(self) -> bool:
+        """Check if job can be executed in this status."""
+        return self != JobStatus.RUNNING

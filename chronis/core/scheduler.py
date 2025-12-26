@@ -384,7 +384,6 @@ class PollingScheduler:
 
         Raises:
             JobAlreadyExistsError: Job already exists
-            ValidationError: Invalid parameters
 
         Example:
             >>> job = JobDefinition(
@@ -448,20 +447,6 @@ class PollingScheduler:
             ...     print(f"{job.job_id}: {job.trigger_type} - {job.next_run_time}")
         """
         return self._job_service.query(filters=filters, limit=limit)
-
-    def get_all_schedules(self) -> list[JobInfo]:
-        """
-        Get all schedules with trigger details.
-
-        Deprecated: Use query_jobs() instead. JobInfo already contains trigger information.
-            >>> jobs = scheduler.query_jobs()
-            >>> for job in jobs:
-            ...     print(f"{job.job_id}: {job.trigger_type}")
-
-        Returns:
-            List of all jobs (same as query_jobs)
-        """
-        return self.query_jobs()
 
     def update_job(
         self,

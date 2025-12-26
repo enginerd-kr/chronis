@@ -17,15 +17,3 @@ class JobNotFoundError(SchedulerError):
     """Job not found."""
 
     pass
-
-
-class ValidationError(SchedulerError):
-    """Invalid parameters."""
-
-    pass
-
-
-class ConnectionError(SchedulerError):
-    """Storage or lock adapter connection failed."""
-
-    pass

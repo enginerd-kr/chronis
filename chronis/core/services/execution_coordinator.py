@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
+from chronis.core.common.types import TriggerType
 from chronis.core.execution.async_loop import AsyncExecutor
 from chronis.core.lifecycle import JobLifecycleManager
 from chronis.core.scheduling import NextRunTimeCalculator
@@ -213,7 +214,7 @@ class ExecutionCoordinator:
         if inspect.iscoroutinefunction(func):
             # Async function
             coro = func(*args, **kwargs)
-            self.async_executor.run_coroutine(coro)
+            self.async_executor.execute_coroutine(coro)
         else:
             # Sync function
             func(*args, **kwargs)
@@ -251,8 +252,8 @@ class ExecutionCoordinator:
         trigger_args = job_data["trigger_args"]
         timezone = job_data.get("timezone", "UTC")
 
-        # Skip for one-time jobs
-        if NextRunTimeCalculator.should_skip_calculation(trigger_type):
+        # Skip for one-time jobs (DATE trigger)
+        if trigger_type == TriggerType.DATE.value:
             return
 
         # Calculate next run time
