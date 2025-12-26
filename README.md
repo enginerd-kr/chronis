@@ -1,14 +1,16 @@
-# Chronis - Distributed Scheduler Framework
+# Chronis - AI Agent-Friendly Distributed Scheduler
 
-**Chronis** - Python distributed scheduler framework for multi-container environments
+**Chronis** - Python scheduler designed for AI agents, LLM workflows, and multi-container environments
 
-## Features
+## Why Chronis?
 
-- **Distributed Scheduling**: Prevents duplicate execution in multi-container environments
-- **Pluggable Storage**: Implement custom storage adapters for any database
-- **Pluggable Locks**: Implement custom lock adapters for distributed locking
-- **Timezone Support**: IANA timezone-aware scheduling with automatic DST handling
-- **Async Support**: Native support for both sync and async job functions
+AI agents and LLM workflows need reliable scheduling in production. Chronis provides:
+
+- **AI Agent Ready**: Simple API perfect for LLM function calling and agent workflows
+- **Distributed by Default**: No duplicate executions across containers or processes
+- **Pluggable Everything**: Bring your own database and distributed locks
+- **Timezone Aware**: IANA timezones with automatic DST handling
+- **Async Native**: Built for modern Python with full async/await support
 
 ## Installation
 
@@ -74,287 +76,65 @@ scheduler.create_date_job(
 scheduler.start()
 ```
 
-## Core Concepts
+## Three Simple Job Types
 
-### Simplified Job Creation API
-
-Chronis provides three intuitive methods for creating jobs without needing to understand internal implementation details:
-
-#### Interval Jobs
-
-Execute jobs repeatedly at fixed intervals:
+**Interval** - Repeat at fixed intervals (every 30 seconds, every 2 hours, etc.)
 
 ```python
-# Run every 30 seconds
-scheduler.create_interval_job(
-    job_id="heartbeat",
-    name="System Heartbeat",
-    func=send_heartbeat,
-    seconds=30
-)
-
-# Run every 2 hours
-scheduler.create_interval_job(
-    job_id="cleanup",
-    name="Cleanup Task",
-    func=cleanup_old_data,
-    hours=2,
-    timezone="Asia/Seoul"
-)
+scheduler.create_interval_job(job_id="heartbeat", name="Heartbeat", func=check_health, seconds=30)
 ```
 
-**Parameters**: `seconds`, `minutes`, `hours`, `days`, `weeks`
-
-#### Cron Jobs
-
-Execute jobs based on cron-style patterns:
+**Cron** - Run on schedule (daily at 9 AM, every Monday, etc.)
 
 ```python
-# Run every day at 9 AM
-scheduler.create_cron_job(
-    job_id="daily-report",
-    name="Daily Report",
-    func=generate_report,
-    hour=9,
-    minute=0,
-    timezone="Asia/Seoul"
-)
-
-# Run every Monday at 6 PM
-scheduler.create_cron_job(
-    job_id="weekly-summary",
-    name="Weekly Summary",
-    func=send_summary,
-    day_of_week="mon",
-    hour=18,
-    minute=0
-)
+scheduler.create_cron_job(job_id="daily-report", name="Report", func=generate_report, hour=9, timezone="Asia/Seoul")
 ```
 
-**Parameters**: `year`, `month`, `day`, `week`, `day_of_week`, `hour`, `minute`, `second`
-
-#### Date Jobs
-
-Execute jobs once at a specific date/time:
+**Date** - Run once at specific time (one-time tasks, reminders, etc.)
 
 ```python
-# Run once at specific time
-scheduler.create_date_job(
-    job_id="welcome-email",
-    name="Send Welcome Email",
-    func=send_welcome_email,
-    run_date="2025-11-08 10:00:00",
-    timezone="Asia/Seoul",
-    kwargs={"user_id": 123}
-)
-
-# Run once using datetime object
-from datetime import datetime, timedelta
-run_time = datetime.now() + timedelta(hours=1)
-scheduler.create_date_job(
-    job_id="reminder",
-    name="Reminder",
-    func=send_reminder,
-    run_date=run_time
-)
+scheduler.create_date_job(job_id="reminder", name="Reminder", func=send_reminder, run_date="2025-12-25 09:00:00")
 ```
 
-### Timezone Support
-
-All job types support IANA timezones with automatic DST handling:
+## Job Management
 
 ```python
-# Korean time
-scheduler.create_cron_job(
-    job_id="korea-report",
-    name="Korea Report",
-    func=generate_report,
-    hour=9,
-    minute=0,
-    timezone="Asia/Seoul"  # Runs at 9 AM KST
-)
+# Query jobs
+jobs = scheduler.query_jobs(filters={"status": "scheduled"}, limit=10)
 
-# US Eastern time (DST auto-handled)
-scheduler.create_cron_job(
-    job_id="us-report",
-    name="US Report",
-    func=generate_report,
-    hour=8,
-    minute=0,
-    timezone="America/New_York"  # Runs at 8 AM EST/EDT
-)
-```
-
-### Job State Management
-
-Query and manage your scheduled jobs:
-
-```python
-# Get a specific job
+# Get specific job
 job = scheduler.get_job("daily-report")
-print(f"Status: {job.status}, Next run: {job.next_run_time}")
 
-# Query all jobs
-all_jobs = scheduler.query_jobs()
-for job in all_jobs:
-    print(f"{job.job_id}: {job.status} - {job.trigger_type}")
-
-# Query scheduled jobs only
-scheduled_jobs = scheduler.query_jobs(filters={"status": "scheduled"})
-
-# Query failed jobs
-failed_jobs = scheduler.query_jobs(filters={"status": "failed"})
-
-# Query with limit
-recent_jobs = scheduler.query_jobs(limit=10)
-
-# Delete a job
+# Delete job
 scheduler.delete_job("daily-report")
 ```
 
-### Job States
+**Job States**: `PENDING` → `SCHEDULED` → `RUNNING` → `FAILED` (one-time jobs auto-delete after success)
 
-Chronis uses a simple state model:
+## Multi-Tenancy & Metadata
 
-- **PENDING**: Job created, waiting for first run
-- **SCHEDULED**: Job is scheduled for next execution
-- **RUNNING**: Job is currently executing
-- **FAILED**: Job execution failed (can be retried)
-
-Note: One-time jobs (DATE trigger) are automatically deleted after successful execution.
-
-### Async Function Support
-
-Chronis natively supports both synchronous and asynchronous job functions:
+Perfect for SaaS applications and multi-agent systems:
 
 ```python
-import asyncio
-
-# Async job function
-async def async_send_email():
-    await asyncio.sleep(1)
-    print("Async email sent!")
-
-# Sync job function
-def sync_send_email():
-    print("Sync email sent!")
-
-# Register both
-scheduler.register_job_function("async_email", async_send_email)
-scheduler.register_job_function("sync_email", sync_send_email)
-
-# Create jobs - Chronis handles async automatically
-scheduler.create_interval_job(
-    job_id="async-job",
-    name="Async Job",
-    func="async_email",
-    seconds=30
-)
-
-scheduler.create_interval_job(
-    job_id="sync-job",
-    name="Sync Job",
-    func="sync_email",
-    seconds=30
-)
-```
-
-## Multi-Tenancy Support (Optional)
-
-Chronis supports multi-tenancy through the `metadata` field, allowing you to isolate jobs by tenant, user, or organization:
-
-```python
-# Create tenant-specific job
+# Create job with metadata
 scheduler.create_interval_job(
     job_id="daily-report",
     name="Daily Report",
     func=generate_report,
     hours=24,
-    metadata={"tenant_id": "acme"}
+    metadata={"tenant_id": "acme", "priority": "high"}
 )
 
-# Query jobs for specific tenant
-tenant_jobs = scheduler.query_jobs(
-    filters={"metadata.tenant_id": "acme", "status": "scheduled"}
-)
-
-# FastAPI integration example
-from fastapi import FastAPI, Depends
-
-app = FastAPI()
-
-def get_current_tenant() -> str:
-    """Extract tenant from JWT token."""
-    return "tenant:acme"
-
-@app.post("/jobs/create")
-def create_job(
-    job_id: str,
-    schedule_hours: int,
-    current_tenant: str = Depends(get_current_tenant)
-):
-    job = scheduler.create_interval_job(
-        job_id=job_id,
-        name="Tenant Job",
-        func=process_job,
-        hours=schedule_hours,
-        metadata={"tenant_id": current_tenant}
-    )
-    return {"status": "created", "job": job}
-
-@app.get("/jobs")
-def list_my_jobs(current_tenant: str = Depends(get_current_tenant)):
-    """Users can only see their own tenant's jobs."""
-    jobs = scheduler.query_jobs(
-        filters={"metadata.tenant_id": current_tenant},
-        limit=100
-    )
-    return {"jobs": jobs}
+# Query by metadata
+jobs = scheduler.query_jobs(filters={"metadata.tenant_id": "acme"})
 ```
 
-### Metadata Patterns
+## Learn More
 
-```python
-# Simple tenant ID
-metadata = {"tenant_id": "acme"}
-
-# Hierarchical organization
-metadata = {
-    "org_id": "acme",
-    "team_id": "engineering",
-    "project_id": "website"
-}
-
-# Custom tags
-metadata = {
-    "priority": "high",
-    "environment": "production",
-    "region": "us-east-1"
-}
-```
-
-## Custom Adapters
-
-Want to implement your own storage adapter for a specific database? See the [Adapter Implementation Guide](docs/ADAPTER_GUIDE.md) for:
-
-- Interface contract and required methods
-- Reference implementations (PostgreSQL, DynamoDB, Redis)
-- Performance optimization guidelines
-- Testing patterns
-
-## Examples
-
-See the [examples/](examples/) directory for complete examples:
-
-```bash
-uv run python examples/quickstart.py
-uv run python examples/multitenant.py
-```
-
-## Contributing
-
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing guidelines, and how to submit pull requests.
+- [Adapter Implementation Guide](docs/ADAPTER_GUIDE.md) - Build custom storage/lock adapters
+- [Examples](examples/) - Complete working examples
+- [Contributing](CONTRIBUTING.md) - Development setup and guidelines
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License - see [LICENSE](LICENSE) for details.
