@@ -196,6 +196,15 @@ When adding storage or lock adapters:
 - **Feature requests**: Open an issue describing the feature and use case
 - **Questions**: Open a discussion or issue
 
+## AI Assistance
+
+Parts of this project were developed with the assistance of AI tools
+(e.g. Claude) for drafting, refactoring, and documentation.
+
+All code has been reviewed, validated, and is fully maintained by
+human contributors. The use of AI tools does not replace human
+responsibility for code quality, correctness, or project direction.
+
 ## License
 
 By contributing to Chronis, you agree that your contributions will be licensed under the MIT License.
