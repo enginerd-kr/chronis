@@ -118,6 +118,35 @@ job = scheduler.create_interval_job(
 jobs = scheduler.query_jobs(filters={"metadata.tenant_id": "acme"})
 ```
 
+## Callbacks (Success & Failure Handlers)
+
+Monitor and react to job execution results:
+
+```python
+# Global handlers for all jobs
+def on_job_failure(job_id: str, error: Exception, job_info):
+    logger.error(f"Job {job_id} failed: {error}")
+    send_alert(job_id, error)
+
+def on_job_success(job_id: str, job_info):
+    logger.info(f"Job {job_id} completed successfully")
+
+scheduler = PollingScheduler(
+    storage_adapter=storage,
+    lock_adapter=lock,
+    on_failure=on_job_failure,  # Global failure handler
+    on_success=on_job_success,  # Global success handler
+)
+
+# Job-specific handlers (override global)
+scheduler.create_interval_job(
+    func=critical_task,
+    hours=1,
+    on_failure=lambda job_id, err, info: send_urgent_alert(err),
+    on_success=lambda job_id, info: update_dashboard(job_id)
+)
+```
+
 ## AI Agent Example
 
 ```python
