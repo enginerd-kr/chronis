@@ -40,8 +40,6 @@ def test_job_state_transitions():
     assert job_info.status == JobStatus.SCHEDULED
 
 
-
-
 @pytest.mark.slow
 def test_fire_and_forget_execution():
     """Test fire-and-forget job execution."""
@@ -86,8 +84,6 @@ def test_fire_and_forget_execution():
     # Note: In fire-and-forget mode, we don't track success/failure
     # We just verify the job was triggered
     assert execution_count["count"] >= 1
-
-
 
 
 def test_get_all_schedules():
@@ -142,13 +138,19 @@ def test_get_all_schedules():
 
     # Verify interval job schedule
     interval_schedule = schedule_dict["interval-job"]
-    assert interval_schedule.trigger_type == TriggerType.INTERVAL.value or interval_schedule.trigger_type == TriggerType.INTERVAL
+    assert (
+        interval_schedule.trigger_type == TriggerType.INTERVAL.value
+        or interval_schedule.trigger_type == TriggerType.INTERVAL
+    )
     assert interval_schedule.trigger_args["seconds"] == 10
     assert interval_schedule.next_run_time is not None
 
     # Verify cron job schedule
     cron_schedule = schedule_dict["cron-job"]
-    assert cron_schedule.trigger_type == TriggerType.CRON.value or cron_schedule.trigger_type == TriggerType.CRON
+    assert (
+        cron_schedule.trigger_type == TriggerType.CRON.value
+        or cron_schedule.trigger_type == TriggerType.CRON
+    )
     assert cron_schedule.trigger_args["hour"] == 9
     assert cron_schedule.trigger_args["minute"] == 0
     assert cron_schedule.timezone == "Asia/Seoul"
@@ -156,6 +158,9 @@ def test_get_all_schedules():
 
     # Verify date job schedule
     date_schedule = schedule_dict["date-job"]
-    assert date_schedule.trigger_type == TriggerType.DATE.value or date_schedule.trigger_type == TriggerType.DATE
+    assert (
+        date_schedule.trigger_type == TriggerType.DATE.value
+        or date_schedule.trigger_type == TriggerType.DATE
+    )
     assert date_schedule.trigger_args["run_date"] == "2025-12-31T23:59:59Z"
     assert date_schedule.next_run_time is not None

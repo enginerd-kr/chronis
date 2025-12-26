@@ -76,11 +76,7 @@ class InMemoryStorageAdapter(JobStorageAdapter):
             for key, value in filters.items():
                 if key.startswith("metadata."):
                     metadata_key = key.replace("metadata.", "")
-                    jobs = [
-                        j
-                        for j in jobs
-                        if j.get("metadata", {}).get(metadata_key) == value
-                    ]
+                    jobs = [j for j in jobs if j.get("metadata", {}).get(metadata_key) == value]
 
         # Sort by next_run_time (oldest first)
         jobs.sort(key=lambda j: j.get("next_run_time", ""))

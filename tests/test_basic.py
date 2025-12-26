@@ -1,6 +1,5 @@
 """Basic tests to verify framework setup."""
 
-
 from chronis import (
     InMemoryLockAdapter,
     InMemoryStorageAdapter,
