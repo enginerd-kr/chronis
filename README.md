@@ -79,26 +79,6 @@ scheduler.create_date_job(
 scheduler.start()
 ```
 
-## Three Simple Job Types
-
-**Interval** - Repeat at fixed intervals (every 30 seconds, every 2 hours, etc.)
-
-```python
-scheduler.create_interval_job(job_id="heartbeat", name="Heartbeat", func=check_health, seconds=30)
-```
-
-**Cron** - Run on schedule (daily at 9 AM, every Monday, etc.)
-
-```python
-scheduler.create_cron_job(job_id="daily-report", name="Report", func=generate_report, hour=9, timezone="Asia/Seoul")
-```
-
-**Date** - Run once at specific time (one-time tasks, reminders, etc.)
-
-```python
-scheduler.create_date_job(job_id="reminder", name="Reminder", func=send_reminder, run_date="2025-12-25 09:00:00")
-```
-
 ## Job Management
 
 ```python
