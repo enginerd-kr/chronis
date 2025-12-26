@@ -1,71 +1,56 @@
 """Job definition and information classes."""
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from chronis.core.common.types import TriggerType
 from chronis.core.state import JobStatus
 from chronis.utils.time import get_timezone, utc_now
 
 
-class JobDefinition:
-    """Job definition class with timezone and retry support."""
+class JobDefinition(BaseModel):
+    """
+    Job definition class with timezone and retry support.
 
-    def __init__(
-        self,
-        job_id: str,
-        name: str,
-        trigger_type: TriggerType,
-        trigger_args: dict[str, Any],
-        func: Callable | str,
-        timezone: str = "UTC",
-        args: tuple | None = None,
-        kwargs: dict[str, Any] | None = None,
-        status: JobStatus = JobStatus.PENDING,
-        next_run_time: datetime | None = None,
-        metadata: dict[str, Any] | None = None,
-    ) -> None:
-        """
-        Initialize job definition.
+    Uses Pydantic for runtime validation of user input.
+    """
 
-        Args:
-            job_id: Unique job ID
-            name: Job name
-            trigger_type: Trigger type (interval/cron/date)
-            trigger_args: Trigger parameters
-                - interval: {"seconds": 5, "minutes": 0, "hours": 0}
-                - cron: {"minute": "0", "hour": "9", "day_of_week": "0-4"}
-                - date: {"run_date": "2025-11-05T14:30:00Z"}
-            func: Function to execute or function name (string)
-            timezone: IANA timezone (e.g., "Asia/Seoul", "America/New_York", "UTC")
-            args: Function positional arguments
-            kwargs: Function keyword arguments
-            status: Job status (default: PENDING)
-            next_run_time: Next execution time (auto-calculated if None)
-            metadata: Additional metadata
-        """
-        self.job_id = job_id
-        self.name = name
-        self.trigger_type = trigger_type
-        self.trigger_args = trigger_args
-        self.func = func
-        self.timezone = timezone
-        self.args = args or ()
-        self.kwargs = kwargs or {}
-        self.status = status
-        self.next_run_time = next_run_time
-        self.metadata = metadata or {}
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
-        # Validate timezone
-        self._validate_timezone()
+    job_id: str
+    name: str
+    trigger_type: TriggerType
+    trigger_args: dict[str, Any]
+    func: Callable | str
+    timezone: str = "UTC"
+    args: tuple | None = None
+    kwargs: dict[str, Any] | None = None
+    status: JobStatus = JobStatus.PENDING
+    next_run_time: datetime | None = None
+    metadata: dict[str, Any] | None = None
 
-    def _validate_timezone(self) -> None:
+    def model_post_init(self, __context: Any) -> None:
+        """Normalize None values to defaults after validation."""
+        if self.args is None:
+            object.__setattr__(self, "args", ())
+        if self.kwargs is None:
+            object.__setattr__(self, "kwargs", {})
+        if self.metadata is None:
+            object.__setattr__(self, "metadata", {})
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, v: str) -> str:
         """Validate timezone."""
         try:
-            get_timezone(self.timezone)
+            get_timezone(v)
+            return v
         except Exception as e:
-            raise ValueError(f"Invalid timezone '{self.timezone}': {e}") from e
+            raise ValueError(f"Invalid timezone '{v}': {e}") from e
 
     def to_dict(self) -> dict[str, Any]:
         """
@@ -134,34 +119,48 @@ class JobDefinition:
         return strategy.calculate_next_run_time(self.trigger_args, self.timezone, current_time)
 
 
+@dataclass(frozen=True)
 class JobInfo:
-    """Job information query result (with timezone and state support)."""
+    """
+    Job information query result (with timezone and state support).
 
-    def __init__(self, data: dict[str, Any]) -> None:
-        self.job_id: str = data["job_id"]
-        self.name: str = data["name"]
-        self.trigger_type: str = data["trigger_type"]
-        self.trigger_args: dict[str, Any] = data["trigger_args"]
-        self.timezone: str = data.get("timezone", "UTC")
+    Uses dataclass for read-only, immutable data container.
+    """
 
-        # Status
-        self.status: JobStatus = JobStatus(data["status"])
+    job_id: str
+    name: str
+    trigger_type: str
+    trigger_args: dict[str, Any]
+    timezone: str
+    status: JobStatus
+    next_run_time: datetime | None
+    next_run_time_local: datetime | None
+    metadata: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
 
-        # UTC time
-        self.next_run_time: datetime | None = (
-            datetime.fromisoformat(data["next_run_time"]) if data.get("next_run_time") else None
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "JobInfo":
+        """Create JobInfo from storage dictionary."""
+        return cls(
+            job_id=data["job_id"],
+            name=data["name"],
+            trigger_type=data["trigger_type"],
+            trigger_args=data["trigger_args"],
+            timezone=data.get("timezone", "UTC"),
+            status=JobStatus(data["status"]),
+            next_run_time=(
+                datetime.fromisoformat(data["next_run_time"]) if data.get("next_run_time") else None
+            ),
+            next_run_time_local=(
+                datetime.fromisoformat(data["next_run_time_local"])
+                if data.get("next_run_time_local")
+                else None
+            ),
+            metadata=data.get("metadata", {}),
+            created_at=datetime.fromisoformat(data["created_at"]),
+            updated_at=datetime.fromisoformat(data["updated_at"]),
         )
-
-        # Local time (if available)
-        self.next_run_time_local: datetime | None = (
-            datetime.fromisoformat(data["next_run_time_local"])
-            if data.get("next_run_time_local")
-            else None
-        )
-
-        self.metadata: dict[str, Any] = data.get("metadata", {})
-        self.created_at: datetime = datetime.fromisoformat(data["created_at"])
-        self.updated_at: datetime = datetime.fromisoformat(data["updated_at"])
 
     def can_execute(self) -> bool:
         """Check if this job can be executed."""

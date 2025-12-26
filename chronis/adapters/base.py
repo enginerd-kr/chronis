@@ -3,12 +3,14 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
+from chronis.type_defs import JobStorageData, JobUpdateData
+
 
 class JobStorageAdapter(ABC):
     """Job storage adapter abstract class."""
 
     @abstractmethod
-    def create_job(self, job_data: dict[str, Any]) -> dict[str, Any]:
+    def create_job(self, job_data: JobStorageData) -> JobStorageData:
         """
         Create a job.
 
@@ -27,12 +29,12 @@ class JobStorageAdapter(ABC):
         pass
 
     @abstractmethod
-    def get_job(self, job_id: str) -> dict[str, Any] | None:
+    def get_job(self, job_id: str) -> JobStorageData | None:
         """Get a job by ID."""
         pass
 
     @abstractmethod
-    def update_job(self, job_id: str, updates: dict[str, Any]) -> dict[str, Any]:
+    def update_job(self, job_id: str, updates: JobUpdateData) -> JobStorageData:
         """Update a job."""
         pass
 
@@ -47,7 +49,7 @@ class JobStorageAdapter(ABC):
         filters: dict[str, Any] | None = None,
         limit: int | None = None,
         offset: int | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[JobStorageData]:
         """
         Query jobs with flexible filters.
 

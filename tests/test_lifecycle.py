@@ -26,11 +26,12 @@ def create_test_job(
         "timezone": "UTC",
         "status": status.value,
         "next_run_time": next_run_time.isoformat() if next_run_time else None,
+        "next_run_time_local": next_run_time.isoformat() if next_run_time else None,
         "metadata": {},
         "created_at": utc_now().isoformat(),
         "updated_at": utc_now().isoformat(),
     }
-    return JobInfo(data)
+    return JobInfo.from_dict(data)
 
 
 class TestCanExecute:
