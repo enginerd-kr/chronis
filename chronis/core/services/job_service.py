@@ -1,11 +1,12 @@
 """Job CRUD application service."""
 
-from typing import Any
+from typing import Any, cast
 
 from chronis.adapters.base import JobStorageAdapter
 from chronis.core.common.exceptions import JobAlreadyExistsError, JobNotFoundError
 from chronis.core.jobs.definition import JobDefinition, JobInfo
 from chronis.core.state import JobStatus
+from chronis.type_defs import JobUpdateData
 from chronis.utils.logging import ContextLogger
 from chronis.utils.time import utc_now
 
@@ -61,10 +62,10 @@ class JobService:
         job_data = job.to_dict()
 
         try:
-            result = self.storage.create_job(job_data)
+            result = self.storage.create_job(cast(Any, job_data))
             if self.verbose and self.logger:
                 self.logger.info("Job created", job_id=job.job_id)
-            return JobInfo.from_dict(result)
+            return JobInfo.from_dict(cast(dict[str, Any], result))
         except ValueError as e:
             raise JobAlreadyExistsError(str(e)) from e
 
@@ -79,7 +80,7 @@ class JobService:
             Job info or None if not found
         """
         job_data = self.storage.get_job(job_id)
-        return JobInfo.from_dict(job_data) if job_data else None
+        return JobInfo.from_dict(cast(dict[str, Any], job_data)) if job_data else None
 
     def query(
         self,
@@ -101,7 +102,7 @@ class JobService:
             >>> jobs = service.query(filters=scheduled_jobs())
         """
         jobs_data = self.storage.query_jobs(filters=filters, limit=limit)
-        return [JobInfo.from_dict(job_data) for job_data in jobs_data]
+        return [JobInfo.from_dict(cast(dict[str, Any], job_data)) for job_data in jobs_data]
 
     def update(
         self,
@@ -130,7 +131,7 @@ class JobService:
             JobNotFoundError: If job doesn't exist
         """
         # Build updates dictionary from non-None parameters
-        updates = {
+        updates_dict: dict[str, Any] = {
             k: v
             for k, v in {
                 "name": name,
@@ -142,18 +143,18 @@ class JobService:
             if v is not None
         }
 
-        if not updates:
+        if not updates_dict:
             # No updates provided, just fetch and return current state
             current = self.get(job_id)
             if not current:
                 raise JobNotFoundError(f"Job {job_id} not found")
             return current
 
-        updates["updated_at"] = utc_now().isoformat()
+        updates_dict["updated_at"] = utc_now().isoformat()
 
         try:
-            result = self.storage.update_job(job_id, updates)
-            return JobInfo.from_dict(result)
+            result = self.storage.update_job(job_id, cast(JobUpdateData, updates_dict))
+            return JobInfo.from_dict(cast(dict[str, Any], result))
         except ValueError as e:
             raise JobNotFoundError(str(e)) from e
 

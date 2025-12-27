@@ -3,6 +3,8 @@
 import asyncio
 import logging
 import threading
+from concurrent.futures import Future
+from typing import Any
 
 
 class AsyncExecutor:
@@ -66,7 +68,7 @@ class AsyncExecutor:
         finally:
             self._loop.close()
 
-    def execute_coroutine(self, coro) -> asyncio.Future:
+    def execute_coroutine(self, coro) -> Future[Any]:
         """
         Execute coroutine in the dedicated event loop (non-blocking).
 

@@ -294,7 +294,7 @@ class ExecutionCoordinator:
                 # Use threading to implement timeout for sync functions
                 import threading
 
-                result = {"completed": False, "error": None}
+                result: dict[str, Any] = {"completed": False, "error": None}
 
                 def _run_with_result():
                     try:
@@ -317,8 +317,9 @@ class ExecutionCoordinator:
                     raise TimeoutError(timeout_msg)
 
                 # Check if function raised an error
-                if result["error"]:
-                    raise result["error"]
+                error = result["error"]
+                if error:
+                    raise error  # type: ignore[misc]
 
                 # Check if function completed successfully
                 if not result["completed"]:

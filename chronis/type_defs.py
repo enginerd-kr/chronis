@@ -21,6 +21,14 @@ class JobStorageData(TypedDict):
     metadata: dict[str, Any]
     created_at: str
     updated_at: str
+    # Retry configuration
+    max_retries: int
+    retry_delay_seconds: int
+    retry_count: int
+    # Timeout configuration
+    timeout_seconds: int | None
+    # Priority configuration
+    priority: int
 
 
 # Trigger args by type
@@ -76,3 +84,4 @@ class JobUpdateData(TypedDict, total=False):
     next_run_time_local: NotRequired[str | None]
     metadata: NotRequired[dict[str, Any]]
     updated_at: NotRequired[str]
+    retry_count: NotRequired[int]
