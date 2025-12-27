@@ -126,9 +126,11 @@ addopts = [
     "--cov-report=html",
 ]
 markers = [
-    "unit: Unit tests",
-    "integration: Integration tests",
-    "slow: Slow tests (> 2 seconds) - skip with '-m \"not slow\"'",
+    "unit: Unit tests (fast, no dependencies, < 1s)",
+    "integration: Integration tests (direct method calls, deterministic, < 5s)",
+    "distributed: Distributed environment tests (multiple schedulers, < 10s)",
+    "e2e: End-to-end tests (real timing, > 10s) - run separately",
+    "slow: Slow tests (> 5 seconds) - skip with '-m \"not slow\"'",
 ]
 
 [dependency-groups]
