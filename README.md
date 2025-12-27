@@ -85,11 +85,15 @@ jobs = scheduler.query_jobs(filters={"status": "scheduled"}, limit=10)
 # Get specific job
 job = scheduler.get_job(saved_id)
 
+# Pause/Resume jobs
+scheduler.pause_job(saved_id)   # Temporarily suspend execution
+scheduler.resume_job(saved_id)  # Resume execution
+
 # Delete job
 scheduler.delete_job(saved_id)
 ```
 
-**Job States**: `PENDING` → `SCHEDULED` → `RUNNING` → `FAILED` (one-time jobs auto-delete after success)
+**Job States**: `PENDING` → `SCHEDULED` → `RUNNING` / `PAUSED` → `FAILED` (one-time jobs auto-delete after success)
 
 **Custom IDs** (optional): You can provide explicit IDs if needed:
 

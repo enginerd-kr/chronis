@@ -540,6 +540,86 @@ class PollingScheduler:
         """
         return self._job_service.delete(job_id)
 
+    def pause_job(self, job_id: str) -> bool:
+        """
+        Pause a scheduled job.
+
+        Paused jobs will not be polled or executed until resumed.
+        Only SCHEDULED or PENDING jobs can be paused.
+
+        Args:
+            job_id: Job ID to pause
+
+        Returns:
+            True if job was paused, False if job was not in pausable state
+
+        Raises:
+            JobNotFoundError: Job not found
+
+        Example:
+            >>> # Pause during deployment
+            >>> scheduler.pause_job("email-001")
+            True
+            >>>
+            >>> # Bulk pause by tenant
+            >>> jobs = scheduler.query_jobs(filters={"metadata.tenant_id": "acme"})
+            >>> for job in jobs:
+            ...     scheduler.pause_job(job.job_id)
+        """
+        from chronis.core.common.exceptions import JobNotFoundError
+
+        job = self._job_service.get(job_id)
+        if not job:
+            raise JobNotFoundError(f"Job {job_id} not found")
+
+        # Can only pause SCHEDULED or PENDING jobs
+        if job.status not in (JobStatus.SCHEDULED, JobStatus.PENDING):
+            self.logger.warning(
+                f"Cannot pause job {job_id} in status {job.status}",
+                extra={"job_id": job_id, "status": job.status},
+            )
+            return False
+
+        self._job_service.update(job_id=job_id, status=JobStatus.PAUSED)
+
+        self.logger.info(f"Job {job_id} paused", extra={"job_id": job_id})
+        return True
+
+    def resume_job(self, job_id: str) -> bool:
+        """
+        Resume a paused job.
+
+        Args:
+            job_id: Job ID to resume
+
+        Returns:
+            True if job was resumed, False if job was not paused
+
+        Raises:
+            JobNotFoundError: Job not found
+
+        Example:
+            >>> scheduler.resume_job("email-001")
+            True
+        """
+        from chronis.core.common.exceptions import JobNotFoundError
+
+        job = self._job_service.get(job_id)
+        if not job:
+            raise JobNotFoundError(f"Job {job_id} not found")
+
+        if job.status != JobStatus.PAUSED:
+            self.logger.warning(
+                f"Cannot resume job {job_id} - not paused (status: {job.status})",
+                extra={"job_id": job_id, "status": job.status},
+            )
+            return False
+
+        self._job_service.update(job_id=job_id, status=JobStatus.SCHEDULED)
+
+        self.logger.info(f"Job {job_id} resumed", extra={"job_id": job_id})
+        return True
+
     # ========================================
     # Simplified Public API (TriggerType hidden)
     # ========================================
