@@ -9,6 +9,7 @@ class JobStatus(str, Enum):
     PENDING = "pending"  # Created, waiting for first run
     SCHEDULED = "scheduled"  # Next run time is set
     RUNNING = "running"  # Currently executing
+    PAUSED = "paused"  # Temporarily suspended
     FAILED = "failed"  # Execution failed
 
     def __str__(self) -> str:
@@ -16,4 +17,4 @@ class JobStatus(str, Enum):
 
     def can_execute(self) -> bool:
         """Check if job can be executed in this status."""
-        return self != JobStatus.RUNNING
+        return self not in (JobStatus.RUNNING, JobStatus.PAUSED)

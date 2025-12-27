@@ -164,3 +164,143 @@ def test_query_jobs():
     )
     assert date_schedule.trigger_args["run_date"] == "2025-12-31T23:59:59Z"
     assert date_schedule.next_run_time is not None
+
+
+def test_pause_scheduled_job():
+    """Test pausing a scheduled job."""
+    storage = InMemoryStorageAdapter()
+    lock = InMemoryLockAdapter()
+    scheduler = PollingScheduler(storage_adapter=storage, lock_adapter=lock)
+
+    def dummy_func():
+        pass
+
+    scheduler.register_job_function(f"{dummy_func.__module__}.{dummy_func.__name__}", dummy_func)
+
+    # Create scheduled job
+    job_info = scheduler.create_interval_job(job_id="test-pause", func=dummy_func, seconds=60)
+    assert job_info.status == JobStatus.SCHEDULED
+
+    # Pause job
+    result = scheduler.pause_job("test-pause")
+    assert result is True
+
+    job = scheduler.get_job("test-pause")
+    assert job.status == JobStatus.PAUSED
+
+
+def test_resume_paused_job():
+    """Test resuming a paused job."""
+    storage = InMemoryStorageAdapter()
+    lock = InMemoryLockAdapter()
+    scheduler = PollingScheduler(storage_adapter=storage, lock_adapter=lock)
+
+    def dummy_func():
+        pass
+
+    scheduler.register_job_function(f"{dummy_func.__module__}.{dummy_func.__name__}", dummy_func)
+
+    # Create and pause job
+    scheduler.create_interval_job(job_id="test-resume", func=dummy_func, seconds=60)
+    scheduler.pause_job("test-resume")
+
+    # Resume job
+    result = scheduler.resume_job("test-resume")
+    assert result is True
+
+    job = scheduler.get_job("test-resume")
+    assert job.status == JobStatus.SCHEDULED
+
+
+def test_pause_running_job_returns_false():
+    """Test pausing running job returns False."""
+    storage = InMemoryStorageAdapter()
+    lock = InMemoryLockAdapter()
+    scheduler = PollingScheduler(storage_adapter=storage, lock_adapter=lock)
+
+    def dummy_func():
+        pass
+
+    scheduler.register_job_function(f"{dummy_func.__module__}.{dummy_func.__name__}", dummy_func)
+
+    # Create job and manually set to RUNNING
+    scheduler.create_interval_job(job_id="test-running", func=dummy_func, seconds=60)
+    scheduler.update_job("test-running", status=JobStatus.RUNNING)
+
+    # Try to pause - should return False
+    result = scheduler.pause_job("test-running")
+    assert result is False
+
+    job = scheduler.get_job("test-running")
+    assert job.status == JobStatus.RUNNING
+
+
+def test_resume_non_paused_job_returns_false():
+    """Test resuming non-paused job returns False."""
+    storage = InMemoryStorageAdapter()
+    lock = InMemoryLockAdapter()
+    scheduler = PollingScheduler(storage_adapter=storage, lock_adapter=lock)
+
+    def dummy_func():
+        pass
+
+    scheduler.register_job_function(f"{dummy_func.__module__}.{dummy_func.__name__}", dummy_func)
+
+    # Create scheduled job (not paused)
+    scheduler.create_interval_job(job_id="test-not-paused", func=dummy_func, seconds=60)
+
+    # Try to resume - should return False
+    result = scheduler.resume_job("test-not-paused")
+    assert result is False
+
+    job = scheduler.get_job("test-not-paused")
+    assert job.status == JobStatus.SCHEDULED
+
+
+def test_pause_nonexistent_job():
+    """Test pausing non-existent job raises error."""
+    from chronis.core.common.exceptions import JobNotFoundError
+
+    storage = InMemoryStorageAdapter()
+    lock = InMemoryLockAdapter()
+    scheduler = PollingScheduler(storage_adapter=storage, lock_adapter=lock)
+
+    with pytest.raises(JobNotFoundError):
+        scheduler.pause_job("nonexistent")
+
+
+@pytest.mark.slow
+def test_paused_jobs_not_executed():
+    """Test that paused jobs are not executed during polling."""
+    storage = InMemoryStorageAdapter()
+    lock = InMemoryLockAdapter()
+    scheduler = PollingScheduler(
+        storage_adapter=storage, lock_adapter=lock, polling_interval_seconds=1
+    )
+
+    execution_count = {"count": 0}
+
+    def counting_func():
+        execution_count["count"] += 1
+
+    scheduler.register_job_function(
+        f"{counting_func.__module__}.{counting_func.__name__}", counting_func
+    )
+
+    # Create job with short interval
+    scheduler.create_interval_job(job_id="test-paused-exec", func=counting_func, seconds=1)
+
+    # Pause immediately
+    scheduler.pause_job("test-paused-exec")
+
+    # Start and wait
+    scheduler.start()
+    time.sleep(3)
+    scheduler.stop()
+
+    # Should not have executed
+    assert execution_count["count"] == 0
+
+    # Verify still paused
+    job = scheduler.get_job("test-paused-exec")
+    assert job.status == JobStatus.PAUSED
