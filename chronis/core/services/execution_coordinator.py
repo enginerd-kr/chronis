@@ -438,55 +438,67 @@ class ExecutionCoordinator:
         self, job_id: str, error: Exception, job_data: dict[str, Any]
     ) -> None:
         """
-        Invoke failure handler with priority: job-specific > global.
+        Invoke failure handlers. Both job-specific and global handlers are called.
 
         Args:
             job_id: Job ID that failed
             error: Exception that occurred
             job_data: Job data from storage
         """
-        # Get job-specific handler (priority 1)
-        handler = self.failure_handler_registry.get(job_id)
+        job_info = JobInfo.from_dict(job_data)
 
-        # Fallback to global handler (priority 2)
-        if handler is None:
-            handler = self.global_on_failure
-
-        # Invoke handler if available
-        if handler:
+        # Invoke job-specific handler first
+        job_handler = self.failure_handler_registry.get(job_id)
+        if job_handler:
             try:
-                job_info = JobInfo.from_dict(job_data)
-                handler(job_id, error, job_info)
+                job_handler(job_id, error, job_info)
             except Exception as handler_error:
                 self.logger.error(
-                    f"Failure handler raised exception: {handler_error}",
+                    f"Job-specific failure handler raised exception: {handler_error}",
+                    job_id=job_id,
+                    exc_info=True,
+                )
+
+        # Also invoke global handler
+        if self.global_on_failure:
+            try:
+                self.global_on_failure(job_id, error, job_info)
+            except Exception as handler_error:
+                self.logger.error(
+                    f"Global failure handler raised exception: {handler_error}",
                     job_id=job_id,
                     exc_info=True,
                 )
 
     def _invoke_success_handler(self, job_id: str, job_data: dict[str, Any]) -> None:
         """
-        Invoke success handler with priority: job-specific > global.
+        Invoke success handlers. Both job-specific and global handlers are called.
 
         Args:
             job_id: Job ID that succeeded
             job_data: Job data from storage
         """
-        # Get job-specific handler (priority 1)
-        handler = self.success_handler_registry.get(job_id)
+        job_info = JobInfo.from_dict(job_data)
 
-        # Fallback to global handler (priority 2)
-        if handler is None:
-            handler = self.global_on_success
-
-        # Invoke handler if available
-        if handler:
+        # Invoke job-specific handler first
+        job_handler = self.success_handler_registry.get(job_id)
+        if job_handler:
             try:
-                job_info = JobInfo.from_dict(job_data)
-                handler(job_id, job_info)
+                job_handler(job_id, job_info)
             except Exception as handler_error:
                 self.logger.error(
-                    f"Success handler raised exception: {handler_error}",
+                    f"Job-specific success handler raised exception: {handler_error}",
+                    job_id=job_id,
+                    exc_info=True,
+                )
+
+        # Also invoke global handler
+        if self.global_on_success:
+            try:
+                self.global_on_success(job_id, job_info)
+            except Exception as handler_error:
+                self.logger.error(
+                    f"Global success handler raised exception: {handler_error}",
                     job_id=job_id,
                     exc_info=True,
                 )
