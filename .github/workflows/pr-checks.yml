@@ -32,8 +32,11 @@ jobs:
       - name: Run type checker
         run: uv run mypy chronis/
 
-      - name: Run tests with coverage
-        run: uv run pytest -v --cov=chronis --cov-report=term-missing --cov-report=xml --cov-report=html
+      - name: Run unit and integration tests
+        run: uv run pytest tests/unit/ tests/integration/ -v --cov=chronis --cov-report=term-missing --cov-report=xml --cov-report=html
+
+      - name: Run E2E tests
+        run: uv run pytest tests/e2e/ -v --no-cov -m e2e
 
       - name: Coverage comment
         uses: py-cov-action/python-coverage-comment-action@v3

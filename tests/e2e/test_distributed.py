@@ -5,6 +5,7 @@ import time
 from datetime import datetime, timedelta
 
 import pytest
+from conftest import wait_for
 
 from chronis import PollingScheduler
 from chronis.adapters.lock.memory import InMemoryLockAdapter
@@ -57,17 +58,21 @@ class TestDistributedLock:
             scheduler.start()
 
         try:
-            # Wait for job to execute multiple times
-            time.sleep(4)
+            # Wait for at least 2 executions (first at ~1s, second at ~2s, with polling delays)
+            wait_for(
+                lambda: execution_count["count"] >= 2,
+                timeout=8,
+                error_message=f"Expected at least 2 executions, got {execution_count['count']}",
+            )
 
             # Stop all schedulers
             for scheduler in schedulers:
                 scheduler.stop()
 
-            # Verify lock is working: execution count should be ~3-5
-            # Without lock, would be ~9-12 (3x for each execution)
-            assert 2 <= execution_count["count"] <= 6, (
-                f"Expected 2-6 executions (with lock working), got {execution_count['count']}"
+            # Verify lock is working: execution count should be 2-4
+            # Without lock, would be 6-12 (3 schedulers × 2-4 executions each)
+            assert 2 <= execution_count["count"] <= 5, (
+                f"Expected 2-5 executions (lock working), got {execution_count['count']}"
             )
 
         finally:
@@ -122,17 +127,19 @@ class TestDistributedLock:
             scheduler.start()
 
         try:
-            # Wait for all jobs to execute
-            time.sleep(5)
+            # Wait for all 20 jobs to execute at least once
+            wait_for(
+                lambda: len(execution_counts) >= 20,
+                timeout=8,
+                error_message=f"Expected 20 jobs, got {len(execution_counts)}",
+            )
 
             # Stop all schedulers
             for scheduler in schedulers:
                 scheduler.stop()
 
             # Verify all jobs executed
-            assert len(execution_counts) == 20, (
-                f"Expected 20 jobs executed, got {len(execution_counts)}"
-            )
+            assert len(execution_counts) == 20
 
             # With lock, total executions should be significantly less than 60 (20 jobs * 3 schedulers)
             # Allow up to 40 total executions (some duplicates due to InMemoryLockAdapter limitations)
@@ -195,17 +202,19 @@ class TestDistributedLock:
             scheduler.start()
 
         try:
-            # Wait for all jobs to execute
-            time.sleep(4)
+            # Wait for all 10 jobs to execute at least once
+            wait_for(
+                lambda: len(execution_times) >= 10,
+                timeout=6,
+                error_message=f"Expected 10 jobs, got {len(execution_times)}",
+            )
 
             # Stop all schedulers
             for scheduler in schedulers:
                 scheduler.stop()
 
             # Verify all jobs executed at least once
-            assert len(execution_times) == 10, (
-                f"Expected 10 jobs executed, got {len(execution_times)}"
-            )
+            assert len(execution_times) == 10
 
             # Total executions should be <= 15 (some duplicates allowed due to lock limitations)
             # Without lock, would be 30 (10 jobs * 3 schedulers)
