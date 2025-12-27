@@ -133,5 +133,12 @@ markers = [
     "slow: Slow tests (> 5 seconds) - skip with '-m \"not slow\"'",
 ]
 
+[tool.coverage.run]
+relative_files = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [dependency-groups]
 dev = ["ruff>=0.14.3", "pytest>=7.4.3", "pytest-cov>=4.1.0", "mypy>=1.8.0"]

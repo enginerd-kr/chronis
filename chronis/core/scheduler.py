@@ -8,8 +8,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any
 
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore[import-untyped]
+from apscheduler.triggers.interval import IntervalTrigger  # type: ignore[import-untyped]
 
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
 from chronis.core.callbacks import OnFailureCallback, OnSuccessCallback
@@ -643,6 +643,7 @@ class PollingScheduler:
         max_retries: int = 0,
         retry_delay_seconds: int = 60,
         timeout_seconds: int | None = None,
+        priority: int = 5,
     ) -> JobInfo:
         """
         Create interval job (runs repeatedly at fixed intervals).
@@ -733,6 +734,7 @@ class PollingScheduler:
             max_retries=max_retries,
             retry_delay_seconds=retry_delay_seconds,
             timeout_seconds=timeout_seconds,
+            priority=priority,
         )
         return self.create_job(job)
 
@@ -757,6 +759,7 @@ class PollingScheduler:
         max_retries: int = 0,
         retry_delay_seconds: int = 60,
         timeout_seconds: int | None = None,
+        priority: int = 5,
     ) -> JobInfo:
         """
         Create cron job (runs on specific date/time patterns).
@@ -854,6 +857,7 @@ class PollingScheduler:
             max_retries=max_retries,
             retry_delay_seconds=retry_delay_seconds,
             timeout_seconds=timeout_seconds,
+            priority=priority,
         )
         return self.create_job(job)
 
@@ -872,6 +876,7 @@ class PollingScheduler:
         max_retries: int = 0,
         retry_delay_seconds: int = 60,
         timeout_seconds: int | None = None,
+        priority: int = 5,
     ) -> JobInfo:
         """
         Create one-time job (runs once at specific date/time).
@@ -944,5 +949,6 @@ class PollingScheduler:
             max_retries=max_retries,
             retry_delay_seconds=retry_delay_seconds,
             timeout_seconds=timeout_seconds,
+            priority=priority,
         )
         return self.create_job(job)
