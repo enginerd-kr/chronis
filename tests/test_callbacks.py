@@ -138,8 +138,8 @@ def test_global_failure_handler_is_invoked(scheduler_with_global_handlers):
         scheduler.stop()
 
 
-def test_job_specific_failure_handler_takes_priority(scheduler_without_global_handlers):
-    """Test that job-specific failure handler takes priority over global handler."""
+def test_job_specific_and_global_failure_handlers_both_called(scheduler_without_global_handlers):
+    """Test that both job-specific and global failure handlers are called."""
     scheduler = scheduler_without_global_handlers
 
     # Create two trackers
@@ -174,14 +174,19 @@ def test_job_specific_failure_handler_takes_priority(scheduler_without_global_ha
             "Job-specific failure handler was not invoked"
         )
 
-        # Verify only job-specific handler was called
+        # Verify both handlers were called
         assert len(job_specific_tracker.failures) == 1
-        assert len(global_tracker.failures) == 0, "Global handler should not be invoked"
+        assert len(global_tracker.failures) == 1, "Global handler should also be invoked"
 
         # Verify job-specific handler details
         failure = job_specific_tracker.failures[0]
         assert failure["job_id"] == job.job_id
         assert isinstance(failure["error"], ValueError)
+
+        # Verify global handler details
+        global_failure = global_tracker.failures[0]
+        assert global_failure["job_id"] == job.job_id
+        assert isinstance(global_failure["error"], ValueError)
 
     finally:
         scheduler.stop()
@@ -221,8 +226,8 @@ def test_global_success_handler_is_invoked(scheduler_with_global_handlers):
         scheduler.stop()
 
 
-def test_job_specific_success_handler_takes_priority(scheduler_without_global_handlers):
-    """Test that job-specific success handler takes priority over global handler."""
+def test_job_specific_and_global_success_handlers_both_called(scheduler_without_global_handlers):
+    """Test that both job-specific and global success handlers are called."""
     scheduler = scheduler_without_global_handlers
 
     # Create two trackers
@@ -257,13 +262,17 @@ def test_job_specific_success_handler_takes_priority(scheduler_without_global_ha
             "Job-specific success handler was not invoked"
         )
 
-        # Verify only job-specific handler was called
+        # Verify both handlers were called
         assert len(job_specific_tracker.successes) >= 1
-        assert len(global_tracker.successes) == 0, "Global handler should not be invoked"
+        assert len(global_tracker.successes) >= 1, "Global handler should also be invoked"
 
         # Verify job-specific handler details
         success = job_specific_tracker.successes[0]
         assert success["job_id"] == job.job_id
+
+        # Verify global handler details
+        global_success = global_tracker.successes[0]
+        assert global_success["job_id"] == job.job_id
 
     finally:
         scheduler.stop()
