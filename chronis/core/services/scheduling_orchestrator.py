@@ -153,14 +153,26 @@ class SchedulingOrchestrator:
         Uses the jobs_ready_before helper to find jobs that
         are scheduled and have next_run_time <= current_time.
 
+        Jobs are sorted by priority (descending) then next_run_time (ascending).
+
         Args:
             current_time: Current time
             limit: Maximum number of jobs to return
 
         Returns:
-            List of ready job data
+            List of ready job data sorted by priority (high to low) then time (early to late)
         """
         # Get filter for ready jobs
         filters = jobs_ready_before(current_time)
 
-        return self.storage.query_jobs(filters=filters, limit=limit)
+        jobs = self.storage.query_jobs(filters=filters, limit=None)
+
+        # Sort by priority (descending) then next_run_time (ascending)
+        # Higher priority = higher number = executed first
+        jobs.sort(key=lambda j: (-j.get("priority", 5), j.get("next_run_time", "")))
+
+        # Apply limit after sorting
+        if limit is not None:
+            jobs = jobs[:limit]
+
+        return jobs
