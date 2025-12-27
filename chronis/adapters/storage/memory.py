@@ -3,6 +3,7 @@
 from typing import Any
 
 from chronis.adapters.base import JobStorageAdapter
+from chronis.type_defs import JobStorageData, JobUpdateData
 from chronis.utils.time import utc_now
 
 
@@ -10,26 +11,26 @@ class InMemoryStorageAdapter(JobStorageAdapter):
     """In-memory storage adapter (for testing)."""
 
     def __init__(self) -> None:
-        self._jobs: dict[str, dict[str, Any]] = {}
+        self._jobs: dict[str, JobStorageData] = {}
 
-    def create_job(self, job_data: dict[str, Any]) -> dict[str, Any]:
+    def create_job(self, job_data: JobStorageData) -> JobStorageData:
         """Create a job."""
         job_id = job_data["job_id"]
         if job_id in self._jobs:
             raise ValueError(f"Job {job_id} already exists")
-        self._jobs[job_id] = job_data.copy()
+        self._jobs[job_id] = job_data.copy()  # type: ignore[typeddict-item]
         return job_data
 
-    def get_job(self, job_id: str) -> dict[str, Any] | None:
+    def get_job(self, job_id: str) -> JobStorageData | None:
         """Get a job."""
         return self._jobs.get(job_id)
 
-    def update_job(self, job_id: str, updates: dict[str, Any]) -> dict[str, Any]:
+    def update_job(self, job_id: str, updates: JobUpdateData) -> JobStorageData:
         """Update a job."""
         if job_id not in self._jobs:
             raise ValueError(f"Job {job_id} not found")
-        self._jobs[job_id].update(updates)
-        self._jobs[job_id]["updated_at"] = utc_now().isoformat()
+        self._jobs[job_id].update(updates)  # type: ignore[typeddict-item]
+        self._jobs[job_id]["updated_at"] = utc_now().isoformat()  # type: ignore[typeddict-item]
         return self._jobs[job_id]
 
     def delete_job(self, job_id: str) -> bool:
@@ -44,7 +45,7 @@ class InMemoryStorageAdapter(JobStorageAdapter):
         filters: dict[str, Any] | None = None,
         limit: int | None = None,
         offset: int | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[JobStorageData]:
         """
         Query jobs with flexible filters.
 
@@ -79,7 +80,7 @@ class InMemoryStorageAdapter(JobStorageAdapter):
                     jobs = [j for j in jobs if j.get("metadata", {}).get(metadata_key) == value]
 
         # Sort by next_run_time (oldest first)
-        jobs.sort(key=lambda j: j.get("next_run_time", ""))
+        jobs.sort(key=lambda j: j.get("next_run_time") or "")
 
         # Apply offset and limit
         if offset:

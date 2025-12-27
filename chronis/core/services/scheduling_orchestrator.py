@@ -144,9 +144,7 @@ class SchedulingOrchestrator:
         """
         return self.job_queue.is_empty()
 
-    def _query_ready_jobs(
-        self, current_time: datetime, limit: int | None = None
-    ) -> list[dict[str, Any]]:
+    def _query_ready_jobs(self, current_time: datetime, limit: int | None = None) -> list[Any]:
         """
         Query ready jobs from storage.
 
@@ -162,14 +160,21 @@ class SchedulingOrchestrator:
         Returns:
             List of ready job data sorted by priority (high to low) then time (early to late)
         """
+        from typing import cast
+
         # Get filter for ready jobs
         filters = jobs_ready_before(current_time)
 
-        jobs = self.storage.query_jobs(filters=filters, limit=None)
+        jobs = self.storage.query_jobs(filters=cast(dict[str, Any], filters), limit=None)
 
         # Sort by priority (descending) then next_run_time (ascending)
         # Higher priority = higher number = executed first
-        jobs.sort(key=lambda j: (-j.get("priority", 5), j.get("next_run_time", "")))
+        def sort_key(job: Any) -> tuple[int, str]:
+            priority = job.get("priority", 5)
+            next_run = job.get("next_run_time", "")
+            return (-int(priority), str(next_run))
+
+        jobs.sort(key=sort_key)
 
         # Apply limit after sorting
         if limit is not None:

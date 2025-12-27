@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from apscheduler.triggers.cron import CronTrigger as APSCronTrigger
+from apscheduler.triggers.cron import CronTrigger as APSCronTrigger  # type: ignore[import-untyped]
 
 from chronis.core.triggers.base import TriggerStrategy
 from chronis.utils.time import ZoneInfo, get_timezone
