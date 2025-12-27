@@ -235,17 +235,22 @@ class ExecutionCoordinator:
 
     def _execute_job_function(self, job_data: dict[str, Any], job_logger: ContextLogger) -> None:
         """
-        Execute the actual job function (sync or async).
+        Execute the actual job function (sync or async) with timeout support.
 
         Args:
             job_data: Job data
             job_logger: Context logger
+
+        Raises:
+            TimeoutError: If job execution exceeds timeout_seconds
         """
+        import asyncio
         import inspect
 
         func_name = job_data["func_name"]
         args = tuple(job_data.get("args", []))
         kwargs = job_data.get("kwargs", {})
+        timeout_seconds = job_data.get("timeout_seconds")
 
         # Look up function from registry
         func = self.function_registry.get(func_name)
@@ -254,9 +259,13 @@ class ExecutionCoordinator:
 
         # Execute based on function type
         if inspect.iscoroutinefunction(func):
-            # Async function - execute without blocking
-            # Note: Async jobs are fire-and-forget. The calling thread doesn't wait.
+            # Async function - execute with timeout
             coro = func(*args, **kwargs)
+
+            if timeout_seconds:
+                # Wrap with timeout
+                coro = asyncio.wait_for(coro, timeout=timeout_seconds)
+
             future = self.async_executor.execute_coroutine(coro)
 
             # Add error callback to log async failures and update job status
@@ -264,9 +273,14 @@ class ExecutionCoordinator:
 
             def _handle_async_completion(fut):
                 try:
-                    fut.result()  # This will raise if the coroutine raised
+                    fut.result()  # This will raise if the coroutine raised or timed out
                     # Async job succeeded - invoke success handler
                     self._invoke_success_handler(job_id, job_data)
+                except TimeoutError:
+                    timeout_msg = f"Job exceeded timeout of {timeout_seconds}s"
+                    job_logger.error(timeout_msg)
+                    self._update_job_status(job_id, JobStatus.FAILED)
+                    self._invoke_failure_handler(job_id, TimeoutError(timeout_msg), job_data)
                 except Exception as e:
                     job_logger.error(f"Async job execution failed: {e}", exc_info=True)
                     # Update job status to FAILED if async execution fails
@@ -275,8 +289,43 @@ class ExecutionCoordinator:
 
             future.add_done_callback(_handle_async_completion)
         else:
-            # Sync function - executes and blocks until complete
-            func(*args, **kwargs)
+            # Sync function - execute with timeout
+            if timeout_seconds:
+                # Use threading to implement timeout for sync functions
+                import threading
+
+                result = {"completed": False, "error": None}
+
+                def _run_with_result():
+                    try:
+                        func(*args, **kwargs)
+                        result["completed"] = True
+                    except Exception as e:
+                        result["error"] = e
+
+                # Run function in a separate thread
+                thread = threading.Thread(target=_run_with_result, daemon=True)
+                thread.start()
+                thread.join(timeout=timeout_seconds)
+
+                # Check if thread completed
+                if thread.is_alive():
+                    # Timeout occurred - thread is still running
+                    timeout_msg = f"Job exceeded timeout of {timeout_seconds}s"
+                    job_logger.error(timeout_msg)
+                    # Note: We cannot forcefully stop the thread, but we report timeout
+                    raise TimeoutError(timeout_msg)
+
+                # Check if function raised an error
+                if result["error"]:
+                    raise result["error"]
+
+                # Check if function completed successfully
+                if not result["completed"]:
+                    raise RuntimeError("Job did not complete")
+            else:
+                # No timeout - execute directly
+                func(*args, **kwargs)
 
     def _schedule_retry(
         self, job_data: dict[str, Any], next_retry_count: int, job_logger: ContextLogger

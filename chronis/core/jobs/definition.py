@@ -43,6 +43,8 @@ class JobDefinition(BaseModel):
     # Retry configuration
     max_retries: int = 0
     retry_delay_seconds: int = 60
+    # Timeout configuration (seconds, None = no timeout)
+    timeout_seconds: int | None = None
 
     def model_post_init(self, __context: Any) -> None:
         """Normalize None values to defaults after validation."""
@@ -112,6 +114,8 @@ class JobDefinition(BaseModel):
             "max_retries": self.max_retries,
             "retry_delay_seconds": self.retry_delay_seconds,
             "retry_count": 0,
+            # Timeout configuration
+            "timeout_seconds": self.timeout_seconds,
             "created_at": utc_now().isoformat(),
             "updated_at": utc_now().isoformat(),
         }
@@ -157,6 +161,8 @@ class JobInfo:
     max_retries: int = 0
     retry_delay_seconds: int = 60
     retry_count: int = 0
+    # Timeout information
+    timeout_seconds: int | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "JobInfo":
@@ -182,6 +188,7 @@ class JobInfo:
             max_retries=data.get("max_retries", 0),
             retry_delay_seconds=data.get("retry_delay_seconds", 60),
             retry_count=data.get("retry_count", 0),
+            timeout_seconds=data.get("timeout_seconds"),
         )
 
     def can_execute(self) -> bool:

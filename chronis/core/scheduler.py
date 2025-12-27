@@ -562,6 +562,7 @@ class PollingScheduler:
         on_success: OnSuccessCallback | None = None,
         max_retries: int = 0,
         retry_delay_seconds: int = 60,
+        timeout_seconds: int | None = None,
     ) -> JobInfo:
         """
         Create interval job (runs repeatedly at fixed intervals).
@@ -585,6 +586,7 @@ class PollingScheduler:
             on_success: Success handler for this specific job (optional)
             max_retries: Maximum number of retry attempts (default: 0, no retry)
             retry_delay_seconds: Base delay between retries in seconds (default: 60)
+            timeout_seconds: Job execution timeout in seconds (default: None, no timeout)
 
         Returns:
             Created job info with generated or provided job_id
@@ -650,6 +652,7 @@ class PollingScheduler:
             on_success=on_success,
             max_retries=max_retries,
             retry_delay_seconds=retry_delay_seconds,
+            timeout_seconds=timeout_seconds,
         )
         return self.create_job(job)
 
@@ -673,6 +676,7 @@ class PollingScheduler:
         on_success: OnSuccessCallback | None = None,
         max_retries: int = 0,
         retry_delay_seconds: int = 60,
+        timeout_seconds: int | None = None,
     ) -> JobInfo:
         """
         Create cron job (runs on specific date/time patterns).
@@ -696,6 +700,7 @@ class PollingScheduler:
             on_success: Success handler for this specific job (optional)
             max_retries: Maximum number of retry attempts (default: 0, no retry)
             retry_delay_seconds: Base delay between retries in seconds (default: 60)
+            timeout_seconds: Job execution timeout in seconds (default: None, no timeout)
 
         Returns:
             Created job info with generated or provided job_id
@@ -768,6 +773,7 @@ class PollingScheduler:
             on_success=on_success,
             max_retries=max_retries,
             retry_delay_seconds=retry_delay_seconds,
+            timeout_seconds=timeout_seconds,
         )
         return self.create_job(job)
 
@@ -785,6 +791,7 @@ class PollingScheduler:
         on_success: OnSuccessCallback | None = None,
         max_retries: int = 0,
         retry_delay_seconds: int = 60,
+        timeout_seconds: int | None = None,
     ) -> JobInfo:
         """
         Create one-time job (runs once at specific date/time).
@@ -802,6 +809,7 @@ class PollingScheduler:
             on_success: Success handler for this specific job (optional)
             max_retries: Maximum number of retry attempts (default: 0, no retry)
             retry_delay_seconds: Base delay between retries in seconds (default: 60)
+            timeout_seconds: Job execution timeout in seconds (default: None, no timeout)
 
         Returns:
             Created job info with generated or provided job_id
@@ -855,5 +863,6 @@ class PollingScheduler:
             on_success=on_success,
             max_retries=max_retries,
             retry_delay_seconds=retry_delay_seconds,
+            timeout_seconds=timeout_seconds,
         )
         return self.create_job(job)
