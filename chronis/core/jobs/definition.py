@@ -45,6 +45,8 @@ class JobDefinition(BaseModel):
     retry_delay_seconds: int = 60
     # Timeout configuration (seconds, None = no timeout)
     timeout_seconds: int | None = None
+    # Priority configuration (higher number = higher priority, 0-10 range)
+    priority: int = 5
 
     def model_post_init(self, __context: Any) -> None:
         """Normalize None values to defaults after validation."""
@@ -64,6 +66,14 @@ class JobDefinition(BaseModel):
             return v
         except Exception as e:
             raise ValueError(f"Invalid timezone '{v}': {e}") from e
+
+    @field_validator("priority")
+    @classmethod
+    def validate_priority(cls, v: int) -> int:
+        """Validate priority is in range 0-10."""
+        if not 0 <= v <= 10:
+            raise ValueError(f"Priority must be between 0 and 10, got {v}")
+        return v
 
     def to_dict(self) -> dict[str, Any]:
         """
@@ -116,6 +126,8 @@ class JobDefinition(BaseModel):
             "retry_count": 0,
             # Timeout configuration
             "timeout_seconds": self.timeout_seconds,
+            # Priority configuration
+            "priority": self.priority,
             "created_at": utc_now().isoformat(),
             "updated_at": utc_now().isoformat(),
         }
@@ -163,6 +175,8 @@ class JobInfo:
     retry_count: int = 0
     # Timeout information
     timeout_seconds: int | None = None
+    # Priority information
+    priority: int = 5
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "JobInfo":
@@ -189,6 +203,7 @@ class JobInfo:
             retry_delay_seconds=data.get("retry_delay_seconds", 60),
             retry_count=data.get("retry_count", 0),
             timeout_seconds=data.get("timeout_seconds"),
+            priority=data.get("priority", 5),
         )
 
     def can_execute(self) -> bool:
