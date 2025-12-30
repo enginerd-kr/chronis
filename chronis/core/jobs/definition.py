@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -47,6 +47,9 @@ class JobDefinition(BaseModel):
     timeout_seconds: int | None = None
     # Priority configuration (higher number = higher priority, 0-10 range)
     priority: int = 5
+    # Misfire configuration
+    if_missed: Literal["skip", "run_once", "run_all"] | None = None
+    misfire_threshold_seconds: int = 60
 
     def model_post_init(self, __context: Any) -> None:
         """Normalize None values to defaults after validation."""
@@ -56,6 +59,13 @@ class JobDefinition(BaseModel):
             object.__setattr__(self, "kwargs", {})
         if self.metadata is None:
             object.__setattr__(self, "metadata", {})
+
+        # Set default misfire policy based on trigger type if not specified
+        if self.if_missed is None:
+            from chronis.core.misfire import get_default_policy
+
+            default_policy = get_default_policy(self.trigger_type)
+            object.__setattr__(self, "if_missed", default_policy.value)
 
     @field_validator("timezone")
     @classmethod
@@ -128,6 +138,11 @@ class JobDefinition(BaseModel):
             "timeout_seconds": self.timeout_seconds,
             # Priority configuration
             "priority": self.priority,
+            # Misfire configuration
+            "if_missed": self.if_missed,
+            "misfire_threshold_seconds": self.misfire_threshold_seconds,
+            "last_run_time": None,
+            "last_scheduled_time": None,
             "created_at": utc_now().isoformat(),
             "updated_at": utc_now().isoformat(),
         }

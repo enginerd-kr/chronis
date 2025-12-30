@@ -84,6 +84,51 @@ class JobStorageAdapter(ABC):
         """
         pass
 
+    @abstractmethod
+    def update_job_run_times(
+        self,
+        job_id: str,
+        scheduled_time: str,
+        actual_time: str,
+        next_run_time: str | None,
+    ) -> JobStorageData:
+        """
+        Update job execution times after a run.
+
+        This method is called by Chronis Core scheduler after every job execution
+        (both normal and misfired). The scheduler calculates all time values and
+        passes them to this method for persistence.
+
+        Responsibility Split:
+            - Chronis Core (caller): Calculates scheduled_time, actual_time, next_run_time
+            - Storage Adapter (implementer): Persists the values to database
+
+        Args:
+            job_id: Job ID
+            scheduled_time: When this run was scheduled for (ISO format, calculated by Core)
+            actual_time: When this run actually executed (ISO format, calculated by Core)
+            next_run_time: Next scheduled run time (ISO format or None, calculated by Core)
+
+        Returns:
+            Updated job data
+
+        Implementation Requirements:
+            MUST update these fields in storage:
+            - last_scheduled_time = scheduled_time
+            - last_run_time = actual_time
+            - next_run_time = next_run_time
+            - updated_at = current timestamp
+
+        Example implementations:
+            InMemory: self._jobs[job_id].update({...})
+            Redis: self.redis.hset(f"job:{job_id}", mapping={...})
+            PostgreSQL: UPDATE jobs SET ... WHERE job_id = $1
+
+        Raises:
+            ValueError: If job_id not found
+        """
+        pass
+
 
 class LockAdapter(ABC):
     """Distributed lock adapter abstract class."""
