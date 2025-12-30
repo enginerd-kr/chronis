@@ -95,13 +95,33 @@ class JobStorageAdapter(ABC):
         """
         Update job execution times after a run.
 
-        This method is called by Chronis Core scheduler after every job execution
-        (both normal and misfired). The scheduler calculates all time values and
-        passes them to this method for persistence.
-
-        Responsibility Split:
-            - Chronis Core (caller): Calculates scheduled_time, actual_time, next_run_time
-            - Storage Adapter (implementer): Persists the values to database
+        ┌──────────────────────────────────────────────────────────────┐
+        │                   IMPLEMENTATION CONTRACT                     │
+        ├──────────────────────────────────────────────────────────────┤
+        │ WHO IMPLEMENTS: Storage adapter developer                    │
+        │ WHO CALLS:      Chronis Core scheduler                       │
+        │ WHEN CALLED:    After every job execution                    │
+        │                 (both normal and misfired)                   │
+        ├──────────────────────────────────────────────────────────────┤
+        │ RESPONSIBILITY SPLIT:                                        │
+        │                                                              │
+        │ Chronis Core (caller):                                       │
+        │  ✓ Executes the job                                          │
+        │  ✓ Calculates scheduled_time (what was planned)              │
+        │  ✓ Calculates actual_time (when it ran)                      │
+        │  ✓ Calculates next_run_time (next schedule)                  │
+        │  ✓ Calls this method with calculated values                  │
+        │                                                              │
+        │ Storage Adapter (implementer):                               │
+        │  ✓ Receives time values from Core                            │
+        │  ✓ Persists to database/storage                              │
+        │  ✓ Returns updated job data                                  │
+        │                                                              │
+        │ Does NOT:                                                    │
+        │  ✗ Calculate time values (Core does this)                   │
+        │  ✗ Detect misfire (MisfireClassifier does this)             │
+        │  ✗ Handle misfire policy (MisfireHandler does this)         │
+        └──────────────────────────────────────────────────────────────┘
 
         Args:
             job_id: Job ID

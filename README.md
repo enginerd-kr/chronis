@@ -95,6 +95,38 @@ scheduler.delete_job(saved_id)
 
 **Job States**: `PENDING` → `SCHEDULED` → `RUNNING` / `PAUSED` → `FAILED` (one-time jobs auto-delete after success)
 
+## Misfire Handling
+
+Handle jobs that miss their scheduled time (system downtime, busy workers):
+
+```python
+# Cron job - defaults to "skip" (time-specific jobs)
+scheduler.create_cron_job(
+    func=generate_report,
+    hour=9,
+    minute=0,
+    # if_missed="skip"  # Default: skip if 9am passed
+)
+
+# Critical job - run even if late
+scheduler.create_cron_job(
+    func=backup_database,
+    hour=2,
+    minute=0,
+    if_missed="run_once",  # Override: run even if late
+)
+
+# Event sync - catch up all missed
+scheduler.create_interval_job(
+    func=sync_events,
+    minutes=5,
+    if_missed="run_all",  # Run all missed executions
+    misfire_threshold_seconds=30,  # Custom threshold
+)
+```
+
+**Policies**: `skip` (ignore), `run_once` (execute once), `run_all` (all missed runs)
+
 **Custom IDs** (optional): You can provide explicit IDs if needed:
 
 ```python
@@ -142,7 +174,7 @@ scheduler = PollingScheduler(
     on_success=on_job_success,  # Global success handler
 )
 
-# Job-specific handlers (override global)
+# Job-specific handlers
 scheduler.create_interval_job(
     func=critical_task,
     hours=1,
