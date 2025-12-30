@@ -35,6 +35,16 @@ class MyCustomAdapter(JobStorageAdapter):
     ) -> list[dict[str, Any]]:
         """Query jobs with filters."""
         pass
+
+    def update_job_run_times(
+        self,
+        job_id: str,
+        scheduled_time: str,
+        actual_time: str,
+        next_run_time: str | None,
+    ) -> dict[str, Any]:
+        """Update job execution times (called by Chronis Core after execution)."""
+        pass
 ```
 
 ## Job Data Structure
@@ -46,6 +56,12 @@ class MyCustomAdapter(JobStorageAdapter):
     "job_id": "unique-job-id",      # str
     "status": "scheduled",           # str: "scheduled", "running", "completed", etc.
     "next_run_time": "2025-01-15T10:00:00Z",  # str (ISO format, UTC)
+
+    # Misfire handling (required for misfire detection)
+    "if_missed": "run_once",         # str: "skip" | "run_once" | "run_all"
+    "misfire_threshold_seconds": 60, # int: delay threshold in seconds
+    "last_run_time": None,           # str | None: last actual execution time
+    "last_scheduled_time": None,     # str | None: last scheduled time
 }
 ```
 
@@ -64,6 +80,8 @@ class MyCustomAdapter(JobStorageAdapter):
     # ... adapter-specific fields
 }
 ```
+
+**IMPORTANT**: `query_jobs()` MUST return all misfire-related fields (`if_missed`, `misfire_threshold_seconds`, `last_run_time`, `last_scheduled_time`) for misfire detection to work.
 
 ## Filter Implementation
 
@@ -378,6 +396,45 @@ filters = {
     "status": "scheduled",
     "next_run_time_lte": utc_now().isoformat()
 }
+```
+
+## Implementing update_job_run_times()
+
+This method is called by Chronis Core after every job execution to track execution history:
+
+```python
+def update_job_run_times(
+    self,
+    job_id: str,
+    scheduled_time: str,      # Calculated by Core
+    actual_time: str,         # Calculated by Core
+    next_run_time: str | None,  # Calculated by Core
+) -> dict[str, Any]:
+    """
+    Update job execution times.
+
+    Core calculates all values, adapter just persists them.
+    """
+    # PostgreSQL example
+    query = """
+        UPDATE scheduled_jobs
+        SET last_scheduled_time = %s,
+            last_run_time = %s,
+            next_run_time = %s,
+            updated_at = NOW()
+        WHERE job_id = %s
+        RETURNING *
+    """
+    cursor.execute(query, (scheduled_time, actual_time, next_run_time, job_id))
+    return cursor.fetchone()
+
+    # Redis example
+    self.redis.hset(f"job:{job_id}", mapping={
+        "last_scheduled_time": scheduled_time,
+        "last_run_time": actual_time,
+        "next_run_time": next_run_time or "",
+        "updated_at": utc_now().isoformat(),
+    })
 ```
 
 ## Reference Implementation

@@ -403,7 +403,9 @@ class ExecutionCoordinator:
 
     def _update_next_run_time(self, job_data: dict[str, Any]) -> None:
         """
-        Calculate and update next run time for recurring jobs.
+        Calculate and update next run time and execution times for recurring jobs.
+
+        Uses update_job_run_times() to track execution history for misfire detection.
 
         Args:
             job_data: Job data
@@ -413,27 +415,51 @@ class ExecutionCoordinator:
         trigger_args = job_data["trigger_args"]
         timezone = job_data.get("timezone", "UTC")
 
+        # Get scheduled and actual times
+        scheduled_time = job_data.get("next_run_time")  # What was scheduled
+        actual_time = utc_now().isoformat()  # When it actually ran
+
         # Skip for one-time jobs (DATE trigger)
         if trigger_type == TriggerType.DATE.value:
+            # Still record execution for one-time jobs, but next_run_time = None
+            if scheduled_time:
+                try:
+                    self.storage.update_job_run_times(
+                        job_id=job_id,
+                        scheduled_time=scheduled_time,
+                        actual_time=actual_time,
+                        next_run_time=None,
+                    )
+                except Exception:
+                    self.logger.error(
+                        "Failed to update job run times", job_id=job_id, exc_info=True
+                    )
             return
 
-        # Calculate next run time
+        # Calculate next run time for recurring jobs
         utc_time, local_time = NextRunTimeCalculator.calculate_with_local_time(
             trigger_type, trigger_args, timezone
         )
 
-        if utc_time:
+        if utc_time and scheduled_time:
             try:
+                # Use new update_job_run_times method
+                self.storage.update_job_run_times(
+                    job_id=job_id,
+                    scheduled_time=scheduled_time,
+                    actual_time=actual_time,
+                    next_run_time=utc_time.isoformat(),
+                )
+
+                # Also update local time (for display)
                 self.storage.update_job(
                     job_id,
                     {
-                        "next_run_time": utc_time.isoformat(),
                         "next_run_time_local": local_time.isoformat() if local_time else None,
-                        "updated_at": utc_now().isoformat(),
                     },
                 )
             except Exception:
-                self.logger.error("Failed to update next run time", job_id=job_id, exc_info=True)
+                self.logger.error("Failed to update job run times", job_id=job_id, exc_info=True)
 
     def _invoke_failure_handler(
         self, job_id: str, error: Exception, job_data: dict[str, Any]

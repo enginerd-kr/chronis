@@ -5,6 +5,7 @@ from typing import Any
 
 from chronis.adapters.base import JobStorageAdapter
 from chronis.core.job_queue import JobQueue
+from chronis.core.misfire.utils import MisfireClassifier
 from chronis.core.query import jobs_ready_before
 from chronis.utils.logging import ContextLogger
 from chronis.utils.time import utc_now
@@ -146,12 +147,13 @@ class SchedulingOrchestrator:
 
     def _query_ready_jobs(self, current_time: datetime, limit: int | None = None) -> list[Any]:
         """
-        Query ready jobs from storage.
+        Query ready jobs from storage and classify them (normal vs misfired).
 
         Uses the jobs_ready_before helper to find jobs that
         are scheduled and have next_run_time <= current_time.
 
-        Jobs are sorted by priority (descending) then next_run_time (ascending).
+        Jobs are classified using MisfireClassifier, then both normal
+        and misfired jobs are sorted by priority and returned together.
 
         Args:
             current_time: Current time
@@ -167,6 +169,22 @@ class SchedulingOrchestrator:
 
         jobs = self.storage.query_jobs(filters=cast(dict[str, Any], filters), limit=None)
 
+        # Classify into normal and misfired
+        normal_jobs, misfired_jobs = MisfireClassifier.classify_due_jobs(
+            jobs, current_time.isoformat()
+        )
+
+        # Log misfired jobs
+        if misfired_jobs:
+            self.logger.warning(
+                "Misfired jobs detected",
+                count=len(misfired_jobs),
+                job_ids=[j.get("job_id") for j in misfired_jobs],
+            )
+
+        # Combine normal and misfired jobs (both need to be processed)
+        all_jobs = normal_jobs + misfired_jobs
+
         # Sort by priority (descending) then next_run_time (ascending)
         # Higher priority = higher number = executed first
         def sort_key(job: Any) -> tuple[int, str]:
@@ -174,10 +192,10 @@ class SchedulingOrchestrator:
             next_run = job.get("next_run_time", "")
             return (-int(priority), str(next_run))
 
-        jobs.sort(key=sort_key)
+        all_jobs.sort(key=sort_key)
 
         # Apply limit after sorting
         if limit is not None:
-            jobs = jobs[:limit]
+            all_jobs = all_jobs[:limit]
 
-        return jobs
+        return all_jobs

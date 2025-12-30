@@ -84,6 +84,71 @@ class JobStorageAdapter(ABC):
         """
         pass
 
+    @abstractmethod
+    def update_job_run_times(
+        self,
+        job_id: str,
+        scheduled_time: str,
+        actual_time: str,
+        next_run_time: str | None,
+    ) -> JobStorageData:
+        """
+        Update job execution times after a run.
+
+        ┌──────────────────────────────────────────────────────────────┐
+        │                   IMPLEMENTATION CONTRACT                     │
+        ├──────────────────────────────────────────────────────────────┤
+        │ WHO IMPLEMENTS: Storage adapter developer                    │
+        │ WHO CALLS:      Chronis Core scheduler                       │
+        │ WHEN CALLED:    After every job execution                    │
+        │                 (both normal and misfired)                   │
+        ├──────────────────────────────────────────────────────────────┤
+        │ RESPONSIBILITY SPLIT:                                        │
+        │                                                              │
+        │ Chronis Core (caller):                                       │
+        │  ✓ Executes the job                                          │
+        │  ✓ Calculates scheduled_time (what was planned)              │
+        │  ✓ Calculates actual_time (when it ran)                      │
+        │  ✓ Calculates next_run_time (next schedule)                  │
+        │  ✓ Calls this method with calculated values                  │
+        │                                                              │
+        │ Storage Adapter (implementer):                               │
+        │  ✓ Receives time values from Core                            │
+        │  ✓ Persists to database/storage                              │
+        │  ✓ Returns updated job data                                  │
+        │                                                              │
+        │ Does NOT:                                                    │
+        │  ✗ Calculate time values (Core does this)                   │
+        │  ✗ Detect misfire (MisfireClassifier does this)             │
+        │  ✗ Handle misfire policy (MisfireHandler does this)         │
+        └──────────────────────────────────────────────────────────────┘
+
+        Args:
+            job_id: Job ID
+            scheduled_time: When this run was scheduled for (ISO format, calculated by Core)
+            actual_time: When this run actually executed (ISO format, calculated by Core)
+            next_run_time: Next scheduled run time (ISO format or None, calculated by Core)
+
+        Returns:
+            Updated job data
+
+        Implementation Requirements:
+            MUST update these fields in storage:
+            - last_scheduled_time = scheduled_time
+            - last_run_time = actual_time
+            - next_run_time = next_run_time
+            - updated_at = current timestamp
+
+        Example implementations:
+            InMemory: self._jobs[job_id].update({...})
+            Redis: self.redis.hset(f"job:{job_id}", mapping={...})
+            PostgreSQL: UPDATE jobs SET ... WHERE job_id = $1
+
+        Raises:
+            ValueError: If job_id not found
+        """
+        pass
+
 
 class LockAdapter(ABC):
     """Distributed lock adapter abstract class."""

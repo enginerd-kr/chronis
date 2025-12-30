@@ -93,3 +93,25 @@ class InMemoryStorageAdapter(JobStorageAdapter):
     def count_jobs(self, filters: dict[str, Any] | None = None) -> int:
         """Count jobs matching filters."""
         return len(self.query_jobs(filters=filters))
+
+    def update_job_run_times(
+        self,
+        job_id: str,
+        scheduled_time: str,
+        actual_time: str,
+        next_run_time: str | None,
+    ) -> JobStorageData:
+        """Update job run times after execution."""
+        if job_id not in self._jobs:
+            raise ValueError(f"Job {job_id} not found")
+
+        self._jobs[job_id].update(  # type: ignore[typeddict-item]
+            {
+                "last_scheduled_time": scheduled_time,
+                "last_run_time": actual_time,
+                "next_run_time": next_run_time,
+                "updated_at": utc_now().isoformat(),
+            }
+        )
+
+        return self._jobs[job_id]

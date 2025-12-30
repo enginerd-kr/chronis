@@ -29,6 +29,11 @@ class JobStorageData(TypedDict):
     timeout_seconds: int | None
     # Priority configuration
     priority: int
+    # Misfire configuration
+    if_missed: str  # "skip" | "run_once" | "run_all"
+    misfire_threshold_seconds: int
+    last_run_time: str | None
+    last_scheduled_time: str | None
 
 
 # Trigger args by type
