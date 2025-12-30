@@ -14,6 +14,14 @@ class JobStorageAdapter(ABC):
         """
         Create a job.
 
+        ┌──────────────────────────────────────────────────────────────┐
+        │                   IMPLEMENTATION CONTRACT                     │
+        ├──────────────────────────────────────────────────────────────┤
+        │ WHO IMPLEMENTS: Storage adapter developer                    │
+        │ WHO CALLS:      Chronis Core (JobService)                    │
+        │ WHEN CALLED:    When user creates a job via create_*_job()   │
+        └──────────────────────────────────────────────────────────────┘
+
         Required fields in job_data:
             - job_id: str
             - status: str
@@ -25,22 +33,77 @@ class JobStorageAdapter(ABC):
 
         Returns:
             Created job data
+
+        Raises:
+            ValueError: If job_id already exists
         """
         pass
 
     @abstractmethod
     def get_job(self, job_id: str) -> JobStorageData | None:
-        """Get a job by ID."""
+        """
+        Get a job by ID.
+
+        ┌──────────────────────────────────────────────────────────────┐
+        │                   IMPLEMENTATION CONTRACT                     │
+        ├──────────────────────────────────────────────────────────────┤
+        │ WHO IMPLEMENTS: Storage adapter developer                    │
+        │ WHO CALLS:      Chronis Core (JobService, user queries)      │
+        │ WHEN CALLED:    When retrieving job details                  │
+        └──────────────────────────────────────────────────────────────┘
+
+        Args:
+            job_id: Job ID to retrieve
+
+        Returns:
+            Job data if found, None if not found
+        """
         pass
 
     @abstractmethod
     def update_job(self, job_id: str, updates: JobUpdateData) -> JobStorageData:
-        """Update a job."""
+        """
+        Update a job.
+
+        ┌──────────────────────────────────────────────────────────────┐
+        │                   IMPLEMENTATION CONTRACT                     │
+        ├──────────────────────────────────────────────────────────────┤
+        │ WHO IMPLEMENTS: Storage adapter developer                    │
+        │ WHO CALLS:      Chronis Core (JobService, state transitions) │
+        │ WHEN CALLED:    Status changes, retries, user updates        │
+        └──────────────────────────────────────────────────────────────┘
+
+        Args:
+            job_id: Job ID to update
+            updates: Dictionary of fields to update
+
+        Returns:
+            Updated job data
+
+        Raises:
+            ValueError: If job_id not found
+        """
         pass
 
     @abstractmethod
     def delete_job(self, job_id: str) -> bool:
-        """Delete a job."""
+        """
+        Delete a job.
+
+        ┌──────────────────────────────────────────────────────────────┐
+        │                   IMPLEMENTATION CONTRACT                     │
+        ├──────────────────────────────────────────────────────────────┤
+        │ WHO IMPLEMENTS: Storage adapter developer                    │
+        │ WHO CALLS:      Chronis Core, user via delete_job()          │
+        │ WHEN CALLED:    One-time jobs after completion, user deletes │
+        └──────────────────────────────────────────────────────────────┘
+
+        Args:
+            job_id: Job ID to delete
+
+        Returns:
+            True if deleted, False if not found
+        """
         pass
 
     @abstractmethod
@@ -52,6 +115,20 @@ class JobStorageAdapter(ABC):
     ) -> list[JobStorageData]:
         """
         Query jobs with flexible filters.
+
+        ┌──────────────────────────────────────────────────────────────┐
+        │                   IMPLEMENTATION CONTRACT                     │
+        ├──────────────────────────────────────────────────────────────┤
+        │ WHO IMPLEMENTS: Storage adapter developer                    │
+        │ WHO CALLS:      Chronis Core (SchedulingOrchestrator)        │
+        │ WHEN CALLED:    Every polling cycle to find due jobs         │
+        ├──────────────────────────────────────────────────────────────┤
+        │ CRITICAL: MUST return misfire fields for detection to work   │
+        │  - if_missed                                                 │
+        │  - misfire_threshold_seconds                                 │
+        │  - last_run_time                                             │
+        │  - last_scheduled_time                                       │
+        └──────────────────────────────────────────────────────────────┘
 
         Common filter patterns:
             - {"status": "scheduled"}
@@ -75,6 +152,14 @@ class JobStorageAdapter(ABC):
     def count_jobs(self, filters: dict[str, Any] | None = None) -> int:
         """
         Count jobs with optional filters.
+
+        ┌──────────────────────────────────────────────────────────────┐
+        │                   IMPLEMENTATION CONTRACT                     │
+        ├──────────────────────────────────────────────────────────────┤
+        │ WHO IMPLEMENTS: Storage adapter developer                    │
+        │ WHO CALLS:      Chronis Core, user via count()               │
+        │ WHEN CALLED:    Monitoring, status checks, pagination        │
+        └──────────────────────────────────────────────────────────────┘
 
         Args:
             filters: Dictionary of filter conditions (None = count all)
@@ -155,10 +240,44 @@ class LockAdapter(ABC):
 
     @abstractmethod
     def acquire(self, lock_key: str, ttl_seconds: int, blocking: bool = False) -> bool:
-        """Acquire lock."""
+        """
+        Acquire a distributed lock.
+
+        ┌──────────────────────────────────────────────────────────────┐
+        │                   IMPLEMENTATION CONTRACT                     │
+        ├──────────────────────────────────────────────────────────────┤
+        │ WHO IMPLEMENTS: Lock adapter developer                       │
+        │ WHO CALLS:      Chronis Core (ExecutionCoordinator)          │
+        │ WHEN CALLED:    Before job execution to prevent duplicates   │
+        └──────────────────────────────────────────────────────────────┘
+
+        Args:
+            lock_key: Unique lock identifier (e.g., "scheduler:lock:job-id")
+            ttl_seconds: Time-to-live for the lock in seconds
+            blocking: If True, wait until lock is available
+
+        Returns:
+            True if lock acquired, False otherwise
+        """
         pass
 
     @abstractmethod
     def release(self, lock_key: str) -> bool:
-        """Release lock."""
+        """
+        Release a distributed lock.
+
+        ┌──────────────────────────────────────────────────────────────┐
+        │                   IMPLEMENTATION CONTRACT                     │
+        ├──────────────────────────────────────────────────────────────┤
+        │ WHO IMPLEMENTS: Lock adapter developer                       │
+        │ WHO CALLS:      Chronis Core (ExecutionCoordinator)          │
+        │ WHEN CALLED:    After job execution completes                │
+        └──────────────────────────────────────────────────────────────┘
+
+        Args:
+            lock_key: Unique lock identifier
+
+        Returns:
+            True if lock released, False if lock not held
+        """
         pass
