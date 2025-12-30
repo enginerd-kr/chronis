@@ -167,10 +167,14 @@ chronis/
 │   │   ├── services/   # Application services
 │   │   ├── jobs/       # Job definitions
 │   │   ├── state/      # State management
-│   │   └── triggers/   # Trigger strategies
+│   │   ├── triggers/   # Trigger strategies
+│   │   └── misfire/    # Misfire handling
 │   ├── adapters/        # Storage and lock adapters
 │   └── utils/           # Utility functions
 ├── tests/               # Test files
+│   ├── unit/           # Unit tests
+│   ├── integration/    # Integration tests
+│   └── e2e/            # End-to-end tests
 └── examples/            # Example scripts
 ```
 
@@ -187,10 +191,15 @@ chronis/
 When adding storage or lock adapters:
 
 1. Inherit from the appropriate base class (`JobStorageAdapter` or `LockAdapter`)
-2. Implement all required methods
-3. Add tests for the adapter
-4. Update documentation with usage examples
-5. Add to `[project.optional-dependencies]` in pyproject.toml if it requires external dependencies
+2. Implement all required methods (see CONTRACT documentation in each method)
+3. **CRITICAL for JobStorageAdapter**: Ensure `query_jobs()` returns misfire fields:
+   - `if_missed`, `misfire_threshold_seconds`, `last_run_time`, `last_scheduled_time`
+4. Implement `update_job_run_times()` to persist execution history
+5. Add comprehensive tests for the adapter
+6. Update documentation with usage examples
+7. Add to `[project.optional-dependencies]` in pyproject.toml if it requires external dependencies
+
+**Reference**: See [docs/ADAPTER_GUIDE.md](docs/ADAPTER_GUIDE.md) for detailed implementation guide
 
 ## Questions or Issues?
 
