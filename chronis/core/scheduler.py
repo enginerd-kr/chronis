@@ -6,7 +6,7 @@ import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore[import-untyped]
 from apscheduler.triggers.interval import IntervalTrigger  # type: ignore[import-untyped]
@@ -644,7 +644,7 @@ class PollingScheduler:
         retry_delay_seconds: int = 60,
         timeout_seconds: int | None = None,
         priority: int = 5,
-        if_missed: str | None = None,
+        if_missed: Literal["skip", "run_once", "run_all"] | None = None,
         misfire_threshold_seconds: int = 60,
     ) -> JobInfo:
         """
@@ -764,7 +764,7 @@ class PollingScheduler:
         retry_delay_seconds: int = 60,
         timeout_seconds: int | None = None,
         priority: int = 5,
-        if_missed: str | None = None,
+        if_missed: Literal["skip", "run_once", "run_all"] | None = None,
         misfire_threshold_seconds: int = 60,
     ) -> JobInfo:
         """
@@ -885,7 +885,7 @@ class PollingScheduler:
         retry_delay_seconds: int = 60,
         timeout_seconds: int | None = None,
         priority: int = 5,
-        if_missed: str | None = None,
+        if_missed: Literal["skip", "run_once", "run_all"] | None = None,
         misfire_threshold_seconds: int = 60,
     ) -> JobInfo:
         """

@@ -1,8 +1,6 @@
 """Unit tests for misfire handling."""
 
-from datetime import datetime, timezone
-
-import pytest
+from datetime import UTC, datetime
 
 from chronis.core.common.types import TriggerType
 from chronis.core.jobs.definition import JobDefinition
@@ -22,7 +20,7 @@ class TestMisfireClassifier:
         }
 
         # 2 minutes late = misfired
-        current = datetime(2025, 1, 1, 9, 2, 0, tzinfo=timezone.utc)
+        current = datetime(2025, 1, 1, 9, 2, 0, tzinfo=UTC)
         assert MisfireClassifier.is_misfired(job_data, current) is True
 
     def test_is_misfired_false_within_threshold(self):
@@ -34,7 +32,7 @@ class TestMisfireClassifier:
         }
 
         # 30 seconds late = not misfired (within threshold)
-        current = datetime(2025, 1, 1, 9, 0, 30, tzinfo=timezone.utc)
+        current = datetime(2025, 1, 1, 9, 0, 30, tzinfo=UTC)
         assert MisfireClassifier.is_misfired(job_data, current) is False
 
     def test_is_misfired_false_no_next_run_time(self):
@@ -45,7 +43,7 @@ class TestMisfireClassifier:
             "misfire_threshold_seconds": 60,
         }
 
-        current = datetime(2025, 1, 1, 9, 2, 0, tzinfo=timezone.utc)
+        current = datetime(2025, 1, 1, 9, 2, 0, tzinfo=UTC)
         assert MisfireClassifier.is_misfired(job_data, current) is False
 
     def test_classify_due_jobs(self):
@@ -80,7 +78,7 @@ class TestMisfireClassifier:
         }
 
         # 2 minutes late
-        current = datetime(2025, 1, 1, 9, 2, 0, tzinfo=timezone.utc)
+        current = datetime(2025, 1, 1, 9, 2, 0, tzinfo=UTC)
         delay = MisfireClassifier.get_misfire_delay(job_data, current)
 
         assert delay is not None
@@ -95,7 +93,7 @@ class TestMisfireClassifier:
         }
 
         # 30 seconds late (within threshold)
-        current = datetime(2025, 1, 1, 9, 0, 30, tzinfo=timezone.utc)
+        current = datetime(2025, 1, 1, 9, 0, 30, tzinfo=UTC)
         delay = MisfireClassifier.get_misfire_delay(job_data, current)
 
         assert delay is None

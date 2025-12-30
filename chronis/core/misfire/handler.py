@@ -67,7 +67,7 @@ class MisfireHandler:
         Returns:
             List of all missed execution times (up to MAX_MISSED_RUNS)
         """
-        missed_runs = []
+        missed_runs: list[datetime] = []
         check_time = scheduled_time
 
         while check_time < current_time and len(missed_runs) < self.MAX_MISSED_RUNS:
