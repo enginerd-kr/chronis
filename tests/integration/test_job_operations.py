@@ -4,6 +4,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from conftest import register_dummy_job
+
 
 @pytest.fixture
 def scheduler(fast_scheduler):
@@ -16,11 +18,7 @@ class TestJobCRUD:
 
     def test_create_job_stores_in_storage(self, scheduler):
         """Test that creating job stores in storage."""
-
-        def dummy():
-            pass
-
-        scheduler.register_job_function("dummy", dummy)
+        register_dummy_job(scheduler)
 
         # Create interval job
         job = scheduler.create_interval_job(func="dummy", seconds=30)
@@ -33,11 +31,7 @@ class TestJobCRUD:
 
     def test_update_job_modifies_storage(self, scheduler):
         """Test that updating job modifies storage."""
-
-        def dummy():
-            pass
-
-        scheduler.register_job_function("dummy", dummy)
+        register_dummy_job(scheduler)
 
         job = scheduler.create_interval_job(func="dummy", seconds=30)
 
@@ -50,11 +44,7 @@ class TestJobCRUD:
 
     def test_delete_job_removes_from_storage(self, scheduler):
         """Test that deleting job removes from storage."""
-
-        def dummy():
-            pass
-
-        scheduler.register_job_function("dummy", dummy)
+        register_dummy_job(scheduler)
 
         job = scheduler.create_interval_job(func="dummy", seconds=30)
 
@@ -68,11 +58,7 @@ class TestJobCRUD:
 
     def test_query_jobs_returns_from_storage(self, scheduler):
         """Test that query_jobs returns from storage."""
-
-        def dummy():
-            pass
-
-        scheduler.register_job_function("dummy", dummy)
+        register_dummy_job(scheduler)
 
         # Create multiple jobs
         scheduler.create_interval_job(job_id="job-1", func="dummy", seconds=30)
@@ -92,11 +78,7 @@ class TestPauseResume:
 
     def test_pause_updates_storage_status(self, scheduler):
         """Test that pause updates status in storage."""
-
-        def dummy():
-            pass
-
-        scheduler.register_job_function("dummy", dummy)
+        register_dummy_job(scheduler)
 
         job = scheduler.create_interval_job(func="dummy", seconds=30)
 
@@ -110,11 +92,7 @@ class TestPauseResume:
 
     def test_resume_updates_storage_status(self, scheduler):
         """Test that resume updates status in storage."""
-
-        def dummy():
-            pass
-
-        scheduler.register_job_function("dummy", dummy)
+        register_dummy_job(scheduler)
 
         job = scheduler.create_interval_job(func="dummy", seconds=30)
         scheduler.pause_job(job.job_id)
@@ -129,11 +107,7 @@ class TestPauseResume:
 
     def test_paused_jobs_not_polled(self, scheduler):
         """Test that paused jobs are not picked up by polling."""
-
-        def dummy():
-            pass
-
-        scheduler.register_job_function("dummy", dummy)
+        register_dummy_job(scheduler)
 
         # Create job and make it ready
         job = scheduler.create_interval_job(func="dummy", seconds=30)

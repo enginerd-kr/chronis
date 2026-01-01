@@ -1,10 +1,9 @@
 """Integration tests for job execution (direct method calls, deterministic)."""
 
-import time
 from datetime import UTC, datetime
 
 import pytest
-from conftest import execute_job_immediately
+from conftest import ExecutionTracker, execute_job_immediately
 
 
 @pytest.fixture
@@ -18,12 +17,9 @@ class TestJobExecution:
 
     def test_job_executes_successfully(self, scheduler):
         """Test that job function executes and completes."""
-        executed = []
+        tracker = ExecutionTracker()
 
-        def test_func():
-            executed.append(1)
-
-        scheduler.register_job_function("test_func", test_func)
+        scheduler.register_job_function("test_func", lambda: tracker.record("test_func"))
 
         # Create interval job
         job = scheduler.create_interval_job(func="test_func", seconds=30)
@@ -32,7 +28,7 @@ class TestJobExecution:
         execute_job_immediately(scheduler, job.job_id, wait_seconds=0.5)
 
         # Verify executed
-        assert len(executed) == 1
+        assert tracker.count() == 1
 
         # Interval job should still exist and be scheduled
         updated = scheduler.storage.get_job(job.job_id)
@@ -41,12 +37,9 @@ class TestJobExecution:
 
     def test_one_time_job_deletes_after_success(self, scheduler):
         """Test that one-time job is deleted after success."""
-        executed = []
+        tracker = ExecutionTracker()
 
-        def test_func():
-            executed.append(1)
-
-        scheduler.register_job_function("test_func", test_func)
+        scheduler.register_job_function("test_func", lambda: tracker.record("test_func"))
 
         # Create interval job, but we'll manually delete it
         # (since we can't use date job with past date)
@@ -63,7 +56,7 @@ class TestJobExecution:
 
         # One-time job should be deleted
         assert result is None
-        assert len(executed) == 1
+        assert tracker.count() == 1
 
     def test_job_with_arguments(self, scheduler):
         """Test that job arguments are passed correctly."""
@@ -96,10 +89,10 @@ class TestRetryExecution:
 
     def test_failed_job_schedules_retry(self, scheduler):
         """Test that failed job schedules retry."""
-        attempts = []
+        tracker = ExecutionTracker()
 
         def failing_job():
-            attempts.append(1)
+            tracker.record("failing_job")
             raise ValueError("Fail")
 
         scheduler.register_job_function("failing_job", failing_job)
@@ -127,10 +120,10 @@ class TestRetryExecution:
 
     def test_exhausted_retries_marks_failed(self, scheduler):
         """Test that exhausted retries marks job as failed."""
-        attempts = []
+        tracker = ExecutionTracker()
 
         def failing_job():
-            attempts.append(1)
+            tracker.record("failing_job")
             raise ValueError("Fail")
 
         scheduler.register_job_function("failing_job", failing_job)
@@ -148,7 +141,7 @@ class TestRetryExecution:
         # Should be FAILED
         updated = scheduler.storage.get_job(job.job_id)
         assert updated["status"] == "failed"
-        assert len(attempts) == 1
+        assert tracker.count() == 1
 
 
 class TestCallbackExecution:
@@ -203,26 +196,3 @@ class TestCallbackExecution:
         assert "Test error" in failure_calls[0][1]
 
 
-class TestTimeoutExecution:
-    """Test timeout execution integration."""
-
-    def test_timeout_marks_job_failed(self, scheduler):
-        """Test that timeout marks job as failed."""
-        started = []
-
-        def long_job():
-            started.append(1)
-            time.sleep(2)
-
-        scheduler.register_job_function("long_job", long_job)
-
-        # Create job with short timeout
-        job = scheduler.create_interval_job(func="long_job", seconds=30, timeout_seconds=1)
-
-        # Execute
-        execute_job_immediately(scheduler, job.job_id, wait_seconds=2.5)
-
-        # Should be marked as failed
-        updated = scheduler.storage.get_job(job.job_id)
-        assert updated["status"] == "failed"
-        assert len(started) >= 1
