@@ -1,6 +1,6 @@
 """Unit tests for MisfireHandler (pure logic, no mocks needed)."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from chronis.core.common.types import TriggerType
 from chronis.core.jobs.definition import JobInfo
@@ -26,12 +26,12 @@ class TestMisfireHandlerSkipPolicy:
             next_run_time=None,
             next_run_time_local=None,
             metadata={"if_missed": SimpleMisfirePolicy.SKIP.value},
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
 
-        scheduled = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
-        current = datetime(2024, 1, 1, 12, 5, tzinfo=timezone.utc)
+        scheduled = datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
+        current = datetime(2024, 1, 1, 12, 5, tzinfo=UTC)
 
         result = handler.handle(job, scheduled, current)
         assert result == []
@@ -54,12 +54,12 @@ class TestMisfireHandlerRunOncePolicy:
             next_run_time=None,
             next_run_time_local=None,
             metadata={"if_missed": SimpleMisfirePolicy.RUN_ONCE.value},
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
 
-        scheduled = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
-        current = datetime(2024, 1, 1, 12, 5, tzinfo=timezone.utc)
+        scheduled = datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
+        current = datetime(2024, 1, 1, 12, 5, tzinfo=UTC)
 
         result = handler.handle(job, scheduled, current)
 
@@ -84,12 +84,12 @@ class TestMisfireHandlerRunAllPolicy:
             next_run_time=None,
             next_run_time_local=None,
             metadata={"if_missed": SimpleMisfirePolicy.RUN_ALL.value},
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
 
-        scheduled = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
-        current = datetime(2024, 1, 1, 12, 5, tzinfo=timezone.utc)
+        scheduled = datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
+        current = datetime(2024, 1, 1, 12, 5, tzinfo=UTC)
 
         result = handler.handle(job, scheduled, current)
 
@@ -109,11 +109,11 @@ class TestMisfireHandlerRunAllPolicy:
             next_run_time=None,
             next_run_time_local=None,
             metadata={"if_missed": SimpleMisfirePolicy.RUN_ALL.value},
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
 
-        scheduled = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+        scheduled = datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
         current = scheduled + timedelta(seconds=200)
 
         result = handler.handle(job, scheduled, current)

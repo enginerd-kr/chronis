@@ -1,8 +1,7 @@
 """Pure unit tests for AsyncExecutor."""
 
-import asyncio
 import logging
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 

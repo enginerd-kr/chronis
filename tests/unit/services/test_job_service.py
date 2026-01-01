@@ -1,7 +1,5 @@
 """Pure unit tests for JobService using mocked storage."""
 
-from datetime import datetime, timezone
-from unittest.mock import Mock
 
 import pytest
 
@@ -211,7 +209,7 @@ class TestJobServiceUpdate:
             "kwargs": {},
         }
 
-        result = service.update("test-1")
+        service.update("test-1")
 
         # Should call get_job, not update_job
         mock_storage.get_job.assert_called_once_with("test-1")

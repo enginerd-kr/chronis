@@ -89,9 +89,13 @@ class TestPriorityExecution:
         time.sleep(1.0)
 
         # Verify execution order: high -> medium -> low
-        assert len(execution_order) == 3, f"Expected 3 executions, got {len(execution_order)}: {execution_order}"
+        assert len(execution_order) == 3, (
+            f"Expected 3 executions, got {len(execution_order)}: {execution_order}"
+        )
         assert execution_order[0] == "high", f"First should be 'high', got {execution_order[0]}"
-        assert execution_order[1] == "medium", f"Second should be 'medium', got {execution_order[1]}"
+        assert execution_order[1] == "medium", (
+            f"Second should be 'medium', got {execution_order[1]}"
+        )
         assert execution_order[2] == "low", f"Third should be 'low', got {execution_order[2]}"
 
     def test_default_priority_is_5(self, scheduler):
@@ -104,5 +108,3 @@ class TestPriorityExecution:
 
         job = scheduler.get_job("default")
         assert job.priority == 5
-
-

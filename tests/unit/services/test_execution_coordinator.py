@@ -1,12 +1,11 @@
 """Pure unit tests for ExecutionCoordinator with mocks for all dependencies."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import Mock, patch
 
 from tenacity import RetryError
 
 from chronis.core.services.execution_coordinator import ExecutionCoordinator
-from chronis.core.state import JobStatus
 
 
 class TestLockReleaseRetryError:
@@ -227,7 +226,7 @@ class TestScheduleRetryErrorHandling:
         """Test that storage error is caught and logged."""
         from zoneinfo import ZoneInfo
 
-        mock_utc_now.return_value = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+        mock_utc_now.return_value = datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
         mock_get_tz.return_value = ZoneInfo("UTC")
 
         storage_mock = Mock()
@@ -272,8 +271,8 @@ class TestUpdateNextRunTimeErrorHandling:
         """Test that storage error during update_job_run_times is logged."""
         mock_utc_now.return_value = Mock(isoformat=Mock(return_value="2024-01-01T13:00:00"))
         mock_calc.calculate_with_local_time.return_value = (
-            datetime(2024, 1, 1, 13, 0, tzinfo=timezone.utc),
-            datetime(2024, 1, 1, 13, 0, tzinfo=timezone.utc),
+            datetime(2024, 1, 1, 13, 0, tzinfo=UTC),
+            datetime(2024, 1, 1, 13, 0, tzinfo=UTC),
         )
 
         storage_mock = Mock()
@@ -314,8 +313,8 @@ class TestUpdateNextRunTimeErrorHandling:
         """Test that error during second update_job call is logged."""
         mock_utc_now.return_value = Mock(isoformat=Mock(return_value="2024-01-01T13:00:00"))
         mock_calc.calculate_with_local_time.return_value = (
-            datetime(2024, 1, 1, 13, 0, tzinfo=timezone.utc),
-            datetime(2024, 1, 1, 13, 0, tzinfo=timezone.utc),
+            datetime(2024, 1, 1, 13, 0, tzinfo=UTC),
+            datetime(2024, 1, 1, 13, 0, tzinfo=UTC),
         )
 
         storage_mock = Mock()
@@ -381,8 +380,8 @@ class TestCallbackExceptionHandling:
             "trigger_args": {},
             "timezone": "UTC",
             "metadata": {},
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
         }
 
         # Should not raise
@@ -390,7 +389,10 @@ class TestCallbackExceptionHandling:
 
         # Verify error was logged
         coordinator.logger.error.assert_called_once()
-        assert "Job-specific success handler raised exception" in coordinator.logger.error.call_args[0][0]
+        assert (
+            "Job-specific success handler raised exception"
+            in coordinator.logger.error.call_args[0][0]
+        )
 
     def test_success_callback_exception_is_logged_global(self):
         """Test global success callback exception is caught."""
@@ -420,8 +422,8 @@ class TestCallbackExceptionHandling:
             "trigger_args": {},
             "timezone": "UTC",
             "metadata": {},
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
         }
 
         coordinator._invoke_success_handler("test-1", job_data)
@@ -457,14 +459,17 @@ class TestCallbackExceptionHandling:
             "trigger_args": {},
             "timezone": "UTC",
             "metadata": {},
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
         }
 
         coordinator._invoke_failure_handler("test-1", ValueError("Test"), job_data)
 
         coordinator.logger.error.assert_called_once()
-        assert "Job-specific failure handler raised exception" in coordinator.logger.error.call_args[0][0]
+        assert (
+            "Job-specific failure handler raised exception"
+            in coordinator.logger.error.call_args[0][0]
+        )
 
     def test_failure_callback_exception_is_logged_global(self):
         """Test global failure callback exception is caught."""
@@ -494,8 +499,8 @@ class TestCallbackExceptionHandling:
             "trigger_args": {},
             "timezone": "UTC",
             "metadata": {},
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
         }
 
         coordinator._invoke_failure_handler("test-1", ValueError("Test"), job_data)

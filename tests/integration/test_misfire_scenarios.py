@@ -3,11 +3,11 @@
 from datetime import timedelta
 
 import pytest
+from conftest import register_dummy_job
 
 from chronis import InMemoryStorageAdapter
 from chronis.core.misfire.utils import MisfireClassifier
 from chronis.utils.time import utc_now
-from conftest import register_dummy_job
 
 
 class TestMisfireIntegration:
@@ -185,9 +185,7 @@ class TestMisfirePolicyBehavior:
         """Test that run_once policy executes only once when multiple runs missed."""
         scheduler = basic_scheduler
 
-        scheduler.register_job_function(
-            "test_func", lambda: execution_tracker.record("test_func")
-        )
+        scheduler.register_job_function("test_func", lambda: execution_tracker.record("test_func"))
 
         # Create interval job with run_once policy, scheduled in the past (3 intervals missed)
         past_time = utc_now() - timedelta(minutes=15)
@@ -210,6 +208,7 @@ class TestMisfirePolicyBehavior:
         scheduler._execution_coordinator.try_execute(job_data, lambda job_id: None)
 
         import time
+
         time.sleep(0.5)
 
         # Should execute only once despite missing 3 intervals

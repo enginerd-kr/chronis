@@ -1,6 +1,6 @@
 """Shared fixtures for unit tests."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import Mock
 
 import pytest
@@ -90,10 +90,10 @@ def sample_job_data():
         "args": [],
         "kwargs": {},
         "metadata": {},
-        "created_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc).isoformat(),
-        "updated_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc).isoformat(),
-        "next_run_time": datetime(2024, 1, 1, 13, 0, 0, tzinfo=timezone.utc).isoformat(),
-        "next_run_time_local": datetime(2024, 1, 1, 13, 0, 0, tzinfo=timezone.utc).isoformat(),
+        "created_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC).isoformat(),
+        "updated_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC).isoformat(),
+        "next_run_time": datetime(2024, 1, 1, 13, 0, 0, tzinfo=UTC).isoformat(),
+        "next_run_time_local": datetime(2024, 1, 1, 13, 0, 0, tzinfo=UTC).isoformat(),
         "max_retries": 0,
         "retry_count": 0,
         "retry_delay_seconds": 60,

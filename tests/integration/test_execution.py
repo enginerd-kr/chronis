@@ -194,5 +194,3 @@ class TestCallbackExecution:
         # Callback should be called
         assert len(failure_calls) == 1
         assert "Test error" in failure_calls[0][1]
-
-

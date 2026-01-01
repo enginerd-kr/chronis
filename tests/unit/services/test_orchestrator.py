@@ -1,6 +1,6 @@
 """Pure unit tests for SchedulingOrchestrator with mocks."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import Mock, patch
 
 from chronis.core.services.scheduling_orchestrator import SchedulingOrchestrator
@@ -9,7 +9,9 @@ from chronis.core.services.scheduling_orchestrator import SchedulingOrchestrator
 class TestPollAndEnqueueQueueFull:
     """Test poll_and_enqueue when queue is full."""
 
-    def test_queue_full_logs_warning_and_returns_zero(self, mock_storage, mock_job_queue, mock_logger):
+    def test_queue_full_logs_warning_and_returns_zero(
+        self, mock_storage, mock_job_queue, mock_logger
+    ):
         """Test that full queue logs warning and skips polling."""
         orchestrator = SchedulingOrchestrator(
             storage=mock_storage,
@@ -43,7 +45,7 @@ class TestPollAndEnqueueQueueFull:
         mock_storage.query_jobs.return_value = []
 
         with patch("chronis.utils.time.utc_now") as mock_utc_now:
-            mock_utc_now.return_value = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+            mock_utc_now.return_value = datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
 
             result = orchestrator.poll_and_enqueue()
 
@@ -135,7 +137,9 @@ class TestPollAndEnqueueJobAddFailure:
 class TestGetNextJobFromQueue:
     """Test get_next_job_from_queue method."""
 
-    def test_get_next_job_from_empty_queue_returns_none(self, mock_storage, mock_job_queue, mock_logger):
+    def test_get_next_job_from_empty_queue_returns_none(
+        self, mock_storage, mock_job_queue, mock_logger
+    ):
         """Test that get_next_job_from_queue returns None when queue is empty."""
         orchestrator = SchedulingOrchestrator(
             storage=mock_storage,
@@ -170,7 +174,9 @@ class TestGetNextJobFromQueue:
 class TestMarkJobCompleted:
     """Test mark_job_completed method."""
 
-    def test_mark_job_completed_calls_queue_mark_completed(self, mock_storage, mock_job_queue, mock_logger):
+    def test_mark_job_completed_calls_queue_mark_completed(
+        self, mock_storage, mock_job_queue, mock_logger
+    ):
         """Test that mark_job_completed delegates to queue."""
         orchestrator = SchedulingOrchestrator(
             storage=mock_storage,

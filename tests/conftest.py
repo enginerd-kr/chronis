@@ -282,9 +282,9 @@ def assert_job_in_storage(
 
     if status is not None:
         actual_status = stored.get("status")
-        assert (
-            actual_status == status
-        ), f"Job {job_id} status mismatch: expected {status}, got {actual_status}"
+        assert actual_status == status, (
+            f"Job {job_id} status mismatch: expected {status}, got {actual_status}"
+        )
 
     return stored
 
