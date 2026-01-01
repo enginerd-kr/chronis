@@ -130,15 +130,6 @@ scheduler.create_interval_job(
 
 **Policies**: `skip` (ignore), `run_once` (execute once), `run_all` (all missed runs)
 
-```python
-scheduler.create_interval_job(
-    func=my_func,
-    job_id="my-custom-id",  # Explicit ID
-    name="My Job",
-    hours=1
-)
-```
-
 ## Multi-Tenancy & Metadata
 
 Perfect for SaaS applications and multi-agent systems:
