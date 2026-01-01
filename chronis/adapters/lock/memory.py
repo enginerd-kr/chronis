@@ -1,10 +1,13 @@
 """In-memory lock adapter for testing."""
 
+import logging
 import threading
 import time
 import uuid
 
 from chronis.adapters.base import LockAdapter
+
+logger = logging.getLogger(__name__)
 
 
 class InMemoryLockAdapter(LockAdapter):
@@ -18,9 +21,16 @@ class InMemoryLockAdapter(LockAdapter):
     - TTL simulation with expiry timestamps
     - Full feature parity with Redis adapter
 
-    Note:
-        This adapter is for testing and local development only.
-        For production use, switch to Redis or DynamoDB adapters.
+    ⚠️ WARNING:
+        This adapter is for testing and local development ONLY.
+        - Data is NOT persisted (lost on restart)
+        - NOT distributed (single process only)
+        - NOT production-ready
+
+        For production use, switch to:
+        - RedisLockAdapter (recommended)
+        - DynamoDBLockAdapter
+        - Or implement a custom adapter
 
     Example:
         >>> lock = InMemoryLockAdapter()
@@ -40,13 +50,23 @@ class InMemoryLockAdapter(LockAdapter):
     """
 
     def __init__(self) -> None:
-        """Initialize in-memory lock adapter."""
+        """
+        Initialize in-memory lock adapter.
+
+        Logs a warning to remind developers this is not for production use.
+        """
         # Store locks as: lock_key -> (owner_id, expiry_time)
         self._locks: dict[str, tuple[str, float]] = {}
         self._mutex = threading.Lock()  # Global lock for _locks dict
         # Store conditions for blocking: lock_key -> Condition
         self._conditions: dict[str, threading.Condition] = {}
         self.instance_token = str(uuid.uuid4())  # Unique instance identifier
+
+        # Warn about production usage
+        logger.warning(
+            "InMemoryLockAdapter is for testing/development only. "
+            "Use RedisLockAdapter or DynamoDBLockAdapter in production."
+        )
 
     def acquire(
         self,
