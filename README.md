@@ -130,6 +130,48 @@ scheduler.create_interval_job(
 
 **Policies**: `skip` (ignore), `run_once` (execute once), `run_all` (all missed runs)
 
+## Timeout & Retry
+
+Prevent runaway jobs and handle transient failures:
+
+```python
+# Timeout - prevent infinite execution
+scheduler.create_interval_job(
+    func=process_data,
+    minutes=5,
+    timeout_seconds=60,  # Kill job if it exceeds 60 seconds
+)
+
+# Retry with exponential backoff + jitter
+scheduler.create_cron_job(
+    func=sync_external_api,
+    hour=2,
+    minute=0,
+    max_retries=3,              # Retry up to 3 times on failure
+    retry_delay_seconds=60,     # Base delay: 60s, 120s, 240s (with jitter)
+    timeout_seconds=30,          # Per-attempt timeout
+)
+
+# Timeout errors trigger failure handlers
+def handle_timeout(job_id: str, error: Exception, job_info):
+    if isinstance(error, JobTimeoutError):
+        logger.error(f"Job {job_id} exceeded timeout")
+        # Send alert, update monitoring, etc.
+
+scheduler.create_interval_job(
+    func=long_running_task,
+    hours=1,
+    timeout_seconds=300,
+    on_failure=handle_timeout,
+)
+```
+
+**Features**:
+
+- ⏱️ **Timeout Protection**: Both sync and async jobs respect `timeout_seconds`
+- 🔁 **Smart Retry**: Exponential backoff with jitter prevents thundering herd
+- 🎯 **Granular Control**: Per-job timeout and retry configuration
+
 ## Multi-Tenancy & Metadata
 
 Perfect for SaaS applications and multi-agent systems:
