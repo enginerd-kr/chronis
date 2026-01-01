@@ -1,237 +1,209 @@
-"""Tests for SchedulingOrchestrator."""
+"""Pure unit tests for SchedulingOrchestrator with mocks."""
 
-import logging
-from datetime import timedelta
+from datetime import UTC, datetime
+from unittest.mock import Mock, patch
 
-from chronis.adapters.storage.memory import InMemoryStorageAdapter
-from chronis.core.common.types import TriggerType
-from chronis.core.job_queue import JobQueue
-from chronis.core.jobs.definition import JobDefinition
-from chronis.core.services import JobService, SchedulingOrchestrator
-from chronis.utils.logging import ContextLogger
-from chronis.utils.time import utc_now
+from chronis.core.services.scheduling_orchestrator import SchedulingOrchestrator
 
 
-class TestSchedulingOrchestrator:
-    """Tests for SchedulingOrchestrator."""
+class TestPollAndEnqueueQueueFull:
+    """Test poll_and_enqueue when queue is full."""
 
-    def setup_method(self):
-        """Setup test fixtures."""
-        self.storage = InMemoryStorageAdapter()
-        self.job_queue = JobQueue(max_queue_size=10)
-
-        # Create real logger for ContextLogger
-        base_logger = logging.getLogger("test")
-        base_logger.setLevel(logging.WARNING)  # Suppress logs in tests
-        self.logger = ContextLogger(base_logger)
-
-        self.orchestrator = SchedulingOrchestrator(
-            storage=self.storage, job_queue=self.job_queue, logger=self.logger, verbose=False
+    def test_queue_full_logs_warning_and_returns_zero(
+        self, mock_storage, mock_job_queue, mock_logger
+    ):
+        """Test that full queue logs warning and skips polling."""
+        orchestrator = SchedulingOrchestrator(
+            storage=mock_storage,
+            job_queue=mock_job_queue,
+            logger=mock_logger,
         )
-        self.job_service = JobService(storage=self.storage)
 
-    def test_poll_and_enqueue_empty_storage(self):
-        """Test polling when storage is empty."""
-        added = self.orchestrator.poll_and_enqueue()
+        # Mock queue as full
+        mock_job_queue.get_available_slots.return_value = 0
+        mock_job_queue.get_status.return_value = {"size": 10, "max_size": 10}
 
-        assert added == 0
-        assert self.orchestrator.is_queue_empty() is True
+        result = orchestrator.poll_and_enqueue()
 
-    def test_poll_and_enqueue_ready_jobs(self):
-        """Test polling and enqueuing ready jobs."""
+        # Should return 0 and not query storage
+        assert result == 0
+        mock_storage.query_jobs.assert_not_called()
 
-        def test_func():
-            pass
+        # Should log warning
+        mock_logger.warning.assert_called_once()
+        assert "queue is full" in mock_logger.warning.call_args[0][0].lower()
 
-        # Create job with past next_run_time
-        past_time = utc_now() - timedelta(seconds=10)
-        job_def = JobDefinition(
-            job_id="test-1",
-            name="Test Job",
-            trigger_type=TriggerType.INTERVAL,
-            trigger_args={"seconds": 30},
-            func=test_func,
-            next_run_time=past_time,
+    def test_queue_available_polls_storage(self, mock_storage, mock_job_queue, mock_logger):
+        """Test that available queue polls storage for ready jobs."""
+        orchestrator = SchedulingOrchestrator(
+            storage=mock_storage,
+            job_queue=mock_job_queue,
+            logger=mock_logger,
         )
-        self.job_service.create(job_def)
 
-        # Poll
-        added = self.orchestrator.poll_and_enqueue()
+        mock_job_queue.get_available_slots.return_value = 5
+        mock_storage.query_jobs.return_value = []
 
-        assert added == 1
-        assert self.orchestrator.is_queue_empty() is False
+        with patch("chronis.utils.time.utc_now") as mock_utc_now:
+            mock_utc_now.return_value = datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
 
-    def test_poll_and_enqueue_future_jobs(self):
-        """Test that future jobs are not enqueued."""
+            result = orchestrator.poll_and_enqueue()
 
-        def test_func():
-            pass
+        # Should query storage
+        mock_storage.query_jobs.assert_called_once()
 
-        # Create job with future next_run_time
-        future_time = utc_now() + timedelta(seconds=60)
-        job_def = JobDefinition(
-            job_id="test-1",
-            name="Test Job",
-            trigger_type=TriggerType.INTERVAL,
-            trigger_args={"seconds": 30},
-            func=test_func,
-            next_run_time=future_time,
+        # No jobs found, should return 0
+        assert result == 0
+
+
+class TestPollAndEnqueueVerboseLogging:
+    """Test verbose logging in poll_and_enqueue."""
+
+    def test_verbose_mode_logs_found_jobs(self, mock_storage, mock_job_queue, mock_logger):
+        """Test that verbose mode logs when jobs are found."""
+        orchestrator = SchedulingOrchestrator(
+            storage=mock_storage,
+            job_queue=mock_job_queue,
+            logger=mock_logger,
+            verbose=True,  # Verbose mode
         )
-        self.job_service.create(job_def)
 
-        # Poll
-        added = self.orchestrator.poll_and_enqueue()
+        mock_job_queue.get_available_slots.return_value = 10
+        mock_job_queue.add_job.return_value = True
 
-        assert added == 0
-        assert self.orchestrator.is_queue_empty() is True
+        # Return 2 jobs (less than 10, so normally wouldn't log)
+        mock_storage.query_jobs.return_value = [
+            {"job_id": "job-1"},
+            {"job_id": "job-2"},
+        ]
 
-    def test_poll_respects_queue_limit(self):
-        """Test that polling respects queue capacity."""
+        with patch("chronis.utils.time.utc_now"):
+            orchestrator.poll_and_enqueue()
 
-        def test_func():
-            pass
+        # Verbose mode should log even for small number of jobs
+        mock_logger.info.assert_called()
+        assert "Found ready jobs" in mock_logger.info.call_args[0][0]
 
-        # Create 15 ready jobs (more than queue capacity of 10)
-        past_time = utc_now() - timedelta(seconds=10)
-        for i in range(15):
-            job_def = JobDefinition(
-                job_id=f"test-{i}",
-                name=f"Test Job {i}",
-                trigger_type=TriggerType.INTERVAL,
-                trigger_args={"seconds": 30},
-                func=test_func,
-                next_run_time=past_time,
-            )
-            self.job_service.create(job_def)
-
-        # Poll
-        added = self.orchestrator.poll_and_enqueue()
-
-        # Should only add up to queue capacity
-        assert added <= 10
-
-    def test_get_next_job_from_queue(self):
-        """Test getting next job from queue."""
-
-        def test_func():
-            pass
-
-        # Create and enqueue job
-        past_time = utc_now() - timedelta(seconds=10)
-        job_def = JobDefinition(
-            job_id="test-1",
-            name="Test Job",
-            trigger_type=TriggerType.INTERVAL,
-            trigger_args={"seconds": 30},
-            func=test_func,
-            next_run_time=past_time,
+    def test_many_jobs_logs_even_without_verbose(self, mock_storage, mock_job_queue, mock_logger):
+        """Test that finding >=10 jobs logs even without verbose."""
+        orchestrator = SchedulingOrchestrator(
+            storage=mock_storage,
+            job_queue=mock_job_queue,
+            logger=mock_logger,
+            verbose=False,  # Not verbose
         )
-        self.job_service.create(job_def)
-        self.orchestrator.poll_and_enqueue()
 
-        # Get next job
-        job_data = self.orchestrator.get_next_job_from_queue()
+        mock_job_queue.get_available_slots.return_value = 20
+        mock_job_queue.add_job.return_value = True
 
-        assert job_data is not None
-        assert job_data["job_id"] == "test-1"
+        # Return 10+ jobs
+        mock_storage.query_jobs.return_value = [{"job_id": f"job-{i}"} for i in range(10)]
 
-    def test_get_next_job_from_empty_queue(self):
-        """Test getting from empty queue returns None."""
-        job_data = self.orchestrator.get_next_job_from_queue()
+        with patch("chronis.utils.time.utc_now"):
+            orchestrator.poll_and_enqueue()
 
-        assert job_data is None
+        # Should log because count >= 10
+        mock_logger.info.assert_called()
+        assert "Found ready jobs" in mock_logger.info.call_args[0][0]
 
-    def test_mark_job_completed(self):
-        """Test marking job as completed."""
 
-        def test_func():
-            pass
+class TestPollAndEnqueueJobAddFailure:
+    """Test handling when job cannot be added to queue."""
 
-        # Create and enqueue job
-        past_time = utc_now() - timedelta(seconds=10)
-        job_def = JobDefinition(
-            job_id="test-1",
-            name="Test Job",
-            trigger_type=TriggerType.INTERVAL,
-            trigger_args={"seconds": 30},
-            func=test_func,
-            next_run_time=past_time,
+    def test_failed_to_add_job_logs_warning(self, mock_storage, mock_job_queue, mock_logger):
+        """Test that failure to add job logs warning."""
+        orchestrator = SchedulingOrchestrator(
+            storage=mock_storage,
+            job_queue=mock_job_queue,
+            logger=mock_logger,
         )
-        self.job_service.create(job_def)
-        self.orchestrator.poll_and_enqueue()
 
-        # Get and mark as running
-        job_data = self.orchestrator.get_next_job_from_queue()
-        assert job_data is not None
+        mock_job_queue.get_available_slots.return_value = 10
+        mock_job_queue.add_job.return_value = False  # Failed to add
 
-        # Mark completed
-        self.orchestrator.mark_job_completed("test-1")
+        mock_storage.query_jobs.return_value = [{"job_id": "job-1"}]
 
-        # Should be removed from in-flight set
-        status = self.orchestrator.get_queue_status()
-        assert status["in_flight_jobs"] == 0
+        with patch("chronis.utils.time.utc_now"):
+            result = orchestrator.poll_and_enqueue()
 
-    def test_get_queue_status(self):
-        """Test getting queue status."""
+        # Should return 0 (no jobs added)
+        assert result == 0
 
-        def test_func():
-            pass
+        # Should log warning
+        mock_logger.warning.assert_called()
+        assert "Failed to add job to queue" in mock_logger.warning.call_args[0][0]
 
-        # Create jobs
-        past_time = utc_now() - timedelta(seconds=10)
-        for i in range(3):
-            job_def = JobDefinition(
-                job_id=f"test-{i}",
-                name=f"Test Job {i}",
-                trigger_type=TriggerType.INTERVAL,
-                trigger_args={"seconds": 30},
-                func=test_func,
-                next_run_time=past_time,
-            )
-            self.job_service.create(job_def)
 
-        self.orchestrator.poll_and_enqueue()
+class TestGetNextJobFromQueue:
+    """Test get_next_job_from_queue method."""
 
-        status = self.orchestrator.get_queue_status()
+    def test_get_next_job_from_empty_queue_returns_none(
+        self, mock_storage, mock_job_queue, mock_logger
+    ):
+        """Test that get_next_job_from_queue returns None when queue is empty."""
+        orchestrator = SchedulingOrchestrator(
+            storage=mock_storage,
+            job_queue=mock_job_queue,
+            logger=mock_logger,
+        )
 
-        assert status["pending_jobs"] == 3
-        assert status["in_flight_jobs"] == 0
-        assert status["available_slots"] == 7
+        mock_job_queue.is_empty.return_value = True
 
-    def test_poll_when_queue_full(self):
-        """Test polling when queue is full."""
+        result = orchestrator.get_next_job_from_queue()
 
-        def test_func():
-            pass
+        assert result is None
+        mock_job_queue.get_next_job.assert_not_called()
 
-        # Fill queue to capacity
-        past_time = utc_now() - timedelta(seconds=10)
-        for i in range(10):
-            job_def = JobDefinition(
-                job_id=f"test-{i}",
-                name=f"Test Job {i}",
-                trigger_type=TriggerType.INTERVAL,
-                trigger_args={"seconds": 30},
-                func=test_func,
-                next_run_time=past_time,
-            )
-            self.job_service.create(job_def)
+    def test_get_next_job_from_queue_returns_job(self, mock_storage, mock_job_queue, mock_logger):
+        """Test that get_next_job_from_queue delegates to queue."""
+        orchestrator = SchedulingOrchestrator(
+            storage=mock_storage,
+            job_queue=mock_job_queue,
+            logger=mock_logger,
+        )
 
-        self.orchestrator.poll_and_enqueue()
+        mock_job_queue.is_empty.return_value = False
+        mock_job_queue.get_next_job.return_value = {"job_id": "job-1"}
 
-        # Create more jobs
-        for i in range(10, 15):
-            job_def = JobDefinition(
-                job_id=f"test-{i}",
-                name=f"Test Job {i}",
-                trigger_type=TriggerType.INTERVAL,
-                trigger_args={"seconds": 30},
-                func=test_func,
-                next_run_time=past_time,
-            )
-            self.job_service.create(job_def)
+        result = orchestrator.get_next_job_from_queue()
 
-        # Try to poll again - should return 0 (queue full)
-        added = self.orchestrator.poll_and_enqueue()
+        mock_job_queue.get_next_job.assert_called_once()
+        assert result == {"job_id": "job-1"}
 
-        assert added == 0
+
+class TestMarkJobCompleted:
+    """Test mark_job_completed method."""
+
+    def test_mark_job_completed_calls_queue_mark_completed(
+        self, mock_storage, mock_job_queue, mock_logger
+    ):
+        """Test that mark_job_completed delegates to queue."""
+        orchestrator = SchedulingOrchestrator(
+            storage=mock_storage,
+            job_queue=mock_job_queue,
+            logger=mock_logger,
+        )
+
+        mock_job_queue.mark_completed = Mock()
+
+        orchestrator.mark_job_completed("job-1")
+
+        mock_job_queue.mark_completed.assert_called_once_with("job-1")
+
+
+class TestGetQueueStatus:
+    """Test get_queue_status method."""
+
+    def test_get_queue_status_returns_from_queue(self, mock_storage, mock_job_queue, mock_logger):
+        """Test that get_queue_status delegates to job_queue."""
+        orchestrator = SchedulingOrchestrator(
+            storage=mock_storage,
+            job_queue=mock_job_queue,
+            logger=mock_logger,
+        )
+
+        mock_job_queue.get_status.return_value = {"size": 5, "max_size": 10}
+
+        result = orchestrator.get_queue_status()
+
+        assert result == {"size": 5, "max_size": 10}

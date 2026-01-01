@@ -167,6 +167,143 @@ def execute_job_immediately(
     return scheduler.storage.get_job(job_id)
 
 
+class ExecutionTracker:
+    """
+    Helper class to track job executions with timestamps and order.
+
+    Example:
+        tracker = ExecutionTracker()
+        scheduler.register_job_function("job1", lambda: tracker.record("job1"))
+        # ... execute jobs ...
+        assert tracker.count("job1") == 2
+        assert tracker.order() == ["job1", "job2", "job1"]
+    """
+
+    def __init__(self):
+        """Initialize empty execution tracking."""
+        self._executions = []
+        self._timestamps = []
+
+    def record(self, job_id: str) -> None:
+        """Record an execution with current timestamp."""
+        import time
+
+        self._executions.append(job_id)
+        self._timestamps.append(time.time())
+
+    def count(self, job_id: str | None = None) -> int:
+        """
+        Count executions.
+
+        Args:
+            job_id: If provided, count only this job's executions.
+                   If None, count all executions.
+
+        Returns:
+            Execution count
+        """
+        if job_id is None:
+            return len(self._executions)
+        return self._executions.count(job_id)
+
+    def order(self) -> list[str]:
+        """Get execution order as list of job IDs."""
+        return self._executions.copy()
+
+    def clear(self) -> None:
+        """Clear all recorded executions."""
+        self._executions.clear()
+        self._timestamps.clear()
+
+    def last_timestamp(self, job_id: str | None = None) -> float | None:
+        """
+        Get timestamp of last execution.
+
+        Args:
+            job_id: If provided, get last timestamp for this job.
+                   If None, get last timestamp overall.
+
+        Returns:
+            Timestamp or None if no executions
+        """
+        if job_id is None:
+            return self._timestamps[-1] if self._timestamps else None
+
+        # Find last occurrence of job_id
+        for i in range(len(self._executions) - 1, -1, -1):
+            if self._executions[i] == job_id:
+                return self._timestamps[i]
+        return None
+
+
+def register_dummy_job(scheduler: PollingScheduler, func_name: str = "dummy") -> None:
+    """
+    Register a dummy no-op function for testing.
+
+    Args:
+        scheduler: Scheduler instance
+        func_name: Function name (default: "dummy")
+
+    Example:
+        register_dummy_job(scheduler)
+        scheduler.create_interval_job(func="dummy", seconds=30)
+    """
+
+    def dummy():
+        pass
+
+    scheduler.register_job_function(func_name, dummy)
+
+
+def assert_job_in_storage(
+    scheduler: PollingScheduler,
+    job_id: str,
+    status: str | None = None,
+) -> dict[str, Any]:
+    """
+    Assert job exists in storage and optionally check status.
+
+    Args:
+        scheduler: Scheduler instance
+        job_id: Job ID to check
+        status: Expected status (optional)
+
+    Returns:
+        Job data from storage
+
+    Raises:
+        AssertionError: If job not found or status mismatch
+
+    Example:
+        job_data = assert_job_in_storage(scheduler, "job-1", status="scheduled")
+    """
+    stored = scheduler.storage.get_job(job_id)
+    assert stored is not None, f"Job {job_id} not found in storage"
+
+    if status is not None:
+        actual_status = stored.get("status")
+        assert actual_status == status, (
+            f"Job {job_id} status mismatch: expected {status}, got {actual_status}"
+        )
+
+    return stored
+
+
+@pytest.fixture
+def execution_tracker():
+    """
+    Fixture providing ExecutionTracker instance.
+
+    Example:
+        def test_execution(execution_tracker):
+            def job():
+                execution_tracker.record("job1")
+            # ... execute jobs ...
+            assert execution_tracker.count() == 1
+    """
+    return ExecutionTracker()
+
+
 @pytest.fixture
 def fast_scheduler():
     """
@@ -186,3 +323,53 @@ def fast_scheduler():
     yield scheduler
     if scheduler.is_running():
         scheduler.stop()
+
+
+@pytest.fixture
+def basic_scheduler():
+    """
+    Create a basic scheduler without starting it.
+
+    Similar to fast_scheduler but with default intervals.
+    Use this when you need a fresh scheduler for each test.
+    """
+    storage = InMemoryStorageAdapter()
+    lock = InMemoryLockAdapter()
+    scheduler = PollingScheduler(
+        storage_adapter=storage,
+        lock_adapter=lock,
+    )
+    yield scheduler
+    if scheduler.is_running():
+        scheduler.stop()
+
+
+@pytest.fixture
+def sample_job_data():
+    """
+    Create sample job data dict for testing storage operations.
+
+    Returns:
+        Dict with all required job fields
+
+    Example:
+        def test_create(storage, sample_job_data):
+            storage.create_job(sample_job_data)
+    """
+    from chronis.core.common.types import TriggerType
+    from chronis.core.state import JobStatus
+    from chronis.utils.time import utc_now
+
+    return {
+        "job_id": "test-job-1",
+        "name": "Test Job",
+        "trigger_type": TriggerType.INTERVAL.value,
+        "trigger_args": {"seconds": 30},
+        "timezone": "UTC",
+        "status": JobStatus.SCHEDULED.value,
+        "next_run_time": utc_now().isoformat(),
+        "next_run_time_local": utc_now().isoformat(),
+        "metadata": {},
+        "created_at": utc_now().isoformat(),
+        "updated_at": utc_now().isoformat(),
+    }

@@ -1,20 +1,7 @@
 """Time utilities for Chronis."""
 
-from datetime import UTC, datetime, timezone
-
-# Python 3.9+ zoneinfo, fallback to pytz for Python 3.8
-try:
-    from zoneinfo import ZoneInfo
-except ImportError:
-    import pytz  # type: ignore
-
-    class ZoneInfo:  # type: ignore
-        """Compatibility wrapper for pytz."""
-
-        def __new__(cls, key: str) -> timezone:  # type: ignore
-            if key == "UTC":
-                return UTC
-            return pytz.timezone(key)  # type: ignore
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 
 def utc_now() -> datetime:

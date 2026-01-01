@@ -8,9 +8,9 @@ from chronis.contrib.storage.postgres import PostgreSQLStorageAdapter
 class TestTableNameValidation:
     """Test table name validation to prevent SQL injection."""
 
-    def test_valid_table_names(self):
-        """Valid table names should pass validation."""
-        valid_names = [
+    @pytest.mark.parametrize(
+        "valid_name",
+        [
             "chronis_jobs",
             "my_table",
             "_private_table",
@@ -19,24 +19,21 @@ class TestTableNameValidation:
             "a" * 63,  # Max length
             "_underscore_start",
             "MixedCase_123",
-        ]
+        ],
+    )
+    def test_valid_table_names(self, valid_name):
+        """Valid table names should pass validation."""
+        # Test validation directly without creating adapter
+        adapter = object.__new__(PostgreSQLStorageAdapter)
+        adapter._TABLE_NAME_PATTERN = PostgreSQLStorageAdapter._TABLE_NAME_PATTERN
+        adapter._MAX_TABLE_NAME_LENGTH = PostgreSQLStorageAdapter._MAX_TABLE_NAME_LENGTH
 
-        for table_name in valid_names:
-            # Test validation directly without creating adapter
-            # (adapter creation requires DB connection)
-            adapter = object.__new__(PostgreSQLStorageAdapter)
-            adapter._TABLE_NAME_PATTERN = PostgreSQLStorageAdapter._TABLE_NAME_PATTERN
-            adapter._MAX_TABLE_NAME_LENGTH = PostgreSQLStorageAdapter._MAX_TABLE_NAME_LENGTH
+        # Should not raise ValueError for valid names
+        adapter._validate_table_name(valid_name)
 
-            # Should not raise ValueError for valid names
-            try:
-                adapter._validate_table_name(table_name)
-            except ValueError as e:
-                pytest.fail(f"Valid table name '{table_name}' was rejected: {e}")
-
-    def test_sql_injection_attempts_blocked(self):
-        """SQL injection attempts should raise ValueError."""
-        malicious_names = [
+    @pytest.mark.parametrize(
+        "malicious_name",
+        [
             "jobs; DROP TABLE users;--",
             "jobs' OR '1'='1",
             'jobs"; DROP TABLE users; --',
@@ -45,11 +42,12 @@ class TestTableNameValidation:
             "jobs; DELETE FROM users WHERE 1=1--",
             "jobs'; UPDATE users SET admin=true--",
             "jobs UNION SELECT * FROM passwords--",
-        ]
-
-        for malicious_name in malicious_names:
-            with pytest.raises(ValueError, match="Invalid table name"):
-                PostgreSQLStorageAdapter(None, table_name=malicious_name)  # type: ignore
+        ],
+    )
+    def test_sql_injection_attempts_blocked(self, malicious_name):
+        """SQL injection attempts should raise ValueError."""
+        with pytest.raises(ValueError, match="Invalid table name"):
+            PostgreSQLStorageAdapter(None, table_name=malicious_name)  # type: ignore
 
     def test_table_name_too_long(self):
         """Table names over 63 characters should be rejected."""
@@ -58,27 +56,28 @@ class TestTableNameValidation:
         with pytest.raises(ValueError, match="too long"):
             PostgreSQLStorageAdapter(None, table_name=too_long)  # type: ignore
 
-    def test_table_name_invalid_start_character(self):
-        """Table names starting with numbers should be rejected."""
-        invalid_names = [
+    @pytest.mark.parametrize(
+        "invalid_name",
+        [
             "123table",
             "9_invalid",
             "0table",
             "1",
-        ]
-
-        for invalid_name in invalid_names:
-            with pytest.raises(ValueError, match="Invalid table name"):
-                PostgreSQLStorageAdapter(None, table_name=invalid_name)  # type: ignore
+        ],
+    )
+    def test_table_name_invalid_start_character(self, invalid_name):
+        """Table names starting with numbers should be rejected."""
+        with pytest.raises(ValueError, match="Invalid table name"):
+            PostgreSQLStorageAdapter(None, table_name=invalid_name)  # type: ignore
 
     def test_table_name_empty(self):
         """Empty table name should be rejected."""
         with pytest.raises(ValueError, match="cannot be empty"):
             PostgreSQLStorageAdapter(None, table_name="")  # type: ignore
 
-    def test_table_name_special_characters(self):
-        """Table names with special characters should be rejected."""
-        invalid_names = [
+    @pytest.mark.parametrize(
+        "invalid_name",
+        [
             "table-name",
             "table.name",
             "table name",  # space
@@ -90,11 +89,12 @@ class TestTableNameValidation:
             "table*name",
             "table(name)",
             "table[name]",
-        ]
-
-        for invalid_name in invalid_names:
-            with pytest.raises(ValueError, match="Invalid table name"):
-                PostgreSQLStorageAdapter(None, table_name=invalid_name)  # type: ignore
+        ],
+    )
+    def test_table_name_special_characters(self, invalid_name):
+        """Table names with special characters should be rejected."""
+        with pytest.raises(ValueError, match="Invalid table name"):
+            PostgreSQLStorageAdapter(None, table_name=invalid_name)  # type: ignore
 
 
 class TestSecurityPrinciples:
@@ -108,15 +108,15 @@ class TestSecurityPrinciples:
 
     def test_clear_error_messages(self):
         """Error messages should be clear and helpful (Principle of Least Surprise)."""
-        try:
+        with pytest.raises(ValueError) as exc_info:
             PostgreSQLStorageAdapter(None, table_name="123invalid")  # type: ignore
-        except ValueError as e:
-            error_msg = str(e)
-            # Check that error message is detailed
-            assert "Invalid table name" in error_msg
-            assert "123invalid" in error_msg
-            assert "Must start with letter or underscore" in error_msg
-            assert "examples" in error_msg.lower() or "valid" in error_msg.lower()
+
+        error_msg = str(exc_info.value)
+        # Check that error message is detailed
+        assert "Invalid table name" in error_msg
+        assert "123invalid" in error_msg
+        assert "Must start with letter or underscore" in error_msg
+        assert "examples" in error_msg.lower() or "valid" in error_msg.lower()
 
     def test_validation_constants_defined(self):
         """Validation constants should be class-level (SOLID: OCP)."""

@@ -3,33 +3,13 @@
 import pytest
 
 from chronis.adapters.storage import InMemoryStorageAdapter
-from chronis.core.common.types import TriggerType
 from chronis.core.state import JobStatus
-from chronis.utils.time import utc_now
 
 
 @pytest.fixture
 def storage():
     """Create in-memory storage adapter."""
     return InMemoryStorageAdapter()
-
-
-@pytest.fixture
-def sample_job_data():
-    """Create sample job data dict."""
-    return {
-        "job_id": "test-job-1",
-        "name": "Test Job",
-        "trigger_type": TriggerType.INTERVAL.value,
-        "trigger_args": {"seconds": 30},
-        "timezone": "UTC",
-        "status": JobStatus.SCHEDULED.value,
-        "next_run_time": utc_now().isoformat(),
-        "next_run_time_local": utc_now().isoformat(),
-        "metadata": {},
-        "created_at": utc_now().isoformat(),
-        "updated_at": utc_now().isoformat(),
-    }
 
 
 class TestInMemoryStorageCreate:

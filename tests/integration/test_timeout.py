@@ -30,9 +30,7 @@ class TestJobTimeout:
         scheduler.register_job_function("slow_job", slow_job)
 
         # Create job with 1 second timeout (runs every 1 second for quick testing)
-        job = scheduler.create_interval_job(
-            func="slow_job", seconds=1, timeout_seconds=1
-        )
+        job = scheduler.create_interval_job(func="slow_job", seconds=1, timeout_seconds=1)
 
         scheduler.start()
         time.sleep(4)  # Wait for job to execute and timeout
@@ -61,9 +59,7 @@ class TestJobTimeout:
         scheduler.register_job_function("slow_async_job", slow_async_job)
 
         # Create job with 1 second timeout (runs every 1 second for quick testing)
-        job = scheduler.create_interval_job(
-            func="slow_async_job", seconds=1, timeout_seconds=1
-        )
+        job = scheduler.create_interval_job(func="slow_async_job", seconds=1, timeout_seconds=1)
 
         scheduler.start()
         await asyncio.sleep(4)  # Wait for job to execute and timeout
@@ -93,9 +89,7 @@ class TestJobTimeout:
         scheduler.register_job_function("fast_job", fast_job)
 
         # Create job with 5 second timeout (plenty of time, runs every 1 second)
-        job = scheduler.create_interval_job(
-            func="fast_job", seconds=1, timeout_seconds=5
-        )
+        job = scheduler.create_interval_job(func="fast_job", seconds=1, timeout_seconds=5)
 
         scheduler.start()
         time.sleep(4)  # Wait for execution
@@ -127,9 +121,7 @@ class TestJobTimeout:
         scheduler.register_job_function("fast_async_job", fast_async_job)
 
         # Create job with 5 second timeout (plenty of time, runs every 1 second)
-        job = scheduler.create_interval_job(
-            func="fast_async_job", seconds=1, timeout_seconds=5
-        )
+        job = scheduler.create_interval_job(func="fast_async_job", seconds=1, timeout_seconds=5)
 
         scheduler.start()
         await asyncio.sleep(4)  # Wait for execution

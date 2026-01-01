@@ -1,44 +1,37 @@
-"""Tests for JobService."""
+"""Pure unit tests for JobService using mocked storage."""
 
-from chronis.adapters.storage.memory import InMemoryStorageAdapter
+
+import pytest
+
 from chronis.core.common.exceptions import JobAlreadyExistsError, JobNotFoundError
 from chronis.core.common.types import TriggerType
 from chronis.core.jobs.definition import JobDefinition
-from chronis.core.query import jobs_by_metadata, jobs_by_status, scheduled_jobs
 from chronis.core.services import JobService
 from chronis.core.state import JobStatus
 
 
-class TestJobService:
-    """Tests for JobService."""
+class TestJobServiceCreate:
+    """Test JobService.create() with mocked storage."""
 
-    def setup_method(self):
-        """Setup test fixtures."""
-        self.storage = InMemoryStorageAdapter()
-        self.service = JobService(storage=self.storage, verbose=False)
+    def test_create_job_calls_storage_and_returns_job_info(self, mock_storage):
+        """Test that create calls storage.create_job and returns JobInfo."""
+        service = JobService(storage=mock_storage)
 
-    def test_create_job(self):
-        """Test creating a job."""
-
-        def test_func():
-            pass
-
-        job_def = JobDefinition(
-            job_id="test-1",
-            name="Test Job",
-            trigger_type=TriggerType.INTERVAL,
-            trigger_args={"seconds": 30},
-            func=test_func,
-        )
-
-        job_info = self.service.create(job_def)
-
-        assert job_info.job_id == "test-1"
-        assert job_info.name == "Test Job"
-        assert job_info.status == JobStatus.SCHEDULED
-
-    def test_create_duplicate_job_raises_error(self):
-        """Test that creating duplicate job raises error."""
+        # Mock storage to return job data
+        mock_storage.create_job.return_value = {
+            "job_id": "test-1",
+            "name": "Test Job",
+            "trigger_type": "interval",
+            "trigger_args": {"seconds": 30},
+            "timezone": "UTC",
+            "status": "scheduled",
+            "metadata": {},
+            "created_at": "2024-01-01T12:00:00+00:00",
+            "updated_at": "2024-01-01T12:00:00+00:00",
+            "func_name": "test_func",
+            "args": [],
+            "kwargs": {},
+        }
 
         def test_func():
             pass
@@ -51,65 +44,22 @@ class TestJobService:
             func=test_func,
         )
 
-        self.service.create(job_def)
+        result = service.create(job_def)
 
-        # Try to create again
-        try:
-            self.service.create(job_def)
-            raise AssertionError("Should have raised JobAlreadyExistsError")
-        except JobAlreadyExistsError:
-            pass
+        # Verify storage was called
+        mock_storage.create_job.assert_called_once()
 
-    def test_get_job(self):
-        """Test getting a job."""
+        # Verify result
+        assert result.job_id == "test-1"
+        assert result.name == "Test Job"
+        assert result.status == JobStatus.SCHEDULED
 
-        def test_func():
-            pass
+    def test_create_duplicate_raises_job_already_exists_error(self, mock_storage):
+        """Test that creating duplicate job raises JobAlreadyExistsError."""
+        service = JobService(storage=mock_storage)
 
-        job_def = JobDefinition(
-            job_id="test-1",
-            name="Test Job",
-            trigger_type=TriggerType.INTERVAL,
-            trigger_args={"seconds": 30},
-            func=test_func,
-        )
-
-        self.service.create(job_def)
-        job_info = self.service.get("test-1")
-
-        assert job_info is not None
-        assert job_info.job_id == "test-1"
-
-    def test_get_nonexistent_job_returns_none(self):
-        """Test getting nonexistent job returns None."""
-        job_info = self.service.get("nonexistent")
-
-        assert job_info is None
-
-    def test_query_with_spec(self):
-        """Test querying jobs with specification."""
-
-        def test_func():
-            pass
-
-        # Create multiple jobs
-        for i in range(3):
-            job_def = JobDefinition(
-                job_id=f"test-{i}",
-                name=f"Test Job {i}",
-                trigger_type=TriggerType.INTERVAL,
-                trigger_args={"seconds": 30},
-                func=test_func,
-            )
-            self.service.create(job_def)
-
-        # Query all scheduled jobs
-        jobs = self.service.query(filters=scheduled_jobs())
-
-        assert len(jobs) == 3
-
-    def test_query_with_raw_filters(self):
-        """Test querying jobs with raw filters (backward compatibility)."""
+        # Mock storage to raise ValueError (duplicate)
+        mock_storage.create_job.side_effect = ValueError("Job test-1 already exists")
 
         def test_func():
             pass
@@ -121,255 +71,285 @@ class TestJobService:
             trigger_args={"seconds": 30},
             func=test_func,
         )
-        self.service.create(job_def)
 
-        # Query with raw filters
-        jobs = self.service.query(filters={"status": "scheduled"})
+        with pytest.raises(JobAlreadyExistsError):
+            service.create(job_def)
 
-        assert len(jobs) == 1
+    def test_create_logs_in_verbose_mode(self, mock_storage, mock_logger):
+        """Test that create logs in verbose mode."""
+        service = JobService(storage=mock_storage, logger=mock_logger, verbose=True)
 
-    def test_query_with_limit(self):
-        """Test querying with limit."""
-
-        def test_func():
-            pass
-
-        # Create 5 jobs
-        for i in range(5):
-            job_def = JobDefinition(
-                job_id=f"test-{i}",
-                name=f"Test Job {i}",
-                trigger_type=TriggerType.INTERVAL,
-                trigger_args={"seconds": 30},
-                func=test_func,
-            )
-            self.service.create(job_def)
-
-        # Query with limit
-        jobs = self.service.query(filters=scheduled_jobs(), limit=3)
-
-        assert len(jobs) == 3
-
-    def test_update_job(self):
-        """Test updating a job."""
-
-        def test_func():
-            pass
+        mock_storage.create_job.return_value = {
+            "job_id": "test-1",
+            "name": "Test",
+            "trigger_type": "interval",
+            "trigger_args": {},
+            "timezone": "UTC",
+            "status": "scheduled",
+            "metadata": {},
+            "created_at": "2024-01-01T12:00:00+00:00",
+            "updated_at": "2024-01-01T12:00:00+00:00",
+            "func_name": "test",
+            "args": [],
+            "kwargs": {},
+        }
 
         job_def = JobDefinition(
             job_id="test-1",
-            name="Test Job",
+            name="Test",
             trigger_type=TriggerType.INTERVAL,
-            trigger_args={"seconds": 30},
-            func=test_func,
+            trigger_args={},
+            func=lambda: None,
         )
-        self.service.create(job_def)
 
-        # Update name
-        updated = self.service.update("test-1", name="Updated Job")
+        service.create(job_def)
 
-        assert updated.name == "Updated Job"
+        # Verify logging
+        mock_logger.info.assert_called_once()
 
-    def test_update_nonexistent_job_raises_error(self):
-        """Test updating nonexistent job raises error."""
-        try:
-            self.service.update("nonexistent", name="New Name")
-            raise AssertionError("Should have raised JobNotFoundError")
-        except JobNotFoundError:
-            pass
 
-    def test_update_with_no_changes(self):
-        """Test update with no changes returns current job."""
+class TestJobServiceGet:
+    """Test JobService.get() with mocked storage."""
 
-        def test_func():
-            pass
+    def test_get_existing_job_returns_job_info(self, mock_storage):
+        """Test that get returns JobInfo for existing job."""
+        service = JobService(storage=mock_storage)
 
-        job_def = JobDefinition(
-            job_id="test-1",
-            name="Test Job",
-            trigger_type=TriggerType.INTERVAL,
-            trigger_args={"seconds": 30},
-            func=test_func,
-        )
-        created = self.service.create(job_def)
+        mock_storage.get_job.return_value = {
+            "job_id": "test-1",
+            "name": "Test Job",
+            "trigger_type": "interval",
+            "trigger_args": {"seconds": 30},
+            "timezone": "UTC",
+            "status": "scheduled",
+            "metadata": {},
+            "created_at": "2024-01-01T12:00:00+00:00",
+            "updated_at": "2024-01-01T12:00:00+00:00",
+            "func_name": "test_func",
+            "args": [],
+            "kwargs": {},
+        }
 
-        # Update with no parameters
-        updated = self.service.update("test-1")
+        result = service.get("test-1")
 
-        assert updated.job_id == created.job_id
-        assert updated.name == created.name
+        mock_storage.get_job.assert_called_once_with("test-1")
+        assert result is not None
+        assert result.job_id == "test-1"
 
-    def test_delete_job(self):
-        """Test deleting a job."""
+    def test_get_nonexistent_job_returns_none(self, mock_storage):
+        """Test that get returns None for nonexistent job."""
+        service = JobService(storage=mock_storage)
 
-        def test_func():
-            pass
+        mock_storage.get_job.return_value = None
 
-        job_def = JobDefinition(
-            job_id="test-1",
-            name="Test Job",
-            trigger_type=TriggerType.INTERVAL,
-            trigger_args={"seconds": 30},
-            func=test_func,
-        )
-        self.service.create(job_def)
+        result = service.get("nonexistent")
 
-        # Delete
-        result = self.service.delete("test-1")
+        assert result is None
 
+
+class TestJobServiceUpdate:
+    """Test JobService.update() with mocked storage."""
+
+    def test_update_with_fields_calls_storage(self, mock_storage):
+        """Test that update calls storage.update_job with proper data."""
+        service = JobService(storage=mock_storage)
+
+        mock_storage.update_job.return_value = {
+            "job_id": "test-1",
+            "name": "Updated Name",
+            "trigger_type": "interval",
+            "trigger_args": {"seconds": 30},
+            "timezone": "UTC",
+            "status": "scheduled",
+            "metadata": {},
+            "created_at": "2024-01-01T12:00:00+00:00",
+            "updated_at": "2024-01-01T12:00:00+00:00",
+            "func_name": "test",
+            "args": [],
+            "kwargs": {},
+        }
+
+        result = service.update("test-1", name="Updated Name")
+
+        # Verify storage was called with name and updated_at
+        mock_storage.update_job.assert_called_once()
+        call_args = mock_storage.update_job.call_args
+        assert call_args[0][0] == "test-1"
+        assert "name" in call_args[0][1]
+        assert call_args[0][1]["name"] == "Updated Name"
+        assert "updated_at" in call_args[0][1]
+
+        assert result.name == "Updated Name"
+
+    def test_update_nonexistent_job_raises_error(self, mock_storage):
+        """Test that updating nonexistent job raises JobNotFoundError."""
+        service = JobService(storage=mock_storage)
+
+        mock_storage.update_job.side_effect = ValueError("Job not found")
+
+        with pytest.raises(JobNotFoundError):
+            service.update("nonexistent", name="New Name")
+
+    def test_update_with_no_changes_gets_current_job(self, mock_storage):
+        """Test that update with no parameters fetches current job."""
+        service = JobService(storage=mock_storage)
+
+        mock_storage.get_job.return_value = {
+            "job_id": "test-1",
+            "name": "Test",
+            "trigger_type": "interval",
+            "trigger_args": {},
+            "timezone": "UTC",
+            "status": "scheduled",
+            "metadata": {},
+            "created_at": "2024-01-01T12:00:00+00:00",
+            "updated_at": "2024-01-01T12:00:00+00:00",
+            "func_name": "test",
+            "args": [],
+            "kwargs": {},
+        }
+
+        service.update("test-1")
+
+        # Should call get_job, not update_job
+        mock_storage.get_job.assert_called_once_with("test-1")
+        mock_storage.update_job.assert_not_called()
+
+    def test_update_with_no_changes_nonexistent_raises_error(self, mock_storage):
+        """Test that update with no changes on nonexistent job raises error."""
+        service = JobService(storage=mock_storage)
+
+        mock_storage.get_job.return_value = None
+
+        with pytest.raises(JobNotFoundError):
+            service.update("nonexistent")
+
+
+class TestJobServiceDelete:
+    """Test JobService.delete() with mocked storage."""
+
+    def test_delete_existing_job_returns_true(self, mock_storage):
+        """Test that deleting existing job returns True."""
+        service = JobService(storage=mock_storage)
+
+        mock_storage.delete_job.return_value = True
+
+        result = service.delete("test-1")
+
+        mock_storage.delete_job.assert_called_once_with("test-1")
         assert result is True
-        assert self.service.get("test-1") is None
 
-    def test_delete_nonexistent_job(self):
-        """Test deleting nonexistent job returns False."""
-        result = self.service.delete("nonexistent")
+    def test_delete_nonexistent_job_returns_false(self, mock_storage):
+        """Test that deleting nonexistent job returns False."""
+        service = JobService(storage=mock_storage)
+
+        mock_storage.delete_job.return_value = False
+
+        result = service.delete("nonexistent")
 
         assert result is False
 
-    def test_exists(self):
-        """Test checking if job exists."""
 
-        def test_func():
-            pass
+class TestJobServiceQuery:
+    """Test JobService.query() with mocked storage."""
 
-        job_def = JobDefinition(
-            job_id="test-1",
-            name="Test Job",
-            trigger_type=TriggerType.INTERVAL,
-            trigger_args={"seconds": 30},
-            func=test_func,
-        )
-        self.service.create(job_def)
+    def test_query_calls_storage_with_filters(self, mock_storage):
+        """Test that query passes filters to storage."""
+        service = JobService(storage=mock_storage)
 
-        assert self.service.exists("test-1") is True
-        assert self.service.exists("nonexistent") is False
+        mock_storage.query_jobs.return_value = []
 
-    def test_count(self):
-        """Test counting jobs."""
+        filters = {"status": "scheduled"}
+        service.query(filters=filters, limit=10)
 
-        def test_func():
-            pass
+        mock_storage.query_jobs.assert_called_once_with(filters=filters, limit=10)
 
-        # Create 3 jobs
-        for i in range(3):
-            job_def = JobDefinition(
-                job_id=f"test-{i}",
-                name=f"Test Job {i}",
-                trigger_type=TriggerType.INTERVAL,
-                trigger_args={"seconds": 30},
-                func=test_func,
-            )
-            self.service.create(job_def)
+    def test_query_returns_list_of_job_info(self, mock_storage):
+        """Test that query returns list of JobInfo objects."""
+        service = JobService(storage=mock_storage)
 
-        # Count all
-        total = self.service.count()
-        assert total == 3
+        mock_storage.query_jobs.return_value = [
+            {
+                "job_id": "test-1",
+                "name": "Job 1",
+                "trigger_type": "interval",
+                "trigger_args": {},
+                "timezone": "UTC",
+                "status": "scheduled",
+                "metadata": {},
+                "created_at": "2024-01-01T12:00:00+00:00",
+                "updated_at": "2024-01-01T12:00:00+00:00",
+                "func_name": "test",
+                "args": [],
+                "kwargs": {},
+            }
+        ]
 
-        # Count scheduled
-        scheduled_count = self.service.count(filters=scheduled_jobs())
-        assert scheduled_count == 3
+        result = service.query()
 
-    def test_count_with_specific_status(self):
-        """Test counting jobs by status."""
-
-        def test_func():
-            pass
-
-        # Create job
-        job_def = JobDefinition(
-            job_id="test-1",
-            name="Test Job",
-            trigger_type=TriggerType.INTERVAL,
-            trigger_args={"seconds": 30},
-            func=test_func,
-        )
-        self.service.create(job_def)
-
-        # Update to failed
-        self.service.update("test-1", status=JobStatus.FAILED)
-
-        # Count failed jobs
-        failed_count = self.service.count(filters=jobs_by_status(JobStatus.FAILED))
-        assert failed_count == 1
-
-        # Count scheduled jobs
-        scheduled_count = self.service.count(filters=scheduled_jobs())
-        assert scheduled_count == 0
+        assert len(result) == 1
+        assert result[0].job_id == "test-1"
 
 
-class TestJobServiceIntegration:
-    """Integration tests for JobService."""
+class TestJobServiceExists:
+    """Test JobService.exists() with mocked storage."""
 
-    def setup_method(self):
-        """Setup test fixtures."""
-        self.storage = InMemoryStorageAdapter()
-        self.service = JobService(storage=self.storage, verbose=False)
+    def test_exists_returns_true_when_job_found(self, mock_storage):
+        """Test that exists returns True when job is found."""
+        service = JobService(storage=mock_storage)
 
-    def test_complete_crud_lifecycle(self):
-        """Test complete CRUD lifecycle."""
+        mock_storage.get_job.return_value = {
+            "job_id": "test-1",
+            "name": "Test",
+            "trigger_type": "interval",
+            "trigger_args": {},
+            "timezone": "UTC",
+            "status": "scheduled",
+            "metadata": {},
+            "created_at": "2024-01-01T12:00:00+00:00",
+            "updated_at": "2024-01-01T12:00:00+00:00",
+            "func_name": "test",
+            "args": [],
+            "kwargs": {},
+        }
 
-        def test_func():
-            pass
+        result = service.exists("test-1")
 
-        # Create
-        job_def = JobDefinition(
-            job_id="lifecycle-test",
-            name="Lifecycle Test",
-            trigger_type=TriggerType.INTERVAL,
-            trigger_args={"minutes": 5},
-            func=test_func,
-        )
-        created = self.service.create(job_def)
-        assert created.job_id == "lifecycle-test"
+        assert result is True
 
-        # Read
-        retrieved = self.service.get("lifecycle-test")
-        assert retrieved is not None
-        assert retrieved.name == "Lifecycle Test"
+    def test_exists_returns_false_when_job_not_found(self, mock_storage):
+        """Test that exists returns False when job not found."""
+        service = JobService(storage=mock_storage)
 
-        # Update
-        updated = self.service.update("lifecycle-test", name="Updated Name")
-        assert updated.name == "Updated Name"
+        mock_storage.get_job.return_value = None
 
-        # Delete
-        deleted = self.service.delete("lifecycle-test")
-        assert deleted is True
+        result = service.exists("nonexistent")
 
-        # Verify deletion
-        assert self.service.get("lifecycle-test") is None
+        assert result is False
 
-    def test_query_filtering(self):
-        """Test query with multiple filters."""
 
-        def test_func():
-            pass
+class TestJobServiceCount:
+    """Test JobService.count() with mocked storage."""
 
-        # Create jobs with different metadata
-        for i in range(3):
-            job_def = JobDefinition(
-                job_id=f"tenant-a-{i}",
-                name=f"Tenant A Job {i}",
-                trigger_type=TriggerType.INTERVAL,
-                trigger_args={"seconds": 30},
-                func=test_func,
-                metadata={"tenant": "a", "priority": "high"},
-            )
-            self.service.create(job_def)
+    def test_count_calls_storage_with_filters(self, mock_storage):
+        """Test that count passes filters to storage."""
+        service = JobService(storage=mock_storage)
 
-        for i in range(2):
-            job_def = JobDefinition(
-                job_id=f"tenant-b-{i}",
-                name=f"Tenant B Job {i}",
-                trigger_type=TriggerType.INTERVAL,
-                trigger_args={"seconds": 30},
-                func=test_func,
-                metadata={"tenant": "b", "priority": "low"},
-            )
-            self.service.create(job_def)
+        mock_storage.count_jobs.return_value = 5
 
-        # Query by metadata
-        tenant_a_jobs = self.service.query(filters=jobs_by_metadata("tenant", "a"))
+        filters = {"status": "scheduled"}
+        result = service.count(filters=filters)
 
-        assert len(tenant_a_jobs) == 3
-        for job in tenant_a_jobs:
-            assert job.metadata["tenant"] == "a"
+        mock_storage.count_jobs.assert_called_once_with(filters=filters)
+        assert result == 5
+
+    def test_count_without_filters(self, mock_storage):
+        """Test count without filters."""
+        service = JobService(storage=mock_storage)
+
+        mock_storage.count_jobs.return_value = 10
+
+        result = service.count()
+
+        mock_storage.count_jobs.assert_called_once_with(filters=None)
+        assert result == 10
