@@ -19,6 +19,11 @@ Traditional schedulers require complex configuration and aren't built for AI age
 
 ```bash
 pip install chronis
+
+# Optional: Install with adapter dependencies
+pip install chronis[redis]      # Redis storage and locking
+pip install chronis[postgres]   # PostgreSQL storage
+pip install chronis[all]        # All adapters
 ```
 
 ## Quick Start
@@ -92,10 +97,6 @@ scheduler.resume_job(saved_id)  # Resume execution
 # Delete job
 scheduler.delete_job(saved_id)
 ```
-
-**Job States**: `PENDING` → `SCHEDULED` → `RUNNING` / `PAUSED` → `FAILED` (one-time jobs auto-delete after success)
-
-**Custom IDs** (optional): You can provide explicit IDs if needed:
 
 ## Misfire Handling
 
