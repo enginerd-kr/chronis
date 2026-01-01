@@ -1,17 +1,45 @@
 """In-memory storage adapter for testing."""
 
+import logging
 from typing import Any
 
 from chronis.adapters.base import JobStorageAdapter
 from chronis.type_defs import JobStorageData, JobUpdateData
 from chronis.utils.time import utc_now
 
+logger = logging.getLogger(__name__)
+
 
 class InMemoryStorageAdapter(JobStorageAdapter):
-    """In-memory storage adapter (for testing)."""
+    """
+    In-memory storage adapter (for testing and local development only).
+
+    ⚠️ WARNING:
+        This adapter is for testing and local development ONLY.
+        - Data is NOT persisted (lost on restart)
+        - NOT distributed (single process only)
+        - NOT production-ready
+
+        For production use, switch to:
+        - RedisStorageAdapter (recommended)
+        - PostgreSQLStorageAdapter
+        - DynamoDBStorageAdapter
+        - Or implement a custom adapter
+    """
 
     def __init__(self) -> None:
+        """
+        Initialize in-memory storage adapter.
+
+        Logs a warning to remind developers this is not for production use.
+        """
         self._jobs: dict[str, JobStorageData] = {}
+
+        # Warn about production usage
+        logger.warning(
+            "InMemoryStorageAdapter is for testing/development only. "
+            "Use RedisStorageAdapter, PostgreSQLStorageAdapter, or DynamoDBStorageAdapter in production."
+        )
 
     def create_job(self, job_data: JobStorageData) -> JobStorageData:
         """Create a job."""

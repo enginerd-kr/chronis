@@ -188,7 +188,14 @@ class ExecutionCoordinator:
             job_data: Job data
             job_logger: Context logger
         """
+        import inspect
+
         job_id = job_data["job_id"]
+        func_name = job_data["func_name"]
+        func = self.function_registry.get(func_name)
+
+        # Check if function is async (will be handled in callback)
+        is_async = func and inspect.iscoroutinefunction(func)
 
         try:
             # Execute the actual job function
@@ -215,8 +222,9 @@ class ExecutionCoordinator:
                 self._update_next_run_time(job_data)
                 self._update_job_status(job_id, next_status)
 
-            # Invoke success handler
-            self._invoke_success_handler(job_id, job_data)
+            # Invoke success handler (skip for async - handled in callback)
+            if not is_async:
+                self._invoke_success_handler(job_id, job_data)
 
         except Exception as e:
             job_logger.error(f"Execution failed: {e}", exc_info=True)

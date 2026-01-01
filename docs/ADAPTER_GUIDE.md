@@ -187,50 +187,197 @@ class RedisAdapter(JobStorageAdapter):
 
 ## Lock Adapter Interface
 
-Implement `JobLockAdapter` for distributed locking:
+Implement `LockAdapter` with these methods:
 
 ```python
-from chronis.adapters.base import JobLockAdapter
+from chronis.adapters.base import LockAdapter
+import uuid
 
-class MyLockAdapter(JobLockAdapter):
-    def acquire_lock(self, job_id: str, timeout: int = 30) -> bool:
+class MyLockAdapter(LockAdapter):
+    def __init__(self):
+        # MUST generate unique instance token
+        self.instance_token = str(uuid.uuid4())
+
+    def acquire(
+        self,
+        lock_key: str,
+        ttl_seconds: int,
+        blocking: bool = False,
+        timeout: float | None = None,
+        owner_id: str | None = None,
+    ) -> bool:
         """
-        Acquire exclusive lock for job execution.
+        Acquire distributed lock.
 
-        Returns True if lock acquired, False otherwise.
-        Lock should auto-expire after timeout seconds.
+        Requirements:
+        - MUST store owner_id with lock (for verification)
+        - MUST be atomic (no race conditions)
+        - MUST respect TTL (auto-expire)
+        - SHOULD support blocking mode efficiently
+
+        Returns True if acquired, False otherwise.
         """
 
-    def release_lock(self, job_id: str) -> bool:
+    def release(self, lock_key: str, owner_id: str | None = None) -> bool:
         """
-        Release lock after job execution.
+        Release distributed lock.
 
-        Returns True if lock released, False if lock didn't exist.
+        Requirements:
+        - MUST verify owner_id before release
+        - MUST be atomic (check + delete)
+        - MUST return False if not owner
+
+        Returns True if released, False if not owner or doesn't exist.
+        """
+
+    def extend(
+        self,
+        lock_key: str,
+        ttl_seconds: int,
+        owner_id: str | None = None,
+    ) -> bool:
+        """
+        Extend lock TTL.
+
+        Requirements:
+        - MUST verify owner_id before extending
+        - MUST be atomic (check + extend)
+
+        Returns True if extended, False if not owner or doesn't exist.
+        """
+
+    def reset(self, lock_key: str) -> bool:
+        """
+        Forcibly delete lock (crash recovery).
+
+        ⚠️ WARNING: Bypasses ownership checks!
+
+        Returns True if deleted, False if didn't exist.
         """
 ```
 
-### Redis Lock Example
+### Redis Lock Implementation
 
 ```python
 import redis
-from redis.lock import Lock
+import uuid
+import time
+from chronis.adapters.base import LockAdapter
 
-class RedisLockAdapter(JobLockAdapter):
-    def __init__(self, host="localhost", port=6379):
-        self.redis = redis.Redis(host=host, port=port)
+# Lua script for atomic release with ownership verification
+LUA_RELEASE_SCRIPT = """
+    local token = redis.call('get', KEYS[1])
+    if not token or token ~= ARGV[1] then
+        return 0
+    end
+    redis.call('del', KEYS[1])
+    redis.call('lpush', KEYS[2], '1')
+    redis.call('expire', KEYS[2], 1)
+    return 1
+"""
 
-    def acquire_lock(self, job_id: str, timeout: int = 30) -> bool:
-        lock = Lock(self.redis, f"lock:{job_id}", timeout=timeout)
-        return lock.acquire(blocking=False)
+# Lua script for atomic extend with ownership verification
+LUA_EXTEND_SCRIPT = """
+    local token = redis.call('get', KEYS[1])
+    if not token or token ~= ARGV[1] then
+        return 0
+    end
+    redis.call('expire', KEYS[1], ARGV[2])
+    return 1
+"""
 
-    def release_lock(self, job_id: str) -> bool:
-        lock = Lock(self.redis, f"lock:{job_id}")
-        try:
-            lock.release()
-            return True
-        except:
-            return False
+class RedisLockAdapter(LockAdapter):
+    def __init__(self, redis_client, key_prefix="chronis:lock:"):
+        self.redis = redis_client
+        self.key_prefix = key_prefix
+        self.instance_token = str(uuid.uuid4())
+
+    def acquire(
+        self,
+        lock_key: str,
+        ttl_seconds: int,
+        blocking: bool = False,
+        timeout: float | None = None,
+        owner_id: str | None = None,
+    ) -> bool:
+        full_key = f"{self.key_prefix}{lock_key}"
+        signal_key = f"{full_key}:signal"
+        token = owner_id or self.instance_token
+
+        # Try to acquire (store owner token)
+        result = self.redis.set(full_key, token, nx=True, ex=ttl_seconds)
+
+        if result or not blocking:
+            return bool(result)
+
+        # Blocking mode: wait for signal with BLPOP
+        start = time.time()
+        remaining = timeout
+
+        while True:
+            self.redis.blpop(signal_key, timeout=remaining or 0)
+
+            if self.redis.set(full_key, token, nx=True, ex=ttl_seconds):
+                return True
+
+            if timeout:
+                elapsed = time.time() - start
+                remaining = timeout - elapsed
+                if remaining <= 0:
+                    return False
+
+    def release(self, lock_key: str, owner_id: str | None = None) -> bool:
+        full_key = f"{self.key_prefix}{lock_key}"
+        signal_key = f"{full_key}:signal"
+        token = owner_id or self.instance_token
+
+        # Atomic release with ownership verification
+        result = self.redis.eval(LUA_RELEASE_SCRIPT, 2, full_key, signal_key, token)
+        return result == 1
+
+    def extend(
+        self,
+        lock_key: str,
+        ttl_seconds: int,
+        owner_id: str | None = None,
+    ) -> bool:
+        full_key = f"{self.key_prefix}{lock_key}"
+        token = owner_id or self.instance_token
+
+        # Atomic extend with ownership verification
+        result = self.redis.eval(LUA_EXTEND_SCRIPT, 1, full_key, token, ttl_seconds)
+        return result == 1
+
+    def reset(self, lock_key: str) -> bool:
+        full_key = f"{self.key_prefix}{lock_key}"
+        return self.redis.delete(full_key) > 0
 ```
+
+### Key Implementation Details
+
+**Ownership Tracking**:
+
+- Each adapter instance has a unique `instance_token` (UUID)
+- Lock value stores the owner token (not just "1")
+- Release/extend verify ownership before operation
+
+**Atomic Operations**:
+
+- Redis: Lua scripts for check-and-delete/extend
+- DynamoDB: Conditional expressions
+- InMemory: threading.Lock for atomicity
+
+**Blocking Mode**:
+
+- Redis: BLPOP on signal key (efficient, no spinloop)
+- InMemory: Condition.wait() for thread signaling
+- DynamoDB: Sleep polling (no BLPOP equivalent)
+
+**Signal Mechanism**:
+
+- On release, push to `{lock_key}:signal` list
+- Waiting processes BLPOP on signal key
+- Signal key expires after 1 second
 
 ## Performance & Indexing
 
