@@ -1,4 +1,4 @@
-"""Unit tests for Lock adapters."""
+"""Unit tests for Lock adapters (including concurrency scenarios)."""
 
 import threading
 import time
