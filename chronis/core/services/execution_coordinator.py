@@ -255,7 +255,12 @@ class ExecutionCoordinator:
         # Look up function from registry
         func = self.function_registry.get(func_name)
         if not func:
-            raise ValueError(f"Job function not found: {func_name}")
+            from chronis.core.common.exceptions import FunctionNotRegisteredError
+
+            raise FunctionNotRegisteredError(
+                f"Function '{func_name}' is not registered. "
+                "Call scheduler.register_job_function(name, func) before creating jobs."
+            )
 
         # Execute based on function type
         if inspect.iscoroutinefunction(func):

@@ -205,7 +205,11 @@ class PollingScheduler:
             >>> scheduler.stop()
         """
         if self._running:
-            raise RuntimeError("Scheduler is already running")
+            from chronis.core.common.exceptions import SchedulerError
+
+            raise SchedulerError(
+                "Scheduler is already running. Call scheduler.stop() first to restart."
+            )
 
         self.logger.info("Starting scheduler")
 
@@ -566,19 +570,22 @@ class PollingScheduler:
             >>> for job in jobs:
             ...     scheduler.pause_job(job.job_id)
         """
-        from chronis.core.common.exceptions import JobNotFoundError
+        from chronis.core.common.exceptions import InvalidJobStateError, JobNotFoundError
 
         job = self._job_service.get(job_id)
         if not job:
-            raise JobNotFoundError(f"Job {job_id} not found")
+            raise JobNotFoundError(
+                f"Job '{job_id}' not found. It may have been deleted or never existed. "
+                "Use scheduler.query_jobs() to see available jobs."
+            )
 
         # Can only pause SCHEDULED or PENDING jobs
         if job.status not in (JobStatus.SCHEDULED, JobStatus.PENDING):
-            self.logger.warning(
-                f"Cannot pause job {job_id} in status {job.status}",
-                extra={"job_id": job_id, "status": job.status},
+            raise InvalidJobStateError(
+                f"Cannot pause job '{job_id}' in {job.status.value} state. "
+                f"Only SCHEDULED or PENDING jobs can be paused. "
+                f"Current status: {job.status.value}"
             )
-            return False
 
         self._job_service.update(job_id=job_id, status=JobStatus.PAUSED)
 
@@ -602,18 +609,21 @@ class PollingScheduler:
             >>> scheduler.resume_job("email-001")
             True
         """
-        from chronis.core.common.exceptions import JobNotFoundError
+        from chronis.core.common.exceptions import InvalidJobStateError, JobNotFoundError
 
         job = self._job_service.get(job_id)
         if not job:
-            raise JobNotFoundError(f"Job {job_id} not found")
+            raise JobNotFoundError(
+                f"Job '{job_id}' not found. It may have been deleted or never existed. "
+                "Use scheduler.query_jobs() to see available jobs."
+            )
 
         if job.status != JobStatus.PAUSED:
-            self.logger.warning(
-                f"Cannot resume job {job_id} - not paused (status: {job.status})",
-                extra={"job_id": job_id, "status": job.status},
+            raise InvalidJobStateError(
+                f"Cannot resume job '{job_id}' in {job.status.value} state. "
+                f"Only PAUSED jobs can be resumed. "
+                f"Current status: {job.status.value}"
             )
-            return False
 
         self._job_service.update(job_id=job_id, status=JobStatus.SCHEDULED)
 
