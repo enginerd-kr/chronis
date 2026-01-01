@@ -95,6 +95,8 @@ scheduler.delete_job(saved_id)
 
 **Job States**: `PENDING` → `SCHEDULED` → `RUNNING` / `PAUSED` → `FAILED` (one-time jobs auto-delete after success)
 
+**Custom IDs** (optional): You can provide explicit IDs if needed:
+
 ## Misfire Handling
 
 Handle jobs that miss their scheduled time (system downtime, busy workers):
@@ -126,8 +128,6 @@ scheduler.create_interval_job(
 ```
 
 **Policies**: `skip` (ignore), `run_once` (execute once), `run_all` (all missed runs)
-
-**Custom IDs** (optional): You can provide explicit IDs if needed:
 
 ```python
 scheduler.create_interval_job(
