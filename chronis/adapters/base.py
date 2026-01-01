@@ -236,10 +236,25 @@ class JobStorageAdapter(ABC):
 
 
 class LockAdapter(ABC):
-    """Distributed lock adapter abstract class."""
+    """
+    Distributed lock adapter abstract class.
+
+    Backend-agnostic interface supporting:
+    - Lock ownership tracking (token-based)
+    - Atomic operations (verify ownership before release/extend)
+    - TTL extension for long-running jobs
+    - Optional blocking mode with timeout
+    """
 
     @abstractmethod
-    def acquire(self, lock_key: str, ttl_seconds: int, blocking: bool = False) -> bool:
+    def acquire(
+        self,
+        lock_key: str,
+        ttl_seconds: int,
+        blocking: bool = False,
+        timeout: float | None = None,
+        owner_id: str | None = None,
+    ) -> bool:
         """
         Acquire a distributed lock.
 
@@ -251,18 +266,43 @@ class LockAdapter(ABC):
         │ WHEN CALLED:    Before job execution to prevent duplicates   │
         └──────────────────────────────────────────────────────────────┘
 
+        Implementation Requirements (ALL backends):
+        - MUST generate unique owner_id if not provided (e.g., UUID)
+        - MUST store owner_id with lock (for release/extend verification)
+        - MUST be atomic (no race conditions between check and set)
+        - MUST respect TTL (auto-expire after ttl_seconds)
+        - SHOULD support blocking mode efficiently (backend-specific)
+
+        Backend-Specific Implementations:
+        - Redis: Use SET NX EX with owner_id as value
+        - DynamoDB: Use ConditionalPut with OwnerId attribute
+        - InMemory: Store (owner_id, expiry_time) tuple with threading.Lock
+
         Args:
             lock_key: Unique lock identifier (e.g., "scheduler:lock:job-id")
             ttl_seconds: Time-to-live for the lock in seconds
-            blocking: If True, wait until lock is available
+            blocking: If True, wait for lock to become available
+            timeout: Max wait time in seconds (None = wait forever)
+                     Only used when blocking=True
+            owner_id: Optional owner identifier for lock tracking
+                      If None, adapter must generate a unique ID (e.g., UUID)
 
         Returns:
             True if lock acquired, False otherwise
+
+        Example:
+            >>> lock_adapter = RedisLockAdapter(redis_client)
+            >>> # Non-blocking acquire
+            >>> acquired = lock_adapter.acquire("job-123", ttl_seconds=60)
+            >>> # Blocking acquire with timeout
+            >>> acquired = lock_adapter.acquire(
+            ...     "job-123", ttl_seconds=60, blocking=True, timeout=10
+            ... )
         """
         pass
 
     @abstractmethod
-    def release(self, lock_key: str) -> bool:
+    def release(self, lock_key: str, owner_id: str | None = None) -> bool:
         """
         Release a distributed lock.
 
@@ -274,10 +314,123 @@ class LockAdapter(ABC):
         │ WHEN CALLED:    After job execution completes                │
         └──────────────────────────────────────────────────────────────┘
 
+        Implementation Requirements (ALL backends):
+        - MUST verify owner_id matches before release
+        - MUST be atomic (check owner + delete in single operation)
+        - MUST return False if not owner (don't raise exception)
+        - SHOULD signal waiting processes (if blocking mode supported)
+
+        Backend-Specific Implementations:
+        - Redis: Use Lua script (GET + DEL + LPUSH to signal key)
+        - DynamoDB: Use ConditionalDelete with OwnerId check
+        - InMemory: Check owner within threading.Lock, then notify Condition
+
+        Args:
+            lock_key: Unique lock identifier
+            owner_id: Owner identifier (uses instance owner_id if None)
+                      Must match the owner_id used in acquire()
+
+        Returns:
+            True if lock released, False if:
+            - Lock doesn't exist
+            - Owner mismatch (not our lock)
+
+        Security Note:
+            This prevents a common race condition where Process A's lock
+            expires, Process B acquires it, then Process A releases B's lock.
+
+        Example:
+            >>> lock_adapter.acquire("job-123", ttl_seconds=60)
+            >>> try:
+            ...     # Do work
+            ...     pass
+            ... finally:
+            ...     lock_adapter.release("job-123")
+        """
+        pass
+
+    @abstractmethod
+    def extend(
+        self,
+        lock_key: str,
+        ttl_seconds: int,
+        owner_id: str | None = None,
+    ) -> bool:
+        """
+        Extend lock TTL (for long-running jobs).
+
+        ┌──────────────────────────────────────────────────────────────┐
+        │                   IMPLEMENTATION CONTRACT                     │
+        ├──────────────────────────────────────────────────────────────┤
+        │ WHO IMPLEMENTS: Lock adapter developer                       │
+        │ WHO CALLS:      Chronis Core, user code                      │
+        │ WHEN CALLED:    During job execution to prevent TTL expiry   │
+        └──────────────────────────────────────────────────────────────┘
+
+        Implementation Requirements (ALL backends):
+        - MUST verify owner_id matches before extending
+        - MUST be atomic (check owner + extend TTL)
+        - MUST return False if not owner
+
+        Backend-Specific Implementations:
+        - Redis: Use Lua script (GET + EXPIRE)
+        - DynamoDB: Use ConditionalUpdate with OwnerId check
+        - InMemory: Check owner within threading.Lock, update expiry
+
+        Args:
+            lock_key: Unique lock identifier
+            ttl_seconds: New TTL duration in seconds (not additive)
+            owner_id: Owner identifier (uses instance owner_id if None)
+
+        Returns:
+            True if extended, False if:
+            - Lock doesn't exist
+            - Owner mismatch (not our lock)
+
+        Use Case:
+            Long-running jobs that exceed initial TTL can extend the lock
+            to prevent it from expiring while still working.
+
+        Example:
+            >>> lock_adapter.acquire("job-123", ttl_seconds=60)
+            >>> # After 30 seconds of work...
+            >>> lock_adapter.extend("job-123", ttl_seconds=60)  # Extend by 60s
+            >>> # Continue working...
+            >>> lock_adapter.release("job-123")
+        """
+        pass
+
+    @abstractmethod
+    def reset(self, lock_key: str) -> bool:
+        """
+        Forcibly delete lock (crash recovery).
+
+        ┌──────────────────────────────────────────────────────────────┐
+        │                   IMPLEMENTATION CONTRACT                     │
+        ├──────────────────────────────────────────────────────────────┤
+        │ WHO IMPLEMENTS: Lock adapter developer                       │
+        │ WHO CALLS:      Admin/maintenance tools                      │
+        │ WHEN CALLED:    Cleanup of orphaned locks after crashes      │
+        └──────────────────────────────────────────────────────────────┘
+
+        Implementation Requirements:
+        - MUST delete lock without ownership verification
+        - SHOULD be used with extreme caution (bypasses safety)
+
+        ⚠️ WARNING: This bypasses ownership checks!
+        Use only for:
+        - Cleaning up orphaned locks after process crashes
+        - Administrative maintenance
+        - Testing/development
+
         Args:
             lock_key: Unique lock identifier
 
         Returns:
-            True if lock released, False if lock not held
+            True if deleted, False if lock didn't exist
+
+        Example:
+            >>> # After application crash, cleanup orphaned locks
+            >>> lock_adapter.reset("job-123")
         """
         pass
