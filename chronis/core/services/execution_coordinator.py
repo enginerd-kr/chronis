@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from typing import Any
 
-from tenacity import RetryError, retry, stop_after_attempt, wait_exponential
+from tenacity import RetryError, retry, stop_after_attempt, wait_random_exponential
 
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
 from chronis.core import lifecycle
@@ -140,11 +140,11 @@ class ExecutionCoordinator:
 
     @retry(
         stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=0.1, min=0.1, max=1),
+        wait=wait_random_exponential(multiplier=0.1, min=0.1, max=1),
         reraise=True,
     )
     def _release_lock_with_retry(self, lock_key: str):
-        """Release lock with automatic retry (0.1s, 0.2s, 0.4s backoff)."""
+        """Release lock with automatic retry with jitter (random 0.1-1s backoff) to prevent thundering herd."""
         self.lock.release(lock_key)
 
     def _trigger_execution(
@@ -290,10 +290,16 @@ class ExecutionCoordinator:
                     # Async job succeeded - invoke success handler
                     self._invoke_success_handler(job_id, job_data)
                 except TimeoutError:
+                    from chronis.core.common.exceptions import JobTimeoutError
+
                     timeout_msg = f"Job exceeded timeout of {timeout_seconds}s"
-                    job_logger.error(timeout_msg)
+                    job_logger.error(
+                        timeout_msg,
+                        timeout_seconds=timeout_seconds,
+                        job_type="async",
+                    )
                     self._update_job_status(job_id, JobStatus.FAILED)
-                    self._invoke_failure_handler(job_id, TimeoutError(timeout_msg), job_data)
+                    self._invoke_failure_handler(job_id, JobTimeoutError(timeout_msg), job_data)
                 except Exception as e:
                     job_logger.error(f"Async job execution failed: {e}", exc_info=True)
                     # Update job status to FAILED if async execution fails
@@ -323,11 +329,21 @@ class ExecutionCoordinator:
 
                 # Check if thread completed
                 if thread.is_alive():
+                    from chronis.core.common.exceptions import JobTimeoutError
+
                     # Timeout occurred - thread is still running
-                    timeout_msg = f"Job exceeded timeout of {timeout_seconds}s"
-                    job_logger.error(timeout_msg)
+                    timeout_msg = (
+                        f"Job exceeded timeout of {timeout_seconds}s. "
+                        "Note: Thread cannot be forcefully stopped and may continue running."
+                    )
+                    job_logger.warning(
+                        timeout_msg,
+                        timeout_seconds=timeout_seconds,
+                        job_type="sync",
+                        thread_alive=True,
+                    )
                     # Note: We cannot forcefully stop the thread, but we report timeout
-                    raise TimeoutError(timeout_msg)
+                    raise JobTimeoutError(timeout_msg)
 
                 # Check if function raised an error
                 error = result["error"]
