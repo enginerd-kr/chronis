@@ -87,9 +87,19 @@ class ExecutionCoordinator:
         """
         job_id = job_data["job_id"]
         job_name = job_data.get("name", job_id)
-        lock_key = f"{self.lock_prefix}{job_id}"
+        # Lock key is just the job_id - RedisLockAdapter will add its own prefix
+        lock_key = job_id
 
         job_logger = self.logger.with_context(job_id=job_id, job_name=job_name)
+
+        # DEBUG: Always log lock key to verify it's correct
+        import os
+
+        job_logger.info(
+            f"[PID {os.getpid()}] Attempting lock",
+            lock_key=lock_key,
+            lock_adapter_prefix=getattr(self.lock, "key_prefix", "N/A"),
+        )
 
         job_status = JobStatus(job_data.get("status", "scheduled"))
         if job_status != JobStatus.SCHEDULED:
@@ -132,6 +142,12 @@ class ExecutionCoordinator:
         lock_acquired = False
         try:
             lock_acquired = self.lock.acquire(lock_key, self.lock_ttl_seconds, blocking=False)
+            # Debug: Log lock acquisition
+            if self.verbose:
+                job_logger.debug(
+                    f"Lock {'acquired' if lock_acquired else 'failed'}",
+                    lock_key=lock_key,
+                )
             yield lock_acquired
         finally:
             if lock_acquired:
