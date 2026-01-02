@@ -166,12 +166,6 @@ scheduler.create_interval_job(
 )
 ```
 
-**Features**:
-
-- ⏱️ **Timeout Protection**: Both sync and async jobs respect `timeout_seconds`
-- 🔁 **Smart Retry**: Exponential backoff with jitter prevents thundering herd
-- 🎯 **Granular Control**: Per-job timeout and retry configuration
-
 ## Multi-Tenancy & Metadata
 
 Perfect for SaaS applications and multi-agent systems:
@@ -188,7 +182,7 @@ job = scheduler.create_interval_job(
 jobs = scheduler.query_jobs(filters={"metadata.tenant_id": "acme"})
 ```
 
-## Callbacks (Success & Failure Handlers)
+## Callbacks
 
 Monitor and react to job execution results:
 

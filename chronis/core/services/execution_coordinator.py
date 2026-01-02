@@ -154,12 +154,18 @@ class ExecutionCoordinator:
         on_complete: Callable[[str], None],
     ) -> None:
         """
-        Trigger job execution in thread pool.
+        Trigger job execution in thread pool with automatic rollback on failure.
+
+        If ThreadPool submission fails (e.g., executor shutdown, resource exhaustion),
+        the job status is rolled back to SCHEDULED to allow retry in the next polling cycle.
 
         Args:
             job_data: Job data
             job_logger: Context logger
             on_complete: Completion callback
+
+        Raises:
+            Exception: Re-raises any exception after rollback
         """
         job_id = job_data["job_id"]
 
@@ -167,18 +173,30 @@ class ExecutionCoordinator:
             # Update state to RUNNING
             self._update_job_status(job_id, JobStatus.RUNNING)
 
-            # Submit to thread pool with completion callback
-            future = self.executor.submit(self._execute_in_background, job_data, job_logger)
+            try:
+                # Submit to thread pool with completion callback
+                future = self.executor.submit(self._execute_in_background, job_data, job_logger)
 
-            # Add done callback
-            future.add_done_callback(lambda f: on_complete(job_id))
+                # Add done callback
+                future.add_done_callback(lambda f: on_complete(job_id))
 
-            # Log only in verbose mode
-            if self.verbose:
-                job_logger.info("Job triggered")
+                # Log only in verbose mode
+                if self.verbose:
+                    job_logger.info("Job triggered")
+
+            except Exception as submit_error:
+                # Rollback to SCHEDULED on submission failure
+                job_logger.warning(
+                    "Executor submit failed, rolling back to SCHEDULED",
+                    error=str(submit_error),
+                    error_type=type(submit_error).__name__,
+                )
+                self._update_job_status(job_id, JobStatus.SCHEDULED)
+                raise
 
         except Exception as e:
             job_logger.error(f"Trigger failed: {e}", exc_info=True)
+            raise
 
     def _execute_in_background(self, job_data: dict[str, Any], job_logger: ContextLogger) -> None:
         """

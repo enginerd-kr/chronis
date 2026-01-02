@@ -3,6 +3,7 @@
 from datetime import UTC, datetime
 from unittest.mock import Mock, patch
 
+import pytest
 from tenacity import RetryError
 
 from chronis.core.services.execution_coordinator import ExecutionCoordinator
@@ -118,7 +119,10 @@ class TestTriggerExecutionLogging:
         coordinator._update_job_status = Mock(side_effect=Exception("Update failed"))
 
         job_logger = Mock()
-        coordinator._trigger_execution({"job_id": "test-1"}, job_logger, Mock())
+
+        # Should raise exception after logging
+        with pytest.raises(Exception, match="Update failed"):
+            coordinator._trigger_execution({"job_id": "test-1"}, job_logger, Mock())
 
         # Verify error was logged
         job_logger.error.assert_called_once()
@@ -507,3 +511,104 @@ class TestCallbackExceptionHandling:
 
         coordinator.logger.error.assert_called_once()
         assert "Global failure handler raised exception" in coordinator.logger.error.call_args[0][0]
+
+
+class TestExecutorSubmitRollback:
+    """Test executor submit failure rollback behavior."""
+
+    def test_trigger_execution_rolls_back_on_submit_failure(self):
+        """ThreadPool submit 실패 시 SCHEDULED로 복구."""
+        # Mock storage
+        storage_mock = Mock()
+
+        # Mock executor that raises on submit
+        executor_mock = Mock()
+        executor_mock.submit.side_effect = RuntimeError("ThreadPool is shutting down")
+
+        coordinator = ExecutionCoordinator(
+            storage=storage_mock,
+            lock=Mock(),
+            executor=executor_mock,
+            async_executor=Mock(),
+            function_registry={},
+            failure_handler_registry={},
+            success_handler_registry={},
+            global_on_failure=None,
+            global_on_success=None,
+            logger=Mock(),
+        )
+
+        job_data = {
+            "job_id": "test-1",
+            "status": "scheduled",
+        }
+
+        job_logger = Mock()
+
+        # Should raise RuntimeError
+        with pytest.raises(RuntimeError, match="ThreadPool is shutting down"):
+            coordinator._trigger_execution(job_data, job_logger, Mock())
+
+        # Verify status updates
+        assert storage_mock.update_job.call_count == 2
+
+        # First call: RUNNING
+        first_call = storage_mock.update_job.call_args_list[0]
+        assert first_call[0][0] == "test-1"
+        assert "status" in first_call[0][1]
+        from chronis.core.state import JobStatus
+
+        assert first_call[0][1]["status"] == JobStatus.RUNNING.value
+
+        # Second call: SCHEDULED (rollback)
+        second_call = storage_mock.update_job.call_args_list[1]
+        assert second_call[0][0] == "test-1"
+        assert "status" in second_call[0][1]
+        assert second_call[0][1]["status"] == JobStatus.SCHEDULED.value
+
+        # Verify warning was logged
+        job_logger.warning.assert_called_once()
+        warning_msg = job_logger.warning.call_args[0][0]
+        assert "rolling back to SCHEDULED" in warning_msg
+
+    def test_trigger_execution_succeeds_normally(self):
+        """정상적인 경우 rollback 발생 안 함."""
+        storage_mock = Mock()
+        executor_mock = Mock()
+        future_mock = Mock()
+        executor_mock.submit.return_value = future_mock
+
+        coordinator = ExecutionCoordinator(
+            storage=storage_mock,
+            lock=Mock(),
+            executor=executor_mock,
+            async_executor=Mock(),
+            function_registry={},
+            failure_handler_registry={},
+            success_handler_registry={},
+            global_on_failure=None,
+            global_on_success=None,
+            logger=Mock(),
+            verbose=False,
+        )
+
+        job_data = {"job_id": "test-1", "status": "scheduled"}
+        job_logger = Mock()
+
+        # Should not raise
+        coordinator._trigger_execution(job_data, job_logger, Mock())
+
+        # Verify only one status update (RUNNING)
+        assert storage_mock.update_job.call_count == 1
+        from chronis.core.state import JobStatus
+
+        storage_mock.update_job.assert_called_once()
+        call_args = storage_mock.update_job.call_args[0]
+        assert call_args[0] == "test-1"
+        assert call_args[1]["status"] == JobStatus.RUNNING.value
+
+        # Verify callback registered
+        future_mock.add_done_callback.assert_called_once()
+
+        # Verify no warning logged
+        job_logger.warning.assert_not_called()
