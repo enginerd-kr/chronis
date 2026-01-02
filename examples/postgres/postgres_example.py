@@ -1,6 +1,7 @@
 """Example: Using PostgreSQL adapter with Chronis.
 
-This example demonstrates how to use PostgreSQL for job storage.
+This example demonstrates how to use PostgreSQL for job storage with
+automatic database migrations.
 
 Requirements:
     pip install chronis[postgres]
@@ -9,6 +10,11 @@ Requirements:
 PostgreSQL Server:
     docker-compose up -d
     # Or: brew install postgresql && brew services start postgresql
+
+Database Migrations:
+    The PostgreSQL adapter uses a Flyway-style migration system.
+    Tables and indexes are created automatically on first run.
+    Migration history is tracked in 'chronis_migration_history' table.
 """
 
 import time
@@ -51,12 +57,14 @@ def main():
         return
 
     try:
-        # 2. Create adapters
-        print("2. Creating adapters...")
+        # 2. Create adapters (automatic migrations)
+        print("2. Creating PostgreSQL storage adapter...")
+        print("   Running database migrations...")
         storage = PostgreSQLStorageAdapter(conn)
         lock = InMemoryLockAdapter()  # Use Redis for production
         print("   ✓ Adapters created")
-        print("   ✓ Table 'chronis_jobs' created (if not exists)\n")
+        print("   ✓ Database migrations applied")
+        print("   ✓ Tables: chronis_jobs, chronis_migration_history\n")
 
         # 3. Create scheduler
         print("3. Creating scheduler...")
