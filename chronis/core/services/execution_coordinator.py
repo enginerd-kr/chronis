@@ -3,7 +3,6 @@
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from datetime import datetime
 from typing import Any
 
 from tenacity import RetryError, retry, stop_after_attempt, wait_random_exponential
@@ -102,35 +101,19 @@ class ExecutionCoordinator:
                 return False
 
             try:
-                # CRITICAL: Re-check job after acquiring lock
-                # Another instance may have already processed this job
-                fresh_job_data = self.storage.get_job(job_id)
-                if not fresh_job_data:
-                    return False  # Job deleted
+                # OPTIMIZED: Compare-and-Swap (CAS) pattern
+                # Atomically updates job only if it's still SCHEDULED
+                # This eliminates TOCTOU vulnerability and reduces lock holding time
+                success, updated_job = self._try_claim_job_with_cas(job_id, job_data)
 
-                # Check if still ready (next_run_time might have been updated)
-                fresh_next_run = fresh_job_data.get("next_run_time")
-                if fresh_next_run:
-                    next_run_dt = datetime.fromisoformat(fresh_next_run.replace("Z", "+00:00"))
-                    if next_run_dt > utc_now():
-                        # Job no longer ready - another instance already processed it
-                        if self.verbose:
-                            job_logger.info(
-                                "Skipped - next_run updated by another instance",
-                                next_run=fresh_next_run[:19],
-                            )
-                        return False
+                if not success or updated_job is None:
+                    # Job was already claimed by another instance or no longer ready
+                    if self.verbose:
+                        job_logger.info("Skipped - job already claimed or not ready")
+                    return False
 
-                # Update status to RUNNING (prevents other instances from picking up)
-                self._update_job_status(job_id, JobStatus.RUNNING)
-
-                # Optimistically update next_run_time (prevents queue-based duplicates)
-                # Cast to dict for type compatibility
-                job_dict = dict(fresh_job_data)
-                self._update_next_run_time_optimistic(job_dict)
-
-                # Trigger execution
-                self._trigger_execution(job_dict, job_logger, on_complete)
+                # Job successfully claimed - trigger execution
+                self._trigger_execution(updated_job, job_logger, on_complete)
                 return True
 
             except Exception as e:
@@ -443,6 +426,80 @@ class ExecutionCoordinator:
         except Exception as e:
             job_logger.error(f"Failed to schedule retry: {e}", exc_info=True)
 
+    def _try_claim_job_with_cas(
+        self, job_id: str, job_data: dict[str, Any]
+    ) -> tuple[bool, dict[str, Any] | None]:
+        """
+        Try to claim a job for execution using Compare-and-Swap (CAS) pattern.
+
+        This method atomically transitions a job from SCHEDULED to RUNNING only if:
+        1. The job status is still SCHEDULED
+        2. The next_run_time hasn't been updated by another instance
+
+        This eliminates the Time-of-Check to Time-of-Use (TOCTOU) vulnerability
+        by combining verification and update into a single atomic operation.
+
+        Args:
+            job_id: Job ID to claim
+            job_data: Job data from queue (may be stale)
+
+        Returns:
+            Tuple of (success, updated_job_data):
+                - success: True if job was successfully claimed
+                - updated_job_data: Updated job data if success=True, None otherwise
+        """
+        trigger_type = job_data["trigger_type"]
+        current_time_str = utc_now().isoformat()
+
+        # Build expected values - job must match these to be claimed
+        expected_values = {
+            "status": JobStatus.SCHEDULED.value,
+        }
+
+        # Also verify next_run_time hasn't changed (prevents stale queue entries)
+        queue_next_run = job_data.get("next_run_time")
+        if queue_next_run:
+            # Only claim if next_run_time is still in the past
+            if queue_next_run > current_time_str:
+                return (False, None)
+            expected_values["next_run_time"] = queue_next_run
+
+        # Build updates - what to change if expectations match
+        from chronis.type_defs import JobUpdateData
+
+        updates: JobUpdateData = {
+            "status": JobStatus.RUNNING.value,
+            "updated_at": current_time_str,
+        }
+
+        # For recurring jobs, optimistically update next_run_time
+        if trigger_type != TriggerType.DATE.value:
+            trigger_args = job_data["trigger_args"]
+            timezone = job_data.get("timezone", "UTC")
+
+            utc_time, local_time = NextRunTimeCalculator.calculate_with_local_time(
+                trigger_type, trigger_args, timezone
+            )
+
+            if utc_time:
+                updates["next_run_time"] = utc_time.isoformat()
+                if local_time:
+                    updates["next_run_time_local"] = local_time.isoformat()
+
+        # Atomic compare-and-swap operation
+        try:
+            success, updated_job = self.storage.compare_and_swap_job(
+                job_id, expected_values, updates
+            )
+            return (success, dict(updated_job) if updated_job else None)
+        except ValueError:
+            # Job not found (deleted)
+            return (False, None)
+        except Exception as e:
+            # Other errors - log but don't claim job
+            self.logger.error(f"CAS operation failed: {e}", job_id=job_id, exc_info=True)
+            return (False, None)
+
     def _update_job_status(self, job_id: str, status: JobStatus) -> None:
         """
         Update job status in storage.
@@ -461,6 +518,52 @@ class ExecutionCoordinator:
                 "updated_at": utc_now().isoformat(),
             },
         )
+
+    def _update_job_status_and_next_run_time_atomic(
+        self, job_id: str, job_data: dict[str, Any]
+    ) -> None:
+        """
+        Atomically update job status to RUNNING and next_run_time in a single storage operation.
+
+        This optimization reduces lock holding time by batching two storage operations into one.
+        For recurring jobs, optimistically updates next_run_time before execution.
+
+        Args:
+            job_id: Job ID
+            job_data: Job data containing trigger information
+        """
+        from chronis.type_defs import JobUpdateData
+
+        trigger_type = job_data["trigger_type"]
+        updates: JobUpdateData = {
+            "status": JobStatus.RUNNING.value,
+            "updated_at": utc_now().isoformat(),
+        }
+
+        # For recurring jobs, optimistically update next_run_time
+        if trigger_type != TriggerType.DATE.value:
+            trigger_args = job_data["trigger_args"]
+            timezone = job_data.get("timezone", "UTC")
+
+            utc_time, local_time = NextRunTimeCalculator.calculate_with_local_time(
+                trigger_type, trigger_args, timezone
+            )
+
+            if utc_time:
+                updates["next_run_time"] = utc_time.isoformat()
+                if local_time:
+                    updates["next_run_time_local"] = local_time.isoformat()
+
+        # Single storage operation instead of two separate calls
+        try:
+            self.storage.update_job(job_id, updates)
+        except Exception as e:
+            # Log error but don't fail - will be retried in background
+            self.logger.error(
+                f"Atomic status+next_run_time update failed: {e}",
+                job_id=job_id,
+                exc_info=True,
+            )
 
     def _update_next_run_time(self, job_data: dict[str, Any]) -> None:
         """
@@ -513,53 +616,6 @@ class ExecutionCoordinator:
                 )
             except Exception:
                 self.logger.error("Failed to update job run times", job_id=job_id, exc_info=True)
-
-    def _update_next_run_time_optimistic(self, job_data: dict[str, Any]) -> None:
-        """
-        Optimistically update next_run_time BEFORE job executes.
-
-        This is called while holding the lock to prevent other pollers from
-        seeing stale next_run_time. Assumes job will succeed.
-
-        For one-time jobs (DATE trigger), does nothing.
-        For recurring jobs (INTERVAL/CRON), calculates and updates next_run_time.
-
-        Args:
-            job_data: Job data
-        """
-        job_id = job_data["job_id"]
-        trigger_type = job_data["trigger_type"]
-
-        # One-time jobs don't need next_run_time update
-        if trigger_type == TriggerType.DATE.value:
-            return
-
-        # Calculate next run time for recurring jobs
-        trigger_args = job_data["trigger_args"]
-        timezone = job_data.get("timezone", "UTC")
-
-        utc_time, local_time = NextRunTimeCalculator.calculate_with_local_time(
-            trigger_type, trigger_args, timezone
-        )
-
-        if utc_time:
-            try:
-                # Update next_run_time immediately (optimistically)
-                self.storage.update_job(
-                    job_id,
-                    {
-                        "next_run_time": utc_time.isoformat(),
-                        "next_run_time_local": local_time.isoformat() if local_time else None,
-                        "updated_at": utc_now().isoformat(),
-                    },
-                )
-            except Exception as e:
-                # Log error but don't fail - background will retry
-                self.logger.error(
-                    f"Optimistic next_run_time update failed: {e}",
-                    job_id=job_id,
-                    exc_info=True,
-                )
 
     def _invoke_failure_handler(
         self, job_id: str, error: Exception, job_data: dict[str, Any]
