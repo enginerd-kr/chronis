@@ -5,12 +5,7 @@ from zoneinfo import ZoneInfo
 
 
 def utc_now() -> datetime:
-    """
-    Get current UTC time (timezone-aware).
-
-    Returns:
-        Current UTC datetime
-    """
+    """Get current UTC time (timezone-aware)."""
     return datetime.now(ZoneInfo("UTC"))
 
 

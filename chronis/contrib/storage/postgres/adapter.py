@@ -17,31 +17,8 @@ class PostgreSQLStorageAdapter(JobStorageAdapter):
     """
     PostgreSQL-based job storage adapter with migration-based schema management.
 
-    Features:
-    - Flyway-style migration system for version-controlled schema changes
-    - SQL injection protection via psycopg2.sql.Identifier
-    - Parameterized queries for all data values
-    - Automatic migration execution on initialization
-
-    Security:
-    - Uses psycopg2.sql.Identifier for table/index names (prevents SQL injection)
-    - Validates table names against PostgreSQL identifier rules
-    - Uses parameterized queries for all data values
-
-    Example:
-        >>> import psycopg2
-        >>> conn = psycopg2.connect(
-        ...     host='localhost',
-        ...     database='scheduler',
-        ...     user='postgres',
-        ...     password='secret'
-        ... )
-        >>> # Auto-migrate using built-in migrations
-        >>> storage = PostgreSQLStorageAdapter(conn)
-        >>>
-        >>> # Check migration status
-        >>> status = storage.migration_runner.status()
-        >>> print(f"Applied: {status['applied_count']}, Pending: {status['pending_count']}")
+    Features automatic migration execution, SQL injection protection, and
+    parameterized queries for all operations.
     """
 
     _TABLE_NAME_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,62}$")
@@ -60,47 +37,26 @@ class PostgreSQLStorageAdapter(JobStorageAdapter):
         Args:
             connection: psycopg2 connection object
             table_name: Table name (alphanumeric + underscores only, max 63 chars)
-            migrations_dir: Path to migrations directory
-                          Uses built-in migrations if not provided
+            migrations_dir: Path to migrations directory (uses built-in if not provided)
             auto_migrate: Automatically run pending migrations (default: True)
 
         Raises:
             ValueError: If table_name contains invalid characters or is too long
-
-        Examples:
-            # Use built-in migrations (default)
-            >>> storage = PostgreSQLStorageAdapter(conn)
-
-            # Use custom migrations directory
-            >>> storage = PostgreSQLStorageAdapter(
-            ...     conn,
-            ...     migrations_dir="my_custom_migrations"
-            ... )
-
-            # Disable auto-migration
-            >>> storage = PostgreSQLStorageAdapter(
-            ...     conn,
-            ...     auto_migrate=False
-            ... )
         """
         self._validate_table_name(table_name)
         self.conn = connection
         self.table_name = table_name
 
-        # Determine migrations directory
         if migrations_dir is None:
-            # Use built-in migrations
             migrations_path = Path(__file__).parent / "migrations"
         else:
             migrations_path = Path(migrations_dir)
 
-        # Initialize migration runner
         self.migration_runner = MigrationRunner(connection, migrations_path)
 
         if auto_migrate:
             self.migration_runner.migrate()
         else:
-            # Just ensure history table exists for status checks
             self.migration_runner._ensure_history_table()  # noqa: SLF001
 
     def _validate_table_name(self, table_name: str) -> None:

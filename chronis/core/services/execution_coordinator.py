@@ -23,14 +23,7 @@ class ExecutionCoordinator:
     """
     Coordinates job execution with concurrency control and distributed locking.
 
-    This application service is responsible for:
-    - Acquiring distributed locks to prevent duplicate execution
-    - Executing job functions (sync and async)
-    - Managing state transitions during execution
-    - Updating next run times after execution
-    - Handling execution failures
-
-    This service ensures jobs are executed exactly once across distributed instances.
+    Ensures jobs are executed exactly once across distributed instances.
     """
 
     def __init__(
@@ -98,12 +91,10 @@ class ExecutionCoordinator:
 
         job_logger = self.logger.with_context(job_id=job_id, job_name=job_name)
 
-        # Check if job can be executed based on state
         job_status = JobStatus(job_data.get("status", "scheduled"))
         if job_status != JobStatus.SCHEDULED:
             return False
 
-        # Try to acquire distributed lock
         with self._acquire_lock_context(lock_key, job_logger) as lock_acquired:
             if not lock_acquired:
                 return False
@@ -394,16 +385,11 @@ class ExecutionCoordinator:
         base_delay = job_data.get("retry_delay_seconds", 60)
         timezone = job_data.get("timezone", "UTC")
 
-        # Exponential backoff: base_delay * (2 ^ (retry_count - 1))
-        # Examples: 60s, 120s, 240s, 480s, ...
         delay_seconds = base_delay * (2 ** (next_retry_count - 1))
-
-        # Cap at 1 hour to prevent excessive delays
         delay_seconds = min(delay_seconds, 3600)
 
         next_run_time = utc_now() + timedelta(seconds=delay_seconds)
 
-        # Calculate local time for user display
         tz = get_timezone(timezone)
         next_run_time_local = next_run_time.astimezone(tz)
 
@@ -452,8 +438,6 @@ class ExecutionCoordinator:
         """
         Calculate and update next run time and execution times for recurring jobs.
 
-        Uses update_job_run_times() to track execution history for misfire detection.
-
         Args:
             job_data: Job data
         """
@@ -462,13 +446,10 @@ class ExecutionCoordinator:
         trigger_args = job_data["trigger_args"]
         timezone = job_data.get("timezone", "UTC")
 
-        # Get scheduled and actual times
-        scheduled_time = job_data.get("next_run_time")  # What was scheduled
-        actual_time = utc_now().isoformat()  # When it actually ran
+        scheduled_time = job_data.get("next_run_time")
+        actual_time = utc_now().isoformat()
 
-        # Skip for one-time jobs (DATE trigger)
         if trigger_type == TriggerType.DATE.value:
-            # Still record execution for one-time jobs, but next_run_time = None
             if scheduled_time:
                 try:
                     self.storage.update_job_run_times(
@@ -483,14 +464,12 @@ class ExecutionCoordinator:
                     )
             return
 
-        # Calculate next run time for recurring jobs
         utc_time, local_time = NextRunTimeCalculator.calculate_with_local_time(
             trigger_type, trigger_args, timezone
         )
 
         if utc_time and scheduled_time:
             try:
-                # Use new update_job_run_times method
                 self.storage.update_job_run_times(
                     job_id=job_id,
                     scheduled_time=scheduled_time,
@@ -498,7 +477,6 @@ class ExecutionCoordinator:
                     next_run_time=utc_time.isoformat(),
                 )
 
-                # Also update local time (for display)
                 self.storage.update_job(
                     job_id,
                     {

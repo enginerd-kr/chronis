@@ -19,11 +19,7 @@ else:
 
 
 class JobDefinition(BaseModel):
-    """
-    Job definition class with timezone and retry support.
-
-    Uses Pydantic for runtime validation of user input.
-    """
+    """Job definition class with runtime validation."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -40,14 +36,10 @@ class JobDefinition(BaseModel):
     metadata: dict[str, Any] | None = None
     on_failure: "OnFailureCallback | None" = None
     on_success: "OnSuccessCallback | None" = None
-    # Retry configuration
     max_retries: int = 0
     retry_delay_seconds: int = 60
-    # Timeout configuration (seconds, None = no timeout)
     timeout_seconds: int | None = None
-    # Priority configuration (higher number = higher priority, 0-10 range)
     priority: int = 5
-    # Misfire configuration
     if_missed: Literal["skip", "run_once", "run_all"] | None = None
     misfire_threshold_seconds: int = 60
 
@@ -60,7 +52,6 @@ class JobDefinition(BaseModel):
         if self.metadata is None:
             object.__setattr__(self, "metadata", {})
 
-        # Set default misfire policy based on trigger type if not specified
         if self.if_missed is None:
             from chronis.core.misfire import get_default_policy
 
@@ -86,31 +77,22 @@ class JobDefinition(BaseModel):
         return v
 
     def to_dict(self) -> dict[str, Any]:
-        """
-        Convert to dictionary for storage (with timezone and state).
-
-        Returns:
-            Dictionary representation
-        """
-        # Calculate next_run_time (UTC)
+        """Convert to dictionary for storage."""
         if self.next_run_time is None:
             next_run_time_utc = self._calculate_initial_next_run_time()
         else:
             next_run_time_utc = self.next_run_time
 
-        # Calculate local time (for user display)
         next_run_time_local = None
         if next_run_time_utc:
             tz = get_timezone(self.timezone)
             next_run_time_local = next_run_time_utc.astimezone(tz)
 
-        # Convert func to string if callable
         if isinstance(self.func, str):
             func_name = self.func
         else:
             func_name = f"{self.func.__module__}.{self.func.__name__}"
 
-        # Set initial status to SCHEDULED if next_run_time exists
         initial_status = JobStatus.SCHEDULED if next_run_time_utc else self.status
 
         return {
@@ -123,22 +105,16 @@ class JobDefinition(BaseModel):
             "args": self.args,
             "kwargs": self.kwargs,
             "status": initial_status.value,
-            # UTC time (for internal processing)
             "next_run_time": (next_run_time_utc.isoformat() if next_run_time_utc else None),
-            # Local time (for user display)
             "next_run_time_local": (
                 next_run_time_local.isoformat() if next_run_time_local else None
             ),
             "metadata": self.metadata,
-            # Retry configuration
             "max_retries": self.max_retries,
             "retry_delay_seconds": self.retry_delay_seconds,
             "retry_count": 0,
-            # Timeout configuration
             "timeout_seconds": self.timeout_seconds,
-            # Priority configuration
             "priority": self.priority,
-            # Misfire configuration
             "if_missed": self.if_missed,
             "misfire_threshold_seconds": self.misfire_threshold_seconds,
             "last_run_time": None,
@@ -148,15 +124,9 @@ class JobDefinition(BaseModel):
         }
 
     def _calculate_initial_next_run_time(self) -> datetime | None:
-        """
-        Calculate initial next_run_time (with timezone consideration).
-
-        Returns:
-            Next run time in UTC, or None
-        """
+        """Calculate initial next_run_time in UTC."""
         from chronis.core.scheduling import NextRunTimeCalculator
 
-        # Current time (timezone aware)
         tz = get_timezone(self.timezone)
         current_time = datetime.now(tz)
 
@@ -167,11 +137,7 @@ class JobDefinition(BaseModel):
 
 @dataclass(frozen=True)
 class JobInfo:
-    """
-    Job information query result (with timezone and state support).
-
-    Uses dataclass for read-only, immutable data container.
-    """
+    """Immutable job information query result."""
 
     job_id: str
     name: str

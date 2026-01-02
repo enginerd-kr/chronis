@@ -44,5 +44,4 @@ class IntervalTrigger(TriggerStrategy):
             weeks=weeks,
         )
 
-        # Convert to UTC
         return next_time.astimezone(ZoneInfo("UTC"))

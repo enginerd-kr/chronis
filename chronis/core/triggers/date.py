@@ -31,15 +31,9 @@ class DateTrigger(TriggerStrategy):
         if not run_date_str:
             return None
 
-        # Parse ISO 8601 date string (with timezone)
-        # Replace 'Z' suffix with '+00:00' for proper parsing
         next_time = datetime.fromisoformat(run_date_str.replace("Z", "+00:00"))
-
-        # Convert to UTC
         next_time_utc = next_time.astimezone(ZoneInfo("UTC"))
 
-        # For date triggers, only return the time if it's in the future
-        # After execution, this will return None, causing the job to be marked as COMPLETED
         if current_time and next_time_utc <= current_time.astimezone(ZoneInfo("UTC")):
             return None
 

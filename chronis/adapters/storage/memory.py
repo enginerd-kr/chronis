@@ -12,30 +12,16 @@ logger = logging.getLogger(__name__)
 
 class InMemoryStorageAdapter(JobStorageAdapter):
     """
-    In-memory storage adapter (for testing and local development only).
+    In-memory storage adapter for testing and local development.
 
-    ⚠️ WARNING:
-        This adapter is for testing and local development ONLY.
-        - Data is NOT persisted (lost on restart)
-        - NOT distributed (single process only)
-        - NOT production-ready
-
-        For production use, switch to:
-        - RedisStorageAdapter (recommended)
-        - PostgreSQLStorageAdapter
-        - DynamoDBStorageAdapter
-        - Or implement a custom adapter
+    WARNING: Not for production use. Data is not persisted and not distributed.
+    Use RedisStorageAdapter or PostgreSQLStorageAdapter in production.
     """
 
     def __init__(self) -> None:
-        """
-        Initialize in-memory storage adapter.
-
-        Logs a warning to remind developers this is not for production use.
-        """
+        """Initialize in-memory storage adapter."""
         self._jobs: dict[str, JobStorageData] = {}
 
-        # Warn about production usage
         logger.warning(
             "InMemoryStorageAdapter is for testing/development only. "
             "Use RedisStorageAdapter, PostgreSQLStorageAdapter, or DynamoDBStorageAdapter in production."
@@ -88,11 +74,9 @@ class InMemoryStorageAdapter(JobStorageAdapter):
         jobs = list(self._jobs.values())
 
         if filters:
-            # Status filter
             if "status" in filters:
                 jobs = [j for j in jobs if j.get("status") == filters["status"]]
 
-            # Time filter
             if "next_run_time_lte" in filters:
                 jobs = [
                     j
@@ -101,16 +85,13 @@ class InMemoryStorageAdapter(JobStorageAdapter):
                     and j.get("next_run_time") <= filters["next_run_time_lte"]
                 ]
 
-            # Metadata filters (support nested keys like "metadata.tenant_id")
             for key, value in filters.items():
                 if key.startswith("metadata."):
                     metadata_key = key.replace("metadata.", "")
                     jobs = [j for j in jobs if j.get("metadata", {}).get(metadata_key) == value]
 
-        # Sort by next_run_time (oldest first)
         jobs.sort(key=lambda j: j.get("next_run_time") or "")
 
-        # Apply offset and limit
         if offset:
             jobs = jobs[offset:]
         if limit:

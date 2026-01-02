@@ -6,16 +6,7 @@ from chronis.core.jobs.definition import JobInfo
 
 
 class OnFailureCallback(Protocol):
-    """
-    Protocol for job failure callbacks.
-
-    This callback is invoked when a job execution fails.
-
-    Args:
-        job_id: Unique identifier of the failed job
-        error: Exception that caused the failure
-        job_info: Job information at the time of failure
-    """
+    """Protocol for job failure callbacks."""
 
     def __call__(self, job_id: str, error: Exception, job_info: JobInfo) -> None:
         """
@@ -30,15 +21,7 @@ class OnFailureCallback(Protocol):
 
 
 class OnSuccessCallback(Protocol):
-    """
-    Protocol for job success callbacks.
-
-    This callback is invoked when a job execution succeeds.
-
-    Args:
-        job_id: Unique identifier of the successful job
-        job_info: Job information at the time of success
-    """
+    """Protocol for job success callbacks."""
 
     def __call__(self, job_id: str, job_info: JobInfo) -> None:
         """

@@ -25,30 +25,11 @@ from chronis.utils.time import get_timezone
 
 class PollingScheduler:
     """
-    Polling-based scheduler (APScheduler-based non-blocking).
-
-    Uses APScheduler BackgroundScheduler internally for
-    non-blocking periodic polling.
+    Polling-based scheduler with non-blocking APScheduler backend.
 
     Supports various storage and lock systems through adapter pattern.
-
-    Usage:
-        >>> # Production: DynamoDB + Redis
-        >>> from chronis.adapters.storage import DynamoDBAdapter
-        >>> from chronis.adapters.lock import RedisLockAdapter
-        >>> storage = DynamoDBAdapter(table_name="scheduled_jobs")
-        >>> lock = RedisLockAdapter(host="localhost")
-        >>> scheduler = PollingScheduler(
-        ...     storage_adapter=storage,
-        ...     lock_adapter=lock,
-        ...     polling_interval_seconds=10,
-        ...     lock_prefix="myapp:"
-        ... )
-        >>> scheduler.start()
-        >>> scheduler.stop()
     """
 
-    # Constants
     MIN_POLLING_INTERVAL = 1
     MAX_POLLING_INTERVAL = 3600
     DEFAULT_MAX_WORKERS = 20
