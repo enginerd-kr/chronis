@@ -102,10 +102,13 @@ class TestTriggerExecutionLogging:
 
     def test_exception_during_trigger_is_logged(self):
         """Test that exception during execution trigger is logged."""
+        executor_mock = Mock()
+        executor_mock.submit.side_effect = Exception("Submit failed")
+
         coordinator = ExecutionCoordinator(
             storage=Mock(),
             lock=Mock(),
-            executor=Mock(),
+            executor=executor_mock,
             async_executor=Mock(),
             function_registry={},
             failure_handler_registry={},
@@ -115,19 +118,16 @@ class TestTriggerExecutionLogging:
             logger=Mock(),
         )
 
-        # Make update_job_status raise
-        coordinator._update_job_status = Mock(side_effect=Exception("Update failed"))
-
         job_logger = Mock()
 
-        # Should raise exception after logging
-        with pytest.raises(Exception, match="Update failed"):
+        # Should raise exception and rollback
+        with pytest.raises(Exception, match="Submit failed"):
             coordinator._trigger_execution({"job_id": "test-1"}, job_logger, Mock())
 
-        # Verify error was logged
-        job_logger.error.assert_called_once()
-        error_msg = job_logger.error.call_args[0][0]
-        assert "Trigger failed" in error_msg
+        # Verify warning was logged (rollback message)
+        job_logger.warning.assert_called_once()
+        warning_msg = job_logger.warning.call_args[0][0]
+        assert "rolling back to SCHEDULED" in warning_msg
 
 
 class TestExecuteInBackgroundRetryLogic:
@@ -549,22 +549,17 @@ class TestExecutorSubmitRollback:
         with pytest.raises(RuntimeError, match="ThreadPool is shutting down"):
             coordinator._trigger_execution(job_data, job_logger, Mock())
 
-        # Verify status updates
-        assert storage_mock.update_job.call_count == 2
+        # Verify status update - only one call for rollback
+        # (RUNNING update now happens in try_execute before calling _trigger_execution)
+        assert storage_mock.update_job.call_count == 1
 
-        # First call: RUNNING
-        first_call = storage_mock.update_job.call_args_list[0]
-        assert first_call[0][0] == "test-1"
-        assert "status" in first_call[0][1]
+        # First (and only) call: SCHEDULED (rollback)
+        rollback_call = storage_mock.update_job.call_args_list[0]
+        assert rollback_call[0][0] == "test-1"
+        assert "status" in rollback_call[0][1]
         from chronis.core.state import JobStatus
 
-        assert first_call[0][1]["status"] == JobStatus.RUNNING.value
-
-        # Second call: SCHEDULED (rollback)
-        second_call = storage_mock.update_job.call_args_list[1]
-        assert second_call[0][0] == "test-1"
-        assert "status" in second_call[0][1]
-        assert second_call[0][1]["status"] == JobStatus.SCHEDULED.value
+        assert rollback_call[0][1]["status"] == JobStatus.SCHEDULED.value
 
         # Verify warning was logged
         job_logger.warning.assert_called_once()
@@ -598,14 +593,11 @@ class TestExecutorSubmitRollback:
         # Should not raise
         coordinator._trigger_execution(job_data, job_logger, Mock())
 
-        # Verify only one status update (RUNNING)
-        assert storage_mock.update_job.call_count == 1
-        from chronis.core.state import JobStatus
+        # RUNNING update는 이제 try_execute에서 발생하므로, _trigger_execution에서는 없어야 함
+        assert storage_mock.update_job.call_count == 0
 
-        storage_mock.update_job.assert_called_once()
-        call_args = storage_mock.update_job.call_args[0]
-        assert call_args[0] == "test-1"
-        assert call_args[1]["status"] == JobStatus.RUNNING.value
+        # Verify submit was called
+        executor_mock.submit.assert_called_once()
 
         # Verify callback registered
         future_mock.add_done_callback.assert_called_once()

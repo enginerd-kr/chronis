@@ -99,8 +99,21 @@ class ExecutionCoordinator:
             if not lock_acquired:
                 return False
 
-            self._trigger_execution(job_data, job_logger, on_complete)
-            return True
+            try:
+                # CRITICAL: Update status to RUNNING while holding the lock
+                # This prevents race condition where another poller might pick up
+                # the same job before status is updated
+                self._update_job_status(job_id, JobStatus.RUNNING)
+
+                # Now trigger execution (without updating status again)
+                self._trigger_execution(job_data, job_logger, on_complete)
+                return True
+
+            except Exception as e:
+                # If status update or trigger fails, log and return False
+                # Lock will be released by context manager
+                job_logger.error(f"Failed to execute job: {e}", exc_info=True)
+                return False
 
     @contextmanager
     def _acquire_lock_context(
@@ -147,6 +160,9 @@ class ExecutionCoordinator:
         """
         Trigger job execution in thread pool with automatic rollback on failure.
 
+        NOTE: Status is already updated to RUNNING by caller (try_execute) while holding lock.
+        This method only submits the job to the thread pool.
+
         If ThreadPool submission fails (e.g., executor shutdown, resource exhaustion),
         the job status is rolled back to SCHEDULED to allow retry in the next polling cycle.
 
@@ -161,32 +177,24 @@ class ExecutionCoordinator:
         job_id = job_data["job_id"]
 
         try:
-            # Update state to RUNNING
-            self._update_job_status(job_id, JobStatus.RUNNING)
+            # Submit to thread pool with completion callback
+            future = self.executor.submit(self._execute_in_background, job_data, job_logger)
 
-            try:
-                # Submit to thread pool with completion callback
-                future = self.executor.submit(self._execute_in_background, job_data, job_logger)
+            # Add done callback
+            future.add_done_callback(lambda f: on_complete(job_id))
 
-                # Add done callback
-                future.add_done_callback(lambda f: on_complete(job_id))
+            # Log only in verbose mode
+            if self.verbose:
+                job_logger.info("Job triggered")
 
-                # Log only in verbose mode
-                if self.verbose:
-                    job_logger.info("Job triggered")
-
-            except Exception as submit_error:
-                # Rollback to SCHEDULED on submission failure
-                job_logger.warning(
-                    "Executor submit failed, rolling back to SCHEDULED",
-                    error=str(submit_error),
-                    error_type=type(submit_error).__name__,
-                )
-                self._update_job_status(job_id, JobStatus.SCHEDULED)
-                raise
-
-        except Exception as e:
-            job_logger.error(f"Trigger failed: {e}", exc_info=True)
+        except Exception as submit_error:
+            # Rollback to SCHEDULED on submission failure
+            job_logger.warning(
+                "Executor submit failed, rolling back to SCHEDULED",
+                error=str(submit_error),
+                error_type=type(submit_error).__name__,
+            )
+            self._update_job_status(job_id, JobStatus.SCHEDULED)
             raise
 
     def _execute_in_background(self, job_data: dict[str, Any], job_logger: ContextLogger) -> None:
@@ -420,19 +428,17 @@ class ExecutionCoordinator:
         Args:
             job_id: Job ID
             status: New status
+
+        Raises:
+            Exception: If storage update fails (caller must handle)
         """
-        try:
-            self.storage.update_job(
-                job_id,
-                {
-                    "status": status.value,
-                    "updated_at": utc_now().isoformat(),
-                },
-            )
-        except Exception:
-            self.logger.error(
-                f"Failed to update job status to {status.value}", job_id=job_id, exc_info=True
-            )
+        self.storage.update_job(
+            job_id,
+            {
+                "status": status.value,
+                "updated_at": utc_now().isoformat(),
+            },
+        )
 
     def _update_next_run_time(self, job_data: dict[str, Any]) -> None:
         """

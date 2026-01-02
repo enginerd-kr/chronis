@@ -5,7 +5,7 @@ import secrets
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore[import-untyped]
@@ -121,9 +121,19 @@ class PollingScheduler:
         self._async_executor = AsyncExecutor()
 
         # Initialize APScheduler (BackgroundScheduler - non-blocking)
+        # Use single-threaded executor to prevent concurrent execution of internal jobs
+        from apscheduler.executors.pool import (  # type: ignore[import-untyped]
+            ThreadPoolExecutor as APSThreadPoolExecutor,
+        )
+
+        executors = {
+            "default": APSThreadPoolExecutor(max_workers=1)  # Single thread for internal jobs
+        }
+
         self._apscheduler = BackgroundScheduler(
             timezone="UTC",
             daemon=True,  # Run as daemon thread
+            executors=executors,
         )
         self._last_poll_time: datetime | None = None
 
@@ -205,6 +215,7 @@ class PollingScheduler:
             id="executor_job",
             name="Job Executor",
             replace_existing=True,
+            max_instances=1,  # Prevent concurrent execution of executor job
         )
 
         # Register polling job to APScheduler
@@ -215,6 +226,7 @@ class PollingScheduler:
             id="polling_job",
             name="Job Polling",
             replace_existing=True,
+            max_instances=1,  # Prevent concurrent execution of polling job
         )
 
         # Start APScheduler (non-blocking)
@@ -336,7 +348,8 @@ class PollingScheduler:
             func_name = func_name[:30]
 
         # Timestamp (sortable, UTC)
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
 
         # Random suffix (8 chars) for collision prevention
         random_suffix = secrets.token_hex(4)
