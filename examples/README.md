@@ -20,6 +20,21 @@ Multi-tenant job scheduling with metadata filtering.
 python examples/multitenant.py
 ```
 
+### [dead_letter_queue.py](dead_letter_queue.py)
+
+Dead Letter Queue (DLQ) pattern using failure handlers.
+
+Demonstrates how to:
+
+- Capture failed jobs with full error context
+- Store failed jobs in DLQ (in-memory example, easily adaptable to PostgreSQL/Redis)
+- Query and retry failed jobs
+- Track DLQ statistics
+
+```bash
+python examples/dead_letter_queue.py
+```
+
 ## Adapter Examples
 
 ### [redis/](redis/)

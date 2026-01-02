@@ -256,9 +256,7 @@ class TestPollingSchedulerGracefulShutdown:
             execution_log.append("end")
 
         scheduler.register_job_function("job", medium_async_job)
-        scheduler.create_date_job(
-            func="job", run_date=datetime.now(UTC) + timedelta(seconds=1)
-        )
+        scheduler.create_date_job(func="job", run_date=datetime.now(UTC) + timedelta(seconds=1))
 
         scheduler.start()
         time.sleep(2.5)  # Let job start
