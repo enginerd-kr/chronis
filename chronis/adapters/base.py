@@ -86,6 +86,56 @@ class JobStorageAdapter(ABC):
         pass
 
     @abstractmethod
+    def compare_and_swap_job(
+        self,
+        job_id: str,
+        expected_values: dict[str, Any],
+        updates: JobUpdateData,
+    ) -> tuple[bool, JobStorageData | None]:
+        """
+        Atomically update a job only if current values match expected values.
+
+        This implements the Compare-and-Swap (CAS) pattern for optimistic concurrency control.
+        The operation is atomic - either all conditions match and the update succeeds,
+        or the update is rejected without any changes.
+
+        ┌──────────────────────────────────────────────────────────────┐
+        │                   IMPLEMENTATION CONTRACT                     │
+        ├──────────────────────────────────────────────────────────────┤
+        │ WHO IMPLEMENTS: Storage adapter developer                    │
+        │ WHO CALLS:      Chronis Core (ExecutionCoordinator)          │
+        │ WHEN CALLED:    Job execution with optimistic locking        │
+        │ ATOMICITY:      MUST be atomic (single transaction/operation)│
+        └──────────────────────────────────────────────────────────────┘
+
+        Example:
+            # Only update if status is still SCHEDULED and next_run_time hasn't changed
+            success, updated_job = storage.compare_and_swap_job(
+                job_id="job-123",
+                expected_values={"status": "scheduled", "next_run_time": "2025-01-01T00:00:00Z"},
+                updates={"status": "running", "next_run_time": "2025-01-01T01:00:00Z"}
+            )
+            if success:
+                # Job was updated - safe to execute
+            else:
+                # Another instance already updated it - skip execution
+
+        Args:
+            job_id: Job ID to update
+            expected_values: Dictionary of field-value pairs that must match current values
+            updates: Dictionary of fields to update (only applied if all expectations match)
+
+        Returns:
+            Tuple of (success, updated_job_data):
+                - success: True if update succeeded, False if expectations didn't match
+                - updated_job_data: Updated job data if success=True, None if success=False
+
+        Raises:
+            ValueError: If job_id not found
+        """
+        pass
+
+    @abstractmethod
     def delete_job(self, job_id: str) -> bool:
         """
         Delete a job.

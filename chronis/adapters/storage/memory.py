@@ -47,6 +47,47 @@ class InMemoryStorageAdapter(JobStorageAdapter):
         self._jobs[job_id]["updated_at"] = utc_now().isoformat()  # type: ignore[typeddict-item]
         return self._jobs[job_id]
 
+    def compare_and_swap_job(
+        self,
+        job_id: str,
+        expected_values: dict[str, Any],
+        updates: JobUpdateData,
+    ) -> tuple[bool, JobStorageData | None]:
+        """
+        Atomically update a job only if current values match expected values.
+
+        This implements the Compare-and-Swap (CAS) pattern for optimistic concurrency control.
+
+        Args:
+            job_id: Job ID to update
+            expected_values: Dictionary of field-value pairs that must match current values
+            updates: Dictionary of fields to update (only applied if all expectations match)
+
+        Returns:
+            Tuple of (success, updated_job_data):
+                - success: True if update succeeded, False if expectations didn't match
+                - updated_job_data: Updated job data if success=True, None if success=False
+
+        Raises:
+            ValueError: If job_id not found
+        """
+        if job_id not in self._jobs:
+            raise ValueError(f"Job {job_id} not found")
+
+        current_job = self._jobs[job_id]
+
+        # Compare: Check if all expected values match current values
+        for field, expected_value in expected_values.items():
+            current_value = current_job.get(field)
+            if current_value != expected_value:
+                # Mismatch - return failure without updating
+                return (False, None)
+
+        # Swap: All expectations matched, apply updates
+        self._jobs[job_id].update(updates)  # type: ignore[typeddict-item]
+        self._jobs[job_id]["updated_at"] = utc_now().isoformat()  # type: ignore[typeddict-item]
+        return (True, self._jobs[job_id])
+
     def delete_job(self, job_id: str) -> bool:
         """Delete a job."""
         if job_id in self._jobs:

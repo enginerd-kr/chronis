@@ -257,6 +257,81 @@ class RedisStorageAdapter(JobStorageAdapter):
 
         return job_data
 
+    def compare_and_swap_job(
+        self,
+        job_id: str,
+        expected_values: dict[str, Any],
+        updates: JobUpdateData,
+    ) -> tuple[bool, JobStorageData | None]:
+        """
+        Atomically update a job only if current values match expected values (Redis).
+
+        Uses Redis transaction (WATCH/MULTI/EXEC) for optimistic locking.
+
+        Args:
+            job_id: Job ID to update
+            expected_values: Dictionary of field-value pairs that must match
+            updates: Dictionary of fields to update
+
+        Returns:
+            Tuple of (success, updated_job_data)
+
+        Raises:
+            ValueError: If job_id not found
+        """
+        key = self._make_job_key(job_id)
+
+        # Use Redis WATCH for optimistic locking
+        with self.redis.pipeline() as pipe:
+            try:
+                # Watch the key for changes
+                pipe.watch(key)
+
+                # Get current job data
+                job_data = self.get_job(job_id)
+                if job_data is None:
+                    pipe.unwatch()
+                    raise ValueError(f"Job {job_id} not found")
+
+                # Check if expected values match
+                for field, expected_value in expected_values.items():
+                    current_value = job_data.get(field)
+                    if current_value != expected_value:
+                        # Mismatch - return failure
+                        pipe.unwatch()
+                        return (False, None)
+
+                # Remember old values for index updates
+                old_status = job_data.get("status")
+
+                # Merge updates
+                updated_job_data = job_data.copy()
+                updated_job_data.update(updates)  # type: ignore[typeddict-item]
+                updated_job_data["updated_at"] = utc_now().isoformat()  # type: ignore[typeddict-item]
+
+                # Start transaction
+                pipe.multi()
+
+                # Update job data
+                pipe.hset(key, "data", self._serialize(dict(updated_job_data)))
+
+                # Remove from old status index if status changed
+                new_status = updated_job_data.get("status")
+                if old_status and old_status != new_status:
+                    pipe.srem(self._make_status_index_key(old_status), job_id)
+
+                # Update indexes
+                self._update_indexes(updated_job_data, pipeline=pipe)
+
+                # Execute transaction
+                pipe.execute()
+
+                return (True, updated_job_data)
+
+            except Exception:
+                # Transaction failed (key was modified) or other error
+                return (False, None)
+
     def delete_job(self, job_id: str) -> bool:
         """
         Delete a job from Redis with index cleanup.

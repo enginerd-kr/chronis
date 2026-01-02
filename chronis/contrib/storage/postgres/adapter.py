@@ -179,6 +179,92 @@ class PostgreSQLStorageAdapter(JobStorageAdapter):
 
         return job_data
 
+    def compare_and_swap_job(
+        self,
+        job_id: str,
+        expected_values: dict[str, Any],
+        updates: JobUpdateData,
+    ) -> tuple[bool, JobStorageData | None]:
+        """
+        Atomically update a job only if current values match expected values (PostgreSQL).
+
+        Uses PostgreSQL WHERE clause conditions to ensure atomicity.
+        The UPDATE will only succeed if all expected values match.
+
+        Args:
+            job_id: Job ID to update
+            expected_values: Dictionary of field-value pairs that must match
+            updates: Dictionary of fields to update
+
+        Returns:
+            Tuple of (success, updated_job_data)
+
+        Raises:
+            ValueError: If job_id not found
+        """
+        # Get current data
+        job_data = self.get_job(job_id)
+        if job_data is None:
+            raise ValueError(f"Job {job_id} not found")
+
+        # Build WHERE conditions dynamically
+        where_conditions = ["job_id = %s"]
+        where_params: list[Any] = [job_id]
+
+        for field, expected_value in expected_values.items():
+            if field == "status":
+                where_conditions.append("status = %s")
+                where_params.append(expected_value)
+            elif field == "next_run_time":
+                where_conditions.append("next_run_time = %s")
+                where_params.append(expected_value)
+            else:
+                # For other fields, check JSONB data
+                where_conditions.append("data->>%s = %s")
+                where_params.append(field)
+                where_params.append(str(expected_value))
+
+        # Merge updates
+        updated_job_data = job_data.copy()
+        updated_job_data.update(updates)  # type: ignore[typeddict-item]
+        updated_job_data["updated_at"] = utc_now().isoformat()  # type: ignore[typeddict-item]
+
+        # Atomic UPDATE with WHERE conditions
+        with self.conn.cursor() as cursor:
+            where_clause = " AND ".join(where_conditions)
+            query = sql.SQL("""
+                UPDATE {}
+                SET data = %s,
+                    status = %s,
+                    next_run_time = %s,
+                    metadata = %s,
+                    updated_at = NOW()
+                WHERE {}
+            """).format(
+                sql.Identifier(self.table_name),
+                sql.SQL(where_clause),
+            )
+
+            cursor.execute(
+                query,
+                (
+                    json.dumps(updated_job_data),
+                    updated_job_data.get("status"),
+                    updated_job_data.get("next_run_time"),
+                    json.dumps(updated_job_data.get("metadata", {})),
+                    *where_params,
+                ),
+            )
+
+            rows_affected = cursor.rowcount
+            self.conn.commit()
+
+            if rows_affected == 0:
+                # No rows updated - expectations didn't match
+                return (False, None)
+
+            return (True, updated_job_data)
+
     def delete_job(self, job_id: str) -> bool:
         """Delete a job from PostgreSQL."""
         with self.conn.cursor() as cursor:
