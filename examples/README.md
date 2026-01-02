@@ -35,6 +35,21 @@ Demonstrates how to:
 python examples/dead_letter_queue.py
 ```
 
+### [execution_history.py](execution_history.py)
+
+Execution history tracking using success/failure handlers.
+
+Demonstrates how to:
+
+- Log all job executions (success and failure)
+- Query execution history with filters
+- Generate execution statistics
+- Monitor success rates
+
+```bash
+python examples/execution_history.py
+```
+
 ## Adapter Examples
 
 ### [redis/](redis/)
