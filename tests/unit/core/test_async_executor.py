@@ -88,10 +88,14 @@ class TestAsyncExecutorExecuteCoroutineNotRunning:
         async def test_coro():
             return "result"
 
-        with pytest.raises(RuntimeError) as exc_info:
-            executor.execute_coroutine(test_coro())
+        coro = test_coro()
+        try:
+            with pytest.raises(RuntimeError) as exc_info:
+                executor.execute_coroutine(coro)
 
-        assert "not running" in str(exc_info.value).lower()
+            assert "not running" in str(exc_info.value).lower()
+        finally:
+            coro.close()
 
 
 class TestAsyncExecutorIsRunningWhenLoopClosed:

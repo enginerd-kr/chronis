@@ -17,6 +17,10 @@ keywords = [
     "multi-tenancy",
     "timezone",
     "async",
+    "ai-agent",
+    "llm",
+    "automation",
+    "workflow",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -30,6 +34,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Application Frameworks",
     "Topic :: System :: Distributed Computing",
     "Topic :: Office/Business :: Scheduling",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Typing :: Typed",
 ]
 requires-python = ">=3.12"
@@ -50,7 +55,7 @@ Changelog = "https://github.com/enginerd-kr/chronis/releases"
 
 [project.optional-dependencies]
 dev = [
-    "ruff>=0.8.0",
+    "ruff>=0.14.3",
     "pytest>=7.4.3",
     "pytest-cov>=4.1.0",
     "pytest-asyncio>=0.23.2",
@@ -125,11 +130,9 @@ addopts = [
     "--cov-report=html",
 ]
 markers = [
-    "unit: Unit tests (fast, no dependencies, < 1s)",
-    "integration: Integration tests (direct method calls, deterministic, < 5s)",
-    "distributed: Distributed environment tests (multiple schedulers, < 10s)",
-    "e2e: End-to-end tests (real timing, > 10s) - run separately",
-    "slow: Slow tests (> 5 seconds) - skip with '-m \"not slow\"'",
+    "integration: Integration tests with real components (e.g., timeout handling)",
+    "e2e: End-to-end tests with real timing and background execution",
+    "slow: Slow-running tests (> 5 seconds) - skip with '-m \"not slow\"'",
 ]
 
 [tool.coverage.run]
@@ -140,4 +143,11 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [dependency-groups]
-dev = ["ruff>=0.14.3", "pytest>=7.4.3", "pytest-cov>=4.1.0", "mypy>=1.8.0"]
+dev = [
+    "ruff>=0.14.3",
+    "pytest>=7.4.3",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.23.2",
+    "mypy>=1.8.0",
+    "types-psycopg2>=2.9.21",
+]
