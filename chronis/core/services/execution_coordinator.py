@@ -3,6 +3,7 @@
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from datetime import datetime
 from typing import Any
 
 from tenacity import RetryError, retry, stop_after_attempt, wait_random_exponential
@@ -87,20 +88,11 @@ class ExecutionCoordinator:
         """
         job_id = job_data["job_id"]
         job_name = job_data.get("name", job_id)
-        # Lock key is just the job_id - RedisLockAdapter will add its own prefix
-        lock_key = job_id
+        lock_key = job_id  # LockAdapter adds its own prefix
 
         job_logger = self.logger.with_context(job_id=job_id, job_name=job_name)
 
-        # DEBUG: Always log lock key to verify it's correct
-        import os
-
-        job_logger.info(
-            f"[PID {os.getpid()}] Attempting lock",
-            lock_key=lock_key,
-            lock_adapter_prefix=getattr(self.lock, "key_prefix", "N/A"),
-        )
-
+        # Pre-check: Skip if not SCHEDULED
         job_status = JobStatus(job_data.get("status", "scheduled"))
         if job_status != JobStatus.SCHEDULED:
             return False
@@ -110,18 +102,38 @@ class ExecutionCoordinator:
                 return False
 
             try:
-                # CRITICAL: Update status to RUNNING while holding the lock
-                # This prevents race condition where another poller might pick up
-                # the same job before status is updated
+                # CRITICAL: Re-check job after acquiring lock
+                # Another instance may have already processed this job
+                fresh_job_data = self.storage.get_job(job_id)
+                if not fresh_job_data:
+                    return False  # Job deleted
+
+                # Check if still ready (next_run_time might have been updated)
+                fresh_next_run = fresh_job_data.get("next_run_time")
+                if fresh_next_run:
+                    next_run_dt = datetime.fromisoformat(fresh_next_run.replace("Z", "+00:00"))
+                    if next_run_dt > utc_now():
+                        # Job no longer ready - another instance already processed it
+                        if self.verbose:
+                            job_logger.info(
+                                "Skipped - next_run updated by another instance",
+                                next_run=fresh_next_run[:19],
+                            )
+                        return False
+
+                # Update status to RUNNING (prevents other instances from picking up)
                 self._update_job_status(job_id, JobStatus.RUNNING)
 
-                # Now trigger execution (without updating status again)
-                self._trigger_execution(job_data, job_logger, on_complete)
+                # Optimistically update next_run_time (prevents queue-based duplicates)
+                # Cast to dict for type compatibility
+                job_dict = dict(fresh_job_data)
+                self._update_next_run_time_optimistic(job_dict)
+
+                # Trigger execution
+                self._trigger_execution(job_dict, job_logger, on_complete)
                 return True
 
             except Exception as e:
-                # If status update or trigger fails, log and return False
-                # Lock will be released by context manager
                 job_logger.error(f"Failed to execute job: {e}", exc_info=True)
                 return False
 
@@ -142,12 +154,6 @@ class ExecutionCoordinator:
         lock_acquired = False
         try:
             lock_acquired = self.lock.acquire(lock_key, self.lock_ttl_seconds, blocking=False)
-            # Debug: Log lock acquisition
-            if self.verbose:
-                job_logger.debug(
-                    f"Lock {'acquired' if lock_acquired else 'failed'}",
-                    lock_key=lock_key,
-                )
             yield lock_acquired
         finally:
             if lock_acquired:
@@ -507,6 +513,53 @@ class ExecutionCoordinator:
                 )
             except Exception:
                 self.logger.error("Failed to update job run times", job_id=job_id, exc_info=True)
+
+    def _update_next_run_time_optimistic(self, job_data: dict[str, Any]) -> None:
+        """
+        Optimistically update next_run_time BEFORE job executes.
+
+        This is called while holding the lock to prevent other pollers from
+        seeing stale next_run_time. Assumes job will succeed.
+
+        For one-time jobs (DATE trigger), does nothing.
+        For recurring jobs (INTERVAL/CRON), calculates and updates next_run_time.
+
+        Args:
+            job_data: Job data
+        """
+        job_id = job_data["job_id"]
+        trigger_type = job_data["trigger_type"]
+
+        # One-time jobs don't need next_run_time update
+        if trigger_type == TriggerType.DATE.value:
+            return
+
+        # Calculate next run time for recurring jobs
+        trigger_args = job_data["trigger_args"]
+        timezone = job_data.get("timezone", "UTC")
+
+        utc_time, local_time = NextRunTimeCalculator.calculate_with_local_time(
+            trigger_type, trigger_args, timezone
+        )
+
+        if utc_time:
+            try:
+                # Update next_run_time immediately (optimistically)
+                self.storage.update_job(
+                    job_id,
+                    {
+                        "next_run_time": utc_time.isoformat(),
+                        "next_run_time_local": local_time.isoformat() if local_time else None,
+                        "updated_at": utc_now().isoformat(),
+                    },
+                )
+            except Exception as e:
+                # Log error but don't fail - background will retry
+                self.logger.error(
+                    f"Optimistic next_run_time update failed: {e}",
+                    job_id=job_id,
+                    exc_info=True,
+                )
 
     def _invoke_failure_handler(
         self, job_id: str, error: Exception, job_data: dict[str, Any]
