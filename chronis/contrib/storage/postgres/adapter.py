@@ -2,18 +2,26 @@
 
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 from psycopg2 import sql
 
 from chronis.adapters.base import JobStorageAdapter
+from chronis.contrib.storage.postgres.migration import MigrationRunner
 from chronis.type_defs import JobStorageData, JobUpdateData
 from chronis.utils.time import utc_now
 
 
 class PostgreSQLStorageAdapter(JobStorageAdapter):
     """
-    PostgreSQL-based job storage adapter with SQL injection protection.
+    PostgreSQL-based job storage adapter with migration-based schema management.
+
+    Features:
+    - Flyway-style migration system for version-controlled schema changes
+    - SQL injection protection via psycopg2.sql.Identifier
+    - Parameterized queries for all data values
+    - Automatic migration execution on initialization
 
     Security:
     - Uses psycopg2.sql.Identifier for table/index names (prevents SQL injection)
@@ -21,35 +29,79 @@ class PostgreSQLStorageAdapter(JobStorageAdapter):
     - Uses parameterized queries for all data values
 
     Example:
-        >>> import os
         >>> import psycopg2
         >>> conn = psycopg2.connect(
-        ...     host=os.getenv('DB_HOST', 'localhost'),
-        ...     database=os.getenv('DB_NAME', 'scheduler'),
-        ...     user=os.getenv('DB_USER', 'postgres'),
-        ...     password=os.getenv('DB_PASSWORD')
+        ...     host='localhost',
+        ...     database='scheduler',
+        ...     user='postgres',
+        ...     password='secret'
         ... )
+        >>> # Auto-migrate using built-in migrations
         >>> storage = PostgreSQLStorageAdapter(conn)
+        >>>
+        >>> # Check migration status
+        >>> status = storage.migration_runner.status()
+        >>> print(f"Applied: {status['applied_count']}, Pending: {status['pending_count']}")
     """
 
     _TABLE_NAME_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,62}$")
     _MAX_TABLE_NAME_LENGTH = 63
 
-    def __init__(self, connection: Any, table_name: str = "chronis_jobs") -> None:
+    def __init__(
+        self,
+        connection: Any,
+        table_name: str = "chronis_jobs",
+        migrations_dir: Path | str | None = None,
+        auto_migrate: bool = True,
+    ) -> None:
         """
-        Initialize PostgreSQL storage adapter.
+        Initialize PostgreSQL storage adapter with migration-based schema management.
 
         Args:
             connection: psycopg2 connection object
             table_name: Table name (alphanumeric + underscores only, max 63 chars)
+            migrations_dir: Path to migrations directory
+                          Uses built-in migrations if not provided
+            auto_migrate: Automatically run pending migrations (default: True)
 
         Raises:
             ValueError: If table_name contains invalid characters or is too long
+
+        Examples:
+            # Use built-in migrations (default)
+            >>> storage = PostgreSQLStorageAdapter(conn)
+
+            # Use custom migrations directory
+            >>> storage = PostgreSQLStorageAdapter(
+            ...     conn,
+            ...     migrations_dir="my_custom_migrations"
+            ... )
+
+            # Disable auto-migration
+            >>> storage = PostgreSQLStorageAdapter(
+            ...     conn,
+            ...     auto_migrate=False
+            ... )
         """
         self._validate_table_name(table_name)
         self.conn = connection
         self.table_name = table_name
-        self._ensure_table_exists()
+
+        # Determine migrations directory
+        if migrations_dir is None:
+            # Use built-in migrations
+            migrations_path = Path(__file__).parent / "migrations"
+        else:
+            migrations_path = Path(migrations_dir)
+
+        # Initialize migration runner
+        self.migration_runner = MigrationRunner(connection, migrations_path)
+
+        if auto_migrate:
+            self.migration_runner.migrate()
+        else:
+            # Just ensure history table exists for status checks
+            self.migration_runner._ensure_history_table()  # noqa: SLF001
 
     def _validate_table_name(self, table_name: str) -> None:
         """
@@ -81,61 +133,6 @@ class PostgreSQLStorageAdapter(JobStorageAdapter):
                 f"Allowed characters: letters, digits, underscores\n"
                 f"Valid examples: 'chronis_jobs', 'my_table_123', '_private'"
             )
-
-    def _execute_with_table_identifier(
-        self,
-        query_template: str,
-        params: tuple | list | None = None,
-    ) -> Any:
-        """Execute SQL query with safe table name substitution."""
-        with self.conn.cursor() as cursor:
-            query = sql.SQL(query_template).format(sql.Identifier(self.table_name))
-            cursor.execute(query, params or ())
-            return cursor
-
-    def _ensure_table_exists(self) -> None:
-        """Create table and indexes if they don't exist."""
-        with self.conn.cursor() as cursor:
-            # Create main table with safe identifier
-            cursor.execute(
-                sql.SQL("""
-                    CREATE TABLE IF NOT EXISTS {} (
-                        job_id VARCHAR(255) PRIMARY KEY,
-                        data JSONB NOT NULL,
-                        status VARCHAR(50),
-                        next_run_time TIMESTAMP,
-                        metadata JSONB,
-                        created_at TIMESTAMP DEFAULT NOW(),
-                        updated_at TIMESTAMP DEFAULT NOW()
-                    )
-                """).format(sql.Identifier(self.table_name))
-            )
-
-            # Create status index
-            cursor.execute(
-                sql.SQL("CREATE INDEX IF NOT EXISTS {} ON {}(status)").format(
-                    sql.Identifier(f"idx_{self.table_name}_status"),
-                    sql.Identifier(self.table_name),
-                )
-            )
-
-            # Create next_run_time index
-            cursor.execute(
-                sql.SQL("CREATE INDEX IF NOT EXISTS {} ON {}(next_run_time)").format(
-                    sql.Identifier(f"idx_{self.table_name}_next_run_time"),
-                    sql.Identifier(self.table_name),
-                )
-            )
-
-            # Create metadata GIN index
-            cursor.execute(
-                sql.SQL("CREATE INDEX IF NOT EXISTS {} ON {} USING GIN(metadata)").format(
-                    sql.Identifier(f"idx_{self.table_name}_metadata"),
-                    sql.Identifier(self.table_name),
-                )
-            )
-
-            self.conn.commit()
 
     def create_job(self, job_data: JobStorageData) -> JobStorageData:
         """
@@ -173,15 +170,18 @@ class PostgreSQLStorageAdapter(JobStorageAdapter):
 
     def get_job(self, job_id: str) -> JobStorageData | None:
         """Get a job from PostgreSQL."""
-        cursor = self._execute_with_table_identifier(
-            "SELECT data FROM {} WHERE job_id = %s", (job_id,)
-        )
+        with self.conn.cursor() as cursor:
+            cursor.execute(
+                sql.SQL("SELECT data FROM {} WHERE job_id = %s").format(
+                    sql.Identifier(self.table_name)
+                ),
+                (job_id,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
 
-        row = cursor.fetchone()
-        if row is None:
-            return None
-
-        return row[0]  # JSONB data  # type: ignore[return-value]
+            return row[0]  # JSONB data  # type: ignore[return-value]
 
     def update_job(self, job_id: str, updates: JobUpdateData) -> JobStorageData:
         """
@@ -225,10 +225,14 @@ class PostgreSQLStorageAdapter(JobStorageAdapter):
 
     def delete_job(self, job_id: str) -> bool:
         """Delete a job from PostgreSQL."""
-        cursor = self._execute_with_table_identifier("DELETE FROM {} WHERE job_id = %s", (job_id,))
-        deleted = cursor.rowcount > 0
-        self.conn.commit()
-        return deleted
+        with self.conn.cursor() as cursor:
+            cursor.execute(
+                sql.SQL("DELETE FROM {} WHERE job_id = %s").format(sql.Identifier(self.table_name)),
+                (job_id,),
+            )
+            deleted = cursor.rowcount > 0
+            self.conn.commit()
+            return deleted
 
     def query_jobs(
         self,

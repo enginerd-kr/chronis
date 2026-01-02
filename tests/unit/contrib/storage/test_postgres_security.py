@@ -1,5 +1,7 @@
 """SQL injection prevention tests for PostgreSQL storage adapter."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from chronis.contrib.storage.postgres import PostgreSQLStorageAdapter
@@ -23,13 +25,12 @@ class TestTableNameValidation:
     )
     def test_valid_table_names(self, valid_name):
         """Valid table names should pass validation."""
-        # Test validation directly without creating adapter
-        adapter = object.__new__(PostgreSQLStorageAdapter)
-        adapter._TABLE_NAME_PATTERN = PostgreSQLStorageAdapter._TABLE_NAME_PATTERN
-        adapter._MAX_TABLE_NAME_LENGTH = PostgreSQLStorageAdapter._MAX_TABLE_NAME_LENGTH
+        # Mock connection and migration runner to avoid DB operations
+        mock_conn = MagicMock()
 
-        # Should not raise ValueError for valid names
-        adapter._validate_table_name(valid_name)
+        with patch("chronis.contrib.storage.postgres.adapter.MigrationRunner"):
+            # Should not raise ValueError for valid names
+            PostgreSQLStorageAdapter(mock_conn, table_name=valid_name, auto_migrate=False)
 
     @pytest.mark.parametrize(
         "malicious_name",
