@@ -240,28 +240,50 @@ class PollingScheduler:
         self._apscheduler.start()
         self._running = True
 
-    def stop(self) -> None:
+    def stop(self, timeout: float = 30.0) -> dict[str, Any]:
         """
-        Stop scheduler.
+        Stop scheduler gracefully.
 
-        Terminates APScheduler and cleans up all resources.
+        Waits for running jobs (both sync and async) to complete before shutting down.
+
+        Args:
+            timeout: Maximum seconds to wait for async jobs to complete (default: 30).
+                     Sync jobs always complete (ThreadPoolExecutor.shutdown waits).
+
+        Returns:
+            Dictionary with shutdown status:
+            - sync_jobs_completed: Always True (sync jobs always wait)
+            - async_jobs_completed: True if all async jobs finished, False if timeout
+            - was_running: Whether scheduler was running before stop
 
         Example:
-            >>> scheduler.stop()
+            >>> result = scheduler.stop(timeout=60.0)
+            >>> if not result['async_jobs_completed']:
+            ...     print("Warning: Some async jobs were interrupted")
         """
         if not self._running:
-            return
+            return {
+                "sync_jobs_completed": True,
+                "async_jobs_completed": True,
+                "was_running": False,
+            }
 
-        # Shutdown APScheduler
+        # Shutdown APScheduler (stops polling for new jobs)
         self._apscheduler.shutdown(wait=True)
 
-        # Stop dedicated event loop
-        self._stop_async_loop()
+        # Stop dedicated event loop (wait for async jobs with timeout)
+        async_completed = self._stop_async_loop(timeout=timeout)
 
-        # Shutdown thread pool executor
+        # Shutdown thread pool executor (wait for sync jobs - always waits)
         self._executor.shutdown(wait=True, cancel_futures=False)
 
         self._running = False
+
+        return {
+            "sync_jobs_completed": True,
+            "async_jobs_completed": async_completed,
+            "was_running": True,
+        }
 
     def is_running(self) -> bool:
         """Check if scheduler is running."""
@@ -349,10 +371,18 @@ class PollingScheduler:
         # AsyncExecutor manages its own event loop - just ensure it's started
         self._async_executor.start()
 
-    def _stop_async_loop(self) -> None:
-        """Stop dedicated event loop."""
+    def _stop_async_loop(self, timeout: float = 30.0) -> bool:
+        """
+        Stop dedicated event loop.
+
+        Args:
+            timeout: Maximum seconds to wait for async tasks
+
+        Returns:
+            True if all async tasks completed, False if timeout
+        """
         # AsyncExecutor manages its own event loop cleanup
-        self._async_executor.stop()
+        return self._async_executor.stop(timeout=timeout)
 
     # ------------------------------------------------------------------------
     # Internal Methods (APScheduler Polling Logic)
