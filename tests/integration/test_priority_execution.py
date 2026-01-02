@@ -78,12 +78,14 @@ class TestPriorityExecution:
 
         # Execute jobs sequentially from priority queue
         for _ in range(3):
-            job_data = scheduler._scheduling_orchestrator.get_next_job_from_queue()
-            if job_data:
+            job_id = scheduler._scheduling_orchestrator.get_next_job_from_queue()
+            if job_id:
+                job_data = scheduler.storage.get_job(job_id)
+                assert job_data is not None, f"Job {job_id} not found in storage"
                 success = scheduler._execution_coordinator.try_execute(
                     job_data, lambda job_id: None
                 )
-                assert success, f"Failed to execute job {job_data['job_id']}"
+                assert success, f"Failed to execute job {job_id}"
 
         # Wait for all executions to complete
         time.sleep(1.0)

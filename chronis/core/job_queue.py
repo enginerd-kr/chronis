@@ -9,15 +9,19 @@ class JobQueue:
     """
     Internal job queue with backpressure control and priority support.
 
+    OPTIMIZED: Stores only job_id + priority instead of full job data.
+    This reduces memory usage since job data is fetched fresh from storage
+    during execution anyway (via CAS pattern).
+
     Manages job execution flow:
-    1. Pending queue: Jobs waiting to be executed (Priority Queue)
-    2. In-flight set: Jobs that have been dequeued for execution
+    1. Pending queue: Job IDs waiting to be executed (Priority Queue)
+    2. In-flight set: Job IDs that have been dequeued for execution
     3. Automatic removal on completion via callback
 
     Priority Queue Behavior:
     - Jobs are sorted by priority (higher number = higher priority)
     - For same priority, FIFO order is maintained via sequence counter
-    - Jobs are stored as tuples: (negative_priority, sequence, job_data)
+    - Jobs are stored as tuples: (negative_priority, sequence, job_id)
       * negative_priority: So higher priority numbers come first
       * sequence: Auto-incrementing counter for FIFO within same priority
 
@@ -35,16 +39,16 @@ class JobQueue:
         """
         self.max_queue_size = max_queue_size
 
-        # Pending queue: jobs waiting to be executed (Priority Queue)
-        # Items are tuples: (negative_priority, sequence, job_data)
-        self._pending_queue: PriorityQueue[tuple[int, int, dict[str, Any]]] = PriorityQueue(
+        # Pending queue: job IDs waiting to be executed (Priority Queue)
+        # Items are tuples: (negative_priority, sequence, job_id)
+        self._pending_queue: PriorityQueue[tuple[int, int, str]] = PriorityQueue(
             maxsize=max_queue_size
         )
 
         # Sequence counter for FIFO ordering within same priority
         self._sequence_counter = 0
 
-        # In-flight jobs: jobs dequeued and sent for execution (thread-safe set)
+        # In-flight jobs: job IDs dequeued and sent for execution (thread-safe set)
         self._in_flight_jobs: set[str] = set()
         self._lock = threading.RLock()
 
@@ -59,56 +63,58 @@ class JobQueue:
             total_in_flight = self._pending_queue.qsize() + len(self._in_flight_jobs)
         return max(0, self.max_queue_size - total_in_flight)
 
-    def add_job(self, job_data: dict[str, Any]) -> bool:
+    def add_job(self, job_id: str, priority: int = 5) -> bool:
         """
-        Add job to pending queue with priority.
+        Add job ID to pending queue with priority.
+
+        OPTIMIZED: Only stores job_id + priority instead of full job data.
+        Job data will be fetched fresh from storage during execution.
 
         Jobs are enqueued with their priority value. Higher priority jobs
         will be dequeued first. For jobs with same priority, FIFO order
         is maintained.
 
         Args:
-            job_data: Job data dictionary (must include 'priority' field)
+            job_id: Job ID to enqueue
+            priority: Job priority (default: 5, higher = more urgent)
 
         Returns:
             True if added, False if queue is full
         """
         try:
-            # Get priority (default to 5 if not set)
-            priority = job_data.get("priority", 5)
-
             # Increment sequence counter for FIFO within same priority
             with self._lock:
                 sequence = self._sequence_counter
                 self._sequence_counter += 1
 
-            # Enqueue as tuple: (negative_priority, sequence, job_data)
+            # Enqueue as tuple: (negative_priority, sequence, job_id)
             # Negative priority so higher numbers come first
-            self._pending_queue.put_nowait((-priority, sequence, job_data))
+            self._pending_queue.put_nowait((-priority, sequence, job_id))
             return True
         except Full:
             return False
 
-    def get_next_job(self) -> dict[str, Any] | None:
+    def get_next_job(self) -> str | None:
         """
-        Get next job from pending queue and mark as in-flight.
+        Get next job ID from pending queue and mark as in-flight.
+
+        OPTIMIZED: Returns only job_id. Caller must fetch job data from storage.
 
         Jobs are dequeued in priority order (highest priority first).
         For same priority, FIFO order is maintained.
 
         Returns:
-            Job data or None if queue is empty
+            Job ID or None if queue is empty
         """
         try:
-            # Dequeue tuple: (negative_priority, sequence, job_data)
-            _priority, _sequence, job_data = self._pending_queue.get_nowait()
-            job_id = job_data["job_id"]
+            # Dequeue tuple: (negative_priority, sequence, job_id)
+            _priority, _sequence, job_id = self._pending_queue.get_nowait()
 
             # Mark as in-flight
             with self._lock:
                 self._in_flight_jobs.add(job_id)
 
-            return job_data
+            return job_id
 
         except Empty:
             return None

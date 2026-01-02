@@ -396,23 +396,34 @@ class PollingScheduler:
         """
         Execute jobs from queue (called every 1 second by APScheduler).
 
+        OPTIMIZED: Fetches job data from storage instead of using queued data.
+        Queue only stores job_id + priority for memory efficiency.
+
         This method runs in APScheduler's background thread.
         """
         try:
             # Execute jobs while queue is not empty
             while not self._scheduling_orchestrator.is_queue_empty():
-                job_data = self._scheduling_orchestrator.get_next_job_from_queue()
-                if job_data is None:
+                job_id = self._scheduling_orchestrator.get_next_job_from_queue()
+                if job_id is None:
                     break
 
+                # Fetch fresh job data from storage
+                job_data = self.storage.get_job(job_id)
+                if job_data is None:
+                    # Job was deleted - mark as completed and continue
+                    self._scheduling_orchestrator.mark_job_completed(job_id)
+                    continue
+
                 # Try to execute with distributed lock
+                # Cast to dict for type compatibility
                 executed = self._execution_coordinator.try_execute(
-                    job_data, on_complete=self._scheduling_orchestrator.mark_job_completed
+                    dict(job_data), on_complete=self._scheduling_orchestrator.mark_job_completed
                 )
 
                 # If not executed (lock failed or wrong status), mark as completed in queue
                 if not executed:
-                    self._scheduling_orchestrator.mark_job_completed(job_data["job_id"])
+                    self._scheduling_orchestrator.mark_job_completed(job_id)
 
         except Exception as e:
             self.logger.error(f"Executor error: {e}", exc_info=True)
