@@ -146,13 +146,19 @@ def execute_job_immediately(
         )
 
     # Get from queue and execute
-    job_data = scheduler._scheduling_orchestrator.get_next_job_from_queue()
+    # OPTIMIZED: Queue now returns only job_id, fetch data from storage
+    queued_job_id = scheduler._scheduling_orchestrator.get_next_job_from_queue()
 
-    if job_data is None:
+    if queued_job_id is None:
         raise AssertionError("No job in queue")
 
-    if job_data["job_id"] != job_id:
-        raise AssertionError(f"Expected job {job_id}, got {job_data['job_id']}")
+    if queued_job_id != job_id:
+        raise AssertionError(f"Expected job {job_id}, got {queued_job_id}")
+
+    # Fetch job data from storage
+    job_data = scheduler.storage.get_job(queued_job_id)
+    if job_data is None:
+        raise AssertionError(f"Job {queued_job_id} not found in storage")
 
     # Execute (this submits to thread pool and returns immediately)
     success = scheduler._execution_coordinator.try_execute(job_data, lambda job_id: None)

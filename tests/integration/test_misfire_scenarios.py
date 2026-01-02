@@ -204,8 +204,11 @@ class TestMisfirePolicyBehavior:
         added = scheduler._scheduling_orchestrator.poll_and_enqueue()
         assert added == 1
 
-        job_data = scheduler._scheduling_orchestrator.get_next_job_from_queue()
-        scheduler._execution_coordinator.try_execute(job_data, lambda job_id: None)
+        job_id = scheduler._scheduling_orchestrator.get_next_job_from_queue()
+        if job_id:
+            job_data = scheduler.storage.get_job(job_id)
+            assert job_data is not None
+            scheduler._execution_coordinator.try_execute(job_data, lambda job_id: None)
 
         import time
 

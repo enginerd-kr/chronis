@@ -65,12 +65,13 @@ class SchedulingOrchestrator:
 
                 added_count = 0
                 for job_data in jobs:
-                    if self.job_queue.add_job(job_data):
+                    # OPTIMIZED: Only store job_id + priority in queue
+                    job_id = job_data.get("job_id")
+                    priority = job_data.get("priority", 5)
+                    if self.job_queue.add_job(job_id, priority):
                         added_count += 1
                     else:
-                        self.logger.warning(
-                            "Failed to add job to queue", job_id=job_data.get("job_id")
-                        )
+                        self.logger.warning("Failed to add job to queue", job_id=job_id)
 
                 self.last_poll_time = current_time
                 return added_count
@@ -82,12 +83,14 @@ class SchedulingOrchestrator:
             self.logger.error(f"Polling error: {e}", exc_info=True)
             return 0
 
-    def get_next_job_from_queue(self) -> dict[str, Any] | None:
+    def get_next_job_from_queue(self) -> str | None:
         """
-        Get next job from queue for execution.
+        Get next job ID from queue for execution.
+
+        OPTIMIZED: Returns only job_id. Caller must fetch job data from storage.
 
         Returns:
-            Job data or None if queue is empty
+            Job ID or None if queue is empty
         """
         if self.job_queue.is_empty():
             return None
