@@ -32,6 +32,7 @@ class AsyncExecutor:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
         self._logger = logger
+        self._running_tasks: set[asyncio.Task[Any]] = set()  # Track running tasks
 
     def start(self) -> None:
         """
@@ -96,17 +97,72 @@ class AsyncExecutor:
         if self._loop is None:
             raise RuntimeError("AsyncExecutor is not running. Call start() first.")
 
-        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        # Wrap coroutine to track it
+        async def _tracked_coro():
+            task = asyncio.current_task()
+            if task:
+                self._running_tasks.add(task)
+            try:
+                return await coro
+            finally:
+                if task:
+                    self._running_tasks.discard(task)
+
+        future = asyncio.run_coroutine_threadsafe(_tracked_coro(), self._loop)
         return future
 
-    def stop(self) -> None:
+    def stop(self, timeout: float = 30.0) -> bool:
         """
-        Stop dedicated event loop.
+        Stop dedicated event loop gracefully.
 
-        Waits for the loop thread to finish (with timeout).
+        Waits for all running async tasks to complete before stopping.
+
+        Args:
+            timeout: Maximum seconds to wait for running tasks (default: 30)
+
+        Returns:
+            True if all tasks completed gracefully, False if timeout occurred
+
+        Example:
+            >>> executor.stop(timeout=60.0)  # Wait up to 60s for tasks
         """
         if self._loop is None:
-            return
+            return True
+
+        # Wait for running tasks to complete
+        async def _wait_for_tasks() -> bool:
+            if not self._running_tasks:
+                return True
+
+            if self._logger:
+                self._logger.debug(
+                    f"Waiting for {len(self._running_tasks)} async tasks to complete"
+                )
+
+            try:
+                # Wait for all tasks with timeout
+                await asyncio.wait_for(
+                    asyncio.gather(*self._running_tasks, return_exceptions=True), timeout=timeout
+                )
+                return True
+            except TimeoutError:
+                # Timeout - cancel remaining tasks
+                if self._logger:
+                    self._logger.warning(
+                        f"Timeout waiting for async tasks. Cancelling {len(self._running_tasks)} tasks"
+                    )
+                for task in self._running_tasks:
+                    task.cancel()
+                return False
+
+        # Run the wait coroutine in the event loop
+        try:
+            wait_future = asyncio.run_coroutine_threadsafe(_wait_for_tasks(), self._loop)
+            all_completed = wait_future.result(timeout=timeout + 1)
+        except Exception as e:
+            if self._logger:
+                self._logger.error(f"Error during graceful shutdown: {e}")
+            all_completed = False
 
         # Stop the event loop
         self._loop.call_soon_threadsafe(self._loop.stop)
@@ -117,9 +173,13 @@ class AsyncExecutor:
 
         self._loop = None
         self._thread = None
+        self._running_tasks.clear()
 
         if self._logger:
-            self._logger.debug("Stopped dedicated event loop")
+            status = "gracefully" if all_completed else "with timeout"
+            self._logger.debug(f"Stopped dedicated event loop {status}")
+
+        return all_completed
 
     def is_running(self) -> bool:
         """Check if event loop is running."""

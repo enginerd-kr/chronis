@@ -1,6 +1,5 @@
 """Pure unit tests for JobService using mocked storage."""
 
-
 import pytest
 
 from chronis.core.common.exceptions import JobAlreadyExistsError, JobNotFoundError
