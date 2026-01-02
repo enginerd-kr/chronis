@@ -12,18 +12,7 @@ from chronis.utils.time import utc_now
 
 
 class SchedulingOrchestrator:
-    """
-    Orchestrates job polling and queue management.
-
-    This application service is responsible for:
-    - Polling storage for ready jobs
-    - Adding jobs to the execution queue
-    - Managing queue backpressure
-    - Coordinating between storage and queue
-
-    This service runs periodically (via APScheduler) and ensures jobs
-    are discovered and queued for execution at the right time.
-    """
+    """Orchestrates job polling and queue management."""
 
     def __init__(
         self,
@@ -51,20 +40,10 @@ class SchedulingOrchestrator:
         """
         Poll storage for ready jobs and add them to queue.
 
-        This is the main polling loop that:
-        1. Checks queue capacity
-        2. Queries storage for ready jobs
-        3. Adds jobs to queue
-        4. Tracks last poll time
-
         Returns:
             Number of jobs added to queue
-
-        Raises:
-            No exceptions - all errors are logged
         """
         try:
-            # Get available slots in queue
             available_slots = self.job_queue.get_available_slots()
 
             if available_slots <= 0:
@@ -73,12 +52,10 @@ class SchedulingOrchestrator:
                 )
                 return 0
 
-            # Query ready jobs from storage
             current_time = utc_now()
             jobs = self._query_ready_jobs(current_time, limit=available_slots)
 
             if jobs:
-                # Log only in verbose mode or when many jobs found
                 if self.verbose or len(jobs) >= 10:
                     self.logger.info(
                         "Found ready jobs",
@@ -86,7 +63,6 @@ class SchedulingOrchestrator:
                         queue_status=self.job_queue.get_status(),
                     )
 
-                # Add jobs to queue
                 added_count = 0
                 for job_data in jobs:
                     if self.job_queue.add_job(job_data):
@@ -149,12 +125,6 @@ class SchedulingOrchestrator:
         """
         Query ready jobs from storage and classify them (normal vs misfired).
 
-        Uses the jobs_ready_before helper to find jobs that
-        are scheduled and have next_run_time <= current_time.
-
-        Jobs are classified using MisfireClassifier, then both normal
-        and misfired jobs are sorted by priority and returned together.
-
         Args:
             current_time: Current time
             limit: Maximum number of jobs to return
@@ -164,17 +134,14 @@ class SchedulingOrchestrator:
         """
         from typing import cast
 
-        # Get filter for ready jobs
         filters = jobs_ready_before(current_time)
 
         jobs = self.storage.query_jobs(filters=cast(dict[str, Any], filters), limit=None)
 
-        # Classify into normal and misfired
         normal_jobs, misfired_jobs = MisfireClassifier.classify_due_jobs(
             jobs, current_time.isoformat()
         )
 
-        # Log misfired jobs
         if misfired_jobs:
             self.logger.warning(
                 "Misfired jobs detected",
@@ -182,11 +149,8 @@ class SchedulingOrchestrator:
                 job_ids=[j.get("job_id") for j in misfired_jobs],
             )
 
-        # Combine normal and misfired jobs (both need to be processed)
         all_jobs = normal_jobs + misfired_jobs
 
-        # Sort by priority (descending) then next_run_time (ascending)
-        # Higher priority = higher number = executed first
         def sort_key(job: Any) -> tuple[int, str]:
             priority = job.get("priority", 5)
             next_run = job.get("next_run_time", "")
@@ -194,7 +158,6 @@ class SchedulingOrchestrator:
 
         all_jobs.sort(key=sort_key)
 
-        # Apply limit after sorting
         if limit is not None:
             all_jobs = all_jobs[:limit]
 

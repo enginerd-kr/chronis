@@ -35,7 +35,6 @@ class CronTrigger(TriggerStrategy):
         if current.tzinfo is None:
             current = current.replace(tzinfo=tz)
 
-        # Use APScheduler's CronTrigger for full field support
         trigger = APSCronTrigger(
             year=trigger_args.get("year"),
             month=trigger_args.get("month"),
@@ -51,5 +50,4 @@ class CronTrigger(TriggerStrategy):
         if next_time is None:
             return None
 
-        # Convert to UTC
         return next_time.astimezone(ZoneInfo("UTC"))

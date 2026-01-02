@@ -12,21 +12,7 @@ from chronis.utils.time import utc_now
 
 
 class JobService:
-    """
-    Application service for job CRUD operations.
-
-    This service orchestrates job creation, retrieval, updates, and deletion
-    by coordinating between the storage adapter and domain logic.
-
-    Responsibilities:
-    - Job lifecycle management (CRUD)
-    - Data transformation (JobDefinition -> dict -> JobInfo)
-    - Exception translation
-    - Logging
-
-    This is an application service that sits between the domain layer and
-    infrastructure layer, providing a clean API for job management.
-    """
+    """Application service for job CRUD operations."""
 
     def __init__(
         self,
@@ -96,10 +82,6 @@ class JobService:
 
         Returns:
             List of matching jobs
-
-        Example:
-            >>> from chronis.core.query import scheduled_jobs
-            >>> jobs = service.query(filters=scheduled_jobs())
         """
         jobs_data = self.storage.query_jobs(filters=filters, limit=limit)
         return [JobInfo.from_dict(cast(dict[str, Any], job_data)) for job_data in jobs_data]
@@ -130,7 +112,6 @@ class JobService:
         Raises:
             JobNotFoundError: If job doesn't exist
         """
-        # Build updates dictionary from non-None parameters
         updates_dict: dict[str, Any] = {
             k: v
             for k, v in {
@@ -144,7 +125,6 @@ class JobService:
         }
 
         if not updates_dict:
-            # No updates provided, just fetch and return current state
             current = self.get(job_id)
             if not current:
                 raise JobNotFoundError(f"Job {job_id} not found")

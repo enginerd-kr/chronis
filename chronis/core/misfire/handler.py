@@ -8,14 +8,8 @@ from chronis.core.scheduling import NextRunTimeCalculator
 
 
 class MisfireHandler:
-    """
-    Handle misfired jobs according to policy.
+    """Handle misfired jobs according to policy."""
 
-    This class determines what execution times should be used
-    when a job has misfired, based on its misfire policy.
-    """
-
-    # Safety limit to prevent infinite loops
     MAX_MISSED_RUNS = 100
 
     def handle(
@@ -35,15 +29,14 @@ class MisfireHandler:
         Returns:
             List of times to execute the job (empty list = skip execution)
         """
-        # Get policy from metadata (stored as string)
         policy_str = job.metadata.get("if_missed", "run_once")
         policy = SimpleMisfirePolicy(policy_str)
 
         if policy == SimpleMisfirePolicy.SKIP:
-            return []  # Skip this execution
+            return []
 
         elif policy == SimpleMisfirePolicy.RUN_ONCE:
-            return [current_time]  # Execute once immediately
+            return [current_time]
 
         elif policy == SimpleMisfirePolicy.RUN_ALL:
             return self._get_all_missed_runs(job, scheduled_time, current_time)
@@ -73,7 +66,6 @@ class MisfireHandler:
         while check_time < current_time and len(missed_runs) < self.MAX_MISSED_RUNS:
             missed_runs.append(check_time)
 
-            # Calculate next run time based on trigger
             next_time = NextRunTimeCalculator.calculate(
                 job.trigger_type,
                 job.trigger_args,
