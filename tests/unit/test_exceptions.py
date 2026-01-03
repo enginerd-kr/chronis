@@ -15,7 +15,7 @@ from chronis.core.common.exceptions import (
     SchedulerLookupError,
     SchedulerStateError,
 )
-from chronis.core.scheduler import PollingScheduler
+from chronis.core.schedulers.polling_scheduler import PollingScheduler
 from chronis.core.state import JobStatus
 
 

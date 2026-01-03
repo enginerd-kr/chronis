@@ -2,10 +2,10 @@
 
 from datetime import UTC, datetime, timedelta
 
-from chronis.core.common.types import TriggerType
 from chronis.core.jobs.definition import JobInfo
 from chronis.core.misfire import MisfireHandler, MisfirePolicy
 from chronis.core.state import JobStatus
+from chronis.core.state.enums import TriggerType
 
 
 class TestMisfireHandlerSkipPolicy:

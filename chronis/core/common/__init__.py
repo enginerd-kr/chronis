@@ -5,7 +5,7 @@ from chronis.core.common.exceptions import (
     JobNotFoundError,
     SchedulerError,
 )
-from chronis.core.common.types import TriggerType
+from chronis.core.state.enums import TriggerType
 
 __all__ = [
     # Types

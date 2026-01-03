@@ -8,13 +8,12 @@ from typing import Any
 from tenacity import RetryError, retry, stop_after_attempt, wait_random_exponential
 
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
-from chronis.core import lifecycle
-from chronis.core.callbacks import OnFailureCallback, OnSuccessCallback
-from chronis.core.common.types import TriggerType
 from chronis.core.execution.async_loop import AsyncExecutor
+from chronis.core.execution.callbacks import OnFailureCallback, OnSuccessCallback
 from chronis.core.jobs.definition import JobInfo
-from chronis.core.scheduling import NextRunTimeCalculator
+from chronis.core.schedulers.next_run_calculator import NextRunTimeCalculator
 from chronis.core.state import JobStatus
+from chronis.core.state.enums import TriggerType
 from chronis.utils.logging import ContextLogger
 from chronis.utils.time import utc_now
 
@@ -230,7 +229,7 @@ class ExecutionCoordinator:
                 )
 
             # Determine next status after successful execution
-            next_status = lifecycle.determine_next_status_after_execution(
+            next_status = JobInfo.determine_next_status_after_execution(
                 trigger_type=job_data["trigger_type"], execution_succeeded=True
             )
 

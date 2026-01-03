@@ -2,9 +2,9 @@
 
 from datetime import UTC, datetime
 
-from chronis.core.common.types import TriggerType
 from chronis.core.jobs.definition import JobDefinition
 from chronis.core.misfire import MisfireClassifier, MisfirePolicy, get_default_policy
+from chronis.core.state.enums import TriggerType
 
 
 class TestMisfireClassifier:

@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import pytest
 from tenacity import RetryError
 
-from chronis.core.services.execution_coordinator import ExecutionCoordinator
+from chronis.core.execution.coordinator import ExecutionCoordinator
 
 
 class TestLockReleaseRetryError:
@@ -168,8 +168,10 @@ class TestExecuteInBackgroundRetryLogic:
             "updated_at": "2024-01-01T12:00:00+00:00",
         }
 
-        with patch("chronis.core.services.execution_coordinator.lifecycle") as lifecycle_mock:
-            lifecycle_mock.determine_next_status_after_execution.return_value = None
+        with patch(
+            "chronis.core.jobs.definition.JobInfo.determine_next_status_after_execution"
+        ) as status_mock:
+            status_mock.return_value = None
 
             coordinator._execute_in_background(job_data, Mock())
 
@@ -211,8 +213,10 @@ class TestExecuteInBackgroundRetryLogic:
 
         job_logger = Mock()
 
-        with patch("chronis.core.services.execution_coordinator.lifecycle") as lifecycle_mock:
-            lifecycle_mock.determine_next_status_after_execution.return_value = None
+        with patch(
+            "chronis.core.jobs.definition.JobInfo.determine_next_status_after_execution"
+        ) as status_mock:
+            status_mock.return_value = None
 
             coordinator._execute_in_background(job_data, job_logger)
 
@@ -269,7 +273,7 @@ class TestScheduleRetryErrorHandling:
 class TestUpdateNextRunTimeErrorHandling:
     """Test error handling in _update_next_run_time."""
 
-    @patch("chronis.core.services.execution_coordinator.NextRunTimeCalculator")
+    @patch("chronis.core.execution.coordinator.NextRunTimeCalculator")
     @patch("chronis.utils.time.utc_now")
     def test_storage_error_during_update_is_logged(self, mock_utc_now, mock_calc):
         """Test that storage error during update_job is logged."""
@@ -311,7 +315,7 @@ class TestUpdateNextRunTimeErrorHandling:
         logger_mock.error.assert_called()
         assert "Failed to update job run times" in logger_mock.error.call_args[0][0]
 
-    @patch("chronis.core.services.execution_coordinator.NextRunTimeCalculator")
+    @patch("chronis.core.execution.coordinator.NextRunTimeCalculator")
     @patch("chronis.utils.time.utc_now")
     def test_update_local_time_error_is_logged(self, mock_utc_now, mock_calc):
         """Test that error during second update_job call is logged."""
