@@ -455,31 +455,3 @@ class RedisStorageAdapter(JobStorageAdapter):
 
         # For complex filters, query and count
         return len(self.query_jobs(filters=filters))
-
-    def update_job_run_times(
-        self,
-        job_id: str,
-        scheduled_time: str,
-        actual_time: str,
-        next_run_time: str | None,
-    ) -> JobStorageData:
-        """
-        Update job run times after execution.
-
-        Implementation:
-            Same as update_job() with index updates for next_run_time.
-        """
-        from typing import cast
-
-        return self.update_job(
-            job_id,
-            cast(
-                JobUpdateData,
-                {
-                    "last_scheduled_time": scheduled_time,
-                    "last_run_time": actual_time,
-                    "next_run_time": next_run_time,
-                    "updated_at": utc_now().isoformat(),
-                },
-            ),
-        )

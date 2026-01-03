@@ -4,7 +4,7 @@ Guide for implementing custom storage and lock adapters.
 
 ## Storage Adapter Interface
 
-Implement `JobStorageAdapter` with these methods:
+Implement `JobStorageAdapter` with these **5 required methods**:
 
 ```python
 from chronis.adapters.base import JobStorageAdapter
@@ -30,15 +30,27 @@ class MyStorageAdapter(JobStorageAdapter):
     ) -> list[dict]:
         """Query jobs with filters."""
 
-    def update_job_run_times(
-        self,
-        job_id: str,
-        scheduled_time: str,
-        actual_time: str,
-        next_run_time: str | None,
-    ) -> dict:
-        """Update execution times."""
+    # Optional: Override for optimization
+    # def compare_and_swap_job(self, job_id, expected_values, updates):
+    #     """Atomic update. Default: non-atomic fallback with warning."""
+    #
+    # def count_jobs(self, filters=None):
+    #     """Count jobs. Default: len(query_jobs(filters))."""
 ```
+
+### Optional Method Overrides
+
+**compare_and_swap_job** (Recommended for production):
+
+- **Default**: Non-atomic get → check → update fallback with warning
+- **Override for**: Multi-instance deployments requiring atomicity
+- **Examples**: Redis WATCH/MULTI/EXEC, PostgreSQL WHERE conditions
+
+**count_jobs** (Recommended for large datasets):
+
+- **Default**: `len(query_jobs(filters))`
+- **Override for**: Performance optimization (> 10k jobs)
+- **Examples**: SQL COUNT(*), Redis SCARD
 
 ## Job Data Structure
 
@@ -448,12 +460,14 @@ def test_storage_adapter():
     updated = adapter.update_job("test", {"status": "running"})
     assert updated["status"] == "running"
 
-    # 5. Update run times
-    updated = adapter.update_job_run_times(
+    # 5. Update execution times (using update_job)
+    updated = adapter.update_job(
         "test",
-        scheduled_time="2025-01-15T10:00:00Z",
-        actual_time="2025-01-15T10:00:05Z",
-        next_run_time="2025-01-16T10:00:00Z"
+        {
+            "last_scheduled_time": "2025-01-15T10:00:00Z",
+            "last_run_time": "2025-01-15T10:00:05Z",
+            "next_run_time": "2025-01-16T10:00:00Z",
+        }
     )
     assert updated["last_run_time"] == "2025-01-15T10:00:05Z"
 

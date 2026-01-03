@@ -16,7 +16,6 @@ def mock_storage():
     storage.delete_job = Mock(return_value=True)
     storage.query_jobs = Mock(return_value=[])
     storage.count_jobs = Mock(return_value=0)
-    storage.update_job_run_times = Mock(return_value={})
     return storage
 
 
