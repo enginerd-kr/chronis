@@ -114,8 +114,8 @@ class TestMisfireIntegration:
         assert len(normal) == 0
         assert misfired[0]["job_id"] == "misfired-job"
 
-    def test_update_job_run_times(self):
-        """Test that update_job_run_times works correctly."""
+    def test_update_job_with_run_times(self):
+        """Test that update_job works correctly with run time fields."""
         storage = InMemoryStorageAdapter()
 
         # Create a job
@@ -148,16 +148,18 @@ class TestMisfireIntegration:
 
         storage.create_job(job_data)
 
-        # Update run times
+        # Update run times using update_job
         scheduled = now.isoformat()
         actual = (now + timedelta(seconds=5)).isoformat()
         next_run = (now + timedelta(minutes=5)).isoformat()
 
-        updated = storage.update_job_run_times(
+        updated = storage.update_job(
             job_id="test-job",
-            scheduled_time=scheduled,
-            actual_time=actual,
-            next_run_time=next_run,
+            updates={
+                "last_scheduled_time": scheduled,
+                "last_run_time": actual,
+                "next_run_time": next_run,
+            },
         )
 
         # Verify updates
@@ -166,15 +168,17 @@ class TestMisfireIntegration:
         assert updated["next_run_time"] == next_run
 
     def test_update_job_run_times_nonexistent_job(self):
-        """Test that update_job_run_times raises error for nonexistent job."""
+        """Test that update_job raises error for nonexistent job."""
         storage = InMemoryStorageAdapter()
 
         with pytest.raises(ValueError, match="Job nonexistent not found"):
-            storage.update_job_run_times(
+            storage.update_job(
                 job_id="nonexistent",
-                scheduled_time="2025-01-01T09:00:00Z",
-                actual_time="2025-01-01T09:00:05Z",
-                next_run_time="2025-01-01T10:00:00Z",
+                updates={
+                    "last_scheduled_time": "2025-01-01T09:00:00Z",
+                    "last_run_time": "2025-01-01T09:00:05Z",
+                    "next_run_time": "2025-01-01T10:00:00Z",
+                },
             )
 
 

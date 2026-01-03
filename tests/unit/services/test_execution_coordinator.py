@@ -272,7 +272,7 @@ class TestUpdateNextRunTimeErrorHandling:
     @patch("chronis.core.services.execution_coordinator.NextRunTimeCalculator")
     @patch("chronis.utils.time.utc_now")
     def test_storage_error_during_update_is_logged(self, mock_utc_now, mock_calc):
-        """Test that storage error during update_job_run_times is logged."""
+        """Test that storage error during update_job is logged."""
         mock_utc_now.return_value = Mock(isoformat=Mock(return_value="2024-01-01T13:00:00"))
         mock_calc.calculate_with_local_time.return_value = (
             datetime(2024, 1, 1, 13, 0, tzinfo=UTC),
@@ -280,7 +280,7 @@ class TestUpdateNextRunTimeErrorHandling:
         )
 
         storage_mock = Mock()
-        storage_mock.update_job_run_times.side_effect = Exception("Storage error")
+        storage_mock.update_job.side_effect = Exception("Storage error")
         logger_mock = Mock()
 
         coordinator = ExecutionCoordinator(

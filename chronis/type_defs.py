@@ -87,6 +87,8 @@ class JobUpdateData(TypedDict, total=False):
     status: NotRequired[str]
     next_run_time: NotRequired[str | None]
     next_run_time_local: NotRequired[str | None]
+    last_scheduled_time: NotRequired[str | None]
+    last_run_time: NotRequired[str | None]
     metadata: NotRequired[dict[str, Any]]
     updated_at: NotRequired[str]
     retry_count: NotRequired[int]

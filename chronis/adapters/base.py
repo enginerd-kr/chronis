@@ -85,7 +85,6 @@ class JobStorageAdapter(ABC):
         """
         pass
 
-    @abstractmethod
     def compare_and_swap_job(
         self,
         job_id: str,
@@ -102,11 +101,34 @@ class JobStorageAdapter(ABC):
         ┌──────────────────────────────────────────────────────────────┐
         │                   IMPLEMENTATION CONTRACT                     │
         ├──────────────────────────────────────────────────────────────┤
-        │ WHO IMPLEMENTS: Storage adapter developer                    │
+        │ WHO IMPLEMENTS: Storage adapter developer (RECOMMENDED)      │
         │ WHO CALLS:      Chronis Core (ExecutionCoordinator)          │
         │ WHEN CALLED:    Job execution with optimistic locking        │
         │ ATOMICITY:      MUST be atomic (single transaction/operation)│
+        │                                                              │
+        │ DEFAULT IMPLEMENTATION: Non-atomic fallback provided         │
+        │ ⚠️  Override for production multi-instance deployments      │
         └──────────────────────────────────────────────────────────────┘
+
+        DEFAULT IMPLEMENTATION:
+            This base implementation uses get → check → update pattern which is
+            NOT atomic. For production use with multiple instances, override this
+            method with an atomic implementation using your storage backend's
+            native CAS/optimistic locking.
+
+            Examples of atomic implementations:
+            - Redis: Use WATCH/MULTI/EXEC transaction
+            - PostgreSQL: Use WHERE conditions in UPDATE statement
+            - DynamoDB: Use ConditionExpression in UpdateItem
+            - MongoDB: Use findAndModify with query conditions
+
+            ⚠️  WARNING: This default implementation is NOT atomic and NOT safe
+            for distributed deployments. It may cause duplicate job execution.
+
+            Use this default only for:
+            - Single-instance deployments
+            - Testing/development environments
+            - Storage backends without atomic operations (at your own risk)
 
         Example:
             # Only update if status is still SCHEDULED and next_run_time hasn't changed
@@ -133,7 +155,29 @@ class JobStorageAdapter(ABC):
         Raises:
             ValueError: If job_id not found
         """
-        pass
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            f"Using non-atomic fallback compare_and_swap_job for {self.__class__.__name__}. "
+            "This is NOT safe for multi-instance deployments. "
+            "Override this method with an atomic implementation for production use."
+        )
+
+        # Get current job
+        job_data = self.get_job(job_id)
+        if job_data is None:
+            raise ValueError(f"Job {job_id} not found")
+
+        # Compare: Check if all expected values match
+        for field, expected_value in expected_values.items():
+            current_value = job_data.get(field)
+            if current_value != expected_value:
+                return (False, None)
+
+        # Swap: Apply updates (⚠️ non-atomic - TOCTOU race condition possible)
+        updated_job = self.update_job(job_id, updates)
+        return (True, updated_job)
 
     @abstractmethod
     def delete_job(self, job_id: str) -> bool:
@@ -198,7 +242,6 @@ class JobStorageAdapter(ABC):
         """
         pass
 
-    @abstractmethod
     def count_jobs(self, filters: dict[str, Any] | None = None) -> int:
         """
         Count jobs with optional filters.
@@ -206,10 +249,26 @@ class JobStorageAdapter(ABC):
         ┌──────────────────────────────────────────────────────────────┐
         │                   IMPLEMENTATION CONTRACT                     │
         ├──────────────────────────────────────────────────────────────┤
-        │ WHO IMPLEMENTS: Storage adapter developer                    │
+        │ WHO IMPLEMENTS: Storage adapter developer (OPTIONAL)         │
         │ WHO CALLS:      Chronis Core, user via count()               │
         │ WHEN CALLED:    Monitoring, status checks, pagination        │
+        │                                                              │
+        │ DEFAULT IMPLEMENTATION: Query and count                      │
+        │ Override for optimization (SQL COUNT, Redis SCARD)           │
         └──────────────────────────────────────────────────────────────┘
+
+        DEFAULT IMPLEMENTATION:
+            This base implementation queries all matching jobs and returns the count.
+            This is fine for:
+            - Small datasets (< 10k jobs)
+            - Development/testing environments
+            - Storage backends without native count operations
+
+            For better performance, override this method with optimized counting:
+            - PostgreSQL: SELECT COUNT(*) FROM jobs WHERE ...
+            - Redis: SCARD on status index, ZCOUNT on time index
+            - DynamoDB: Query with Select='COUNT'
+            - MongoDB: countDocuments()
 
         Args:
             filters: Dictionary of filter conditions (None = count all)
@@ -217,72 +276,7 @@ class JobStorageAdapter(ABC):
         Returns:
             Number of matching jobs
         """
-        pass
-
-    @abstractmethod
-    def update_job_run_times(
-        self,
-        job_id: str,
-        scheduled_time: str,
-        actual_time: str,
-        next_run_time: str | None,
-    ) -> JobStorageData:
-        """
-        Update job execution times after a run.
-
-        ┌──────────────────────────────────────────────────────────────┐
-        │                   IMPLEMENTATION CONTRACT                     │
-        ├──────────────────────────────────────────────────────────────┤
-        │ WHO IMPLEMENTS: Storage adapter developer                    │
-        │ WHO CALLS:      Chronis Core scheduler                       │
-        │ WHEN CALLED:    After every job execution                    │
-        │                 (both normal and misfired)                   │
-        ├──────────────────────────────────────────────────────────────┤
-        │ RESPONSIBILITY SPLIT:                                        │
-        │                                                              │
-        │ Chronis Core (caller):                                       │
-        │  ✓ Executes the job                                          │
-        │  ✓ Calculates scheduled_time (what was planned)              │
-        │  ✓ Calculates actual_time (when it ran)                      │
-        │  ✓ Calculates next_run_time (next schedule)                  │
-        │  ✓ Calls this method with calculated values                  │
-        │                                                              │
-        │ Storage Adapter (implementer):                               │
-        │  ✓ Receives time values from Core                            │
-        │  ✓ Persists to database/storage                              │
-        │  ✓ Returns updated job data                                  │
-        │                                                              │
-        │ Does NOT:                                                    │
-        │  ✗ Calculate time values (Core does this)                   │
-        │  ✗ Detect misfire (MisfireClassifier does this)             │
-        │  ✗ Handle misfire policy (MisfireHandler does this)         │
-        └──────────────────────────────────────────────────────────────┘
-
-        Args:
-            job_id: Job ID
-            scheduled_time: When this run was scheduled for (ISO format, calculated by Core)
-            actual_time: When this run actually executed (ISO format, calculated by Core)
-            next_run_time: Next scheduled run time (ISO format or None, calculated by Core)
-
-        Returns:
-            Updated job data
-
-        Implementation Requirements:
-            MUST update these fields in storage:
-            - last_scheduled_time = scheduled_time
-            - last_run_time = actual_time
-            - next_run_time = next_run_time
-            - updated_at = current timestamp
-
-        Example implementations:
-            InMemory: self._jobs[job_id].update({...})
-            Redis: self.redis.hset(f"job:{job_id}", mapping={...})
-            PostgreSQL: UPDATE jobs SET ... WHERE job_id = $1
-
-        Raises:
-            ValueError: If job_id not found
-        """
-        pass
+        return len(self.query_jobs(filters=filters))
 
 
 class LockAdapter(ABC):

@@ -191,10 +191,12 @@ chronis/
 When adding storage or lock adapters:
 
 1. Inherit from the appropriate base class (`JobStorageAdapter` or `LockAdapter`)
-2. Implement all required methods (see CONTRACT documentation in each method)
-3. **CRITICAL for JobStorageAdapter**: Ensure `query_jobs()` returns misfire fields:
+2. **JobStorageAdapter requires 5 core methods**: `create_job`, `get_job`, `update_job`, `delete_job`, `query_jobs`
+3. **CRITICAL**: Ensure `query_jobs()` returns misfire fields:
    - `if_missed`, `misfire_threshold_seconds`, `last_run_time`, `last_scheduled_time`
-4. Implement `update_job_run_times()` to persist execution history
+4. **Optional overrides** for production:
+   - `compare_and_swap_job()` - Atomic updates for multi-instance safety
+   - `count_jobs()` - Optimized counting for large datasets
 5. Add comprehensive tests for the adapter
 6. Update documentation with usage examples
 7. Add to `[project.optional-dependencies]` in pyproject.toml if it requires external dependencies

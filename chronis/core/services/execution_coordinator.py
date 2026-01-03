@@ -583,11 +583,14 @@ class ExecutionCoordinator:
         if trigger_type == TriggerType.DATE.value:
             if scheduled_time:
                 try:
-                    self.storage.update_job_run_times(
-                        job_id=job_id,
-                        scheduled_time=scheduled_time,
-                        actual_time=actual_time,
-                        next_run_time=None,
+                    self.storage.update_job(
+                        job_id,
+                        {
+                            "last_scheduled_time": scheduled_time,
+                            "last_run_time": actual_time,
+                            "next_run_time": None,
+                            "updated_at": utc_now().isoformat(),
+                        },
                     )
                 except Exception:
                     self.logger.error(
@@ -601,17 +604,14 @@ class ExecutionCoordinator:
 
         if utc_time and scheduled_time:
             try:
-                self.storage.update_job_run_times(
-                    job_id=job_id,
-                    scheduled_time=scheduled_time,
-                    actual_time=actual_time,
-                    next_run_time=utc_time.isoformat(),
-                )
-
                 self.storage.update_job(
                     job_id,
                     {
+                        "last_scheduled_time": scheduled_time,
+                        "last_run_time": actual_time,
+                        "next_run_time": utc_time.isoformat(),
                         "next_run_time_local": local_time.isoformat() if local_time else None,
+                        "updated_at": utc_now().isoformat(),
                     },
                 )
             except Exception:
