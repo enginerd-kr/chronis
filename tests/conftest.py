@@ -137,7 +137,7 @@ def execute_job_immediately(
     )
 
     # Poll and enqueue
-    added = scheduler._scheduling_orchestrator.poll_and_enqueue()
+    added = scheduler._orchestrator.enqueue_jobs()
 
     if added == 0:
         raise AssertionError(
@@ -147,7 +147,7 @@ def execute_job_immediately(
 
     # Get from queue and execute
     # OPTIMIZED: Queue now returns only job_id, fetch data from storage
-    queued_job_id = scheduler._scheduling_orchestrator.get_next_job_from_queue()
+    queued_job_id = scheduler._orchestrator.get_next_job_from_queue()
 
     if queued_job_id is None:
         raise AssertionError("No job in queue")

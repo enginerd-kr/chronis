@@ -1,0 +1,384 @@
+"""Base scheduler abstract class."""
+
+import threading
+from abc import ABC, abstractmethod
+from collections.abc import Callable
+from typing import Any
+
+from chronis.adapters.base import JobStorageAdapter, LockAdapter
+from chronis.core.callbacks import OnFailureCallback, OnSuccessCallback
+from chronis.core.common.types import TriggerType
+from chronis.core.execution.async_loop import AsyncExecutor
+from chronis.core.jobs.definition import JobDefinition, JobInfo
+from chronis.core.services.execution_coordinator import ExecutionCoordinator
+from chronis.core.state import JobStatus
+from chronis.utils.logging import ContextLogger, _default_logger
+from chronis.utils.time import utc_now
+
+
+class BaseScheduler(ABC):
+    """
+    Abstract base class for all scheduler implementations.
+
+    Provides:
+    1. Common job CRUD operations
+    2. Job execution coordination
+    3. Callback management
+    4. Graceful shutdown
+
+    Subclasses must implement:
+    - start(): Start the scheduler
+    - stop(): Stop the scheduler
+    - _schedule_jobs(): Schedule jobs using specific strategy
+    """
+
+    DEFAULT_MAX_WORKERS = 20
+
+    def __init__(
+        self,
+        storage_adapter: JobStorageAdapter,
+        lock_adapter: LockAdapter,
+        max_workers: int | None = None,
+        lock_prefix: str = "scheduler:lock:",
+        lock_ttl_seconds: int = 300,
+        verbose: bool = False,
+        logger: ContextLogger | None = None,
+        on_failure: OnFailureCallback | None = None,
+        on_success: OnSuccessCallback | None = None,
+    ) -> None:
+        """
+        Initialize base scheduler.
+
+        Args:
+            storage_adapter: Job storage adapter (required)
+            lock_adapter: Distributed lock adapter (required)
+            max_workers: Maximum number of worker threads (default: 20)
+            lock_prefix: Lock key prefix
+            lock_ttl_seconds: Lock TTL (seconds)
+            verbose: Enable verbose logging (default: False)
+            logger: Custom logger (uses default if None)
+            on_failure: Global failure handler for all jobs (optional)
+            on_success: Global success handler for all jobs (optional)
+        """
+        # Validate parameters
+        if not lock_prefix:
+            raise ValueError("lock_prefix cannot be empty")
+
+        self.storage = storage_adapter
+        self.lock = lock_adapter
+        self.max_workers = max_workers or self.DEFAULT_MAX_WORKERS
+        self.lock_prefix = lock_prefix
+        self.lock_ttl_seconds = lock_ttl_seconds
+        self.verbose = verbose
+        self.on_failure = on_failure
+        self.on_success = on_success
+
+        # Running state
+        self._running = False
+
+        # Job function and callback registries
+        self._job_registry: dict[str, Callable] = {}
+        self._failure_handler_registry: dict[str, OnFailureCallback] = {}
+        self._success_handler_registry: dict[str, OnSuccessCallback] = {}
+        self._registry_lock = threading.RLock()
+
+        # Initialize structured logger
+        base_logger = (
+            logger.logger if isinstance(logger, ContextLogger) else (logger or _default_logger)
+        )
+        self.logger = ContextLogger(base_logger, {"component": self.__class__.__name__})
+
+        # Initialize async executor (shared across all scheduler types)
+        self._async_executor = AsyncExecutor()
+
+        # Initialize execution coordinator (shared across all scheduler types)
+        self._init_execution_coordinator()
+
+    def _init_execution_coordinator(self) -> None:
+        """Initialize execution coordinator with thread pool."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        # Initialize ThreadPoolExecutor for job execution
+        self._executor = ThreadPoolExecutor(
+            max_workers=self.max_workers, thread_name_prefix="chronis-worker-"
+        )
+
+        # Initialize execution coordinator
+        self._execution_coordinator = ExecutionCoordinator(
+            storage=self.storage,
+            lock=self.lock,
+            executor=self._executor,
+            async_executor=self._async_executor,
+            function_registry=self._job_registry,
+            failure_handler_registry=self._failure_handler_registry,
+            success_handler_registry=self._success_handler_registry,
+            global_on_failure=self.on_failure,
+            global_on_success=self.on_success,
+            logger=self.logger,
+            lock_prefix=self.lock_prefix,
+            lock_ttl_seconds=self.lock_ttl_seconds,
+            verbose=self.verbose,
+        )
+
+    @abstractmethod
+    def start(self) -> None:
+        """
+        Start scheduler (implementation-specific).
+
+        Subclasses must implement this to start their scheduling mechanism:
+        - PollingScheduler: Start APScheduler for periodic polling
+        - EventScheduler: Start event listener
+        """
+        pass
+
+    @abstractmethod
+    def stop(self, timeout: float = 30.0) -> dict[str, Any]:
+        """
+        Stop scheduler gracefully (implementation-specific).
+
+        Args:
+            timeout: Maximum seconds to wait for jobs to complete
+
+        Returns:
+            Dictionary with shutdown status
+        """
+        pass
+
+    def is_running(self) -> bool:
+        """Check if scheduler is running."""
+        return self._running
+
+    def register_job_function(self, name: str, func: Callable) -> None:
+        """
+        Register job function (thread-safe).
+
+        Args:
+            name: Function name (e.g., "my_module.my_job")
+            func: Function object
+        """
+        with self._registry_lock:
+            self._job_registry[name] = func
+
+    # ========================================
+    # Job CRUD Operations (Common)
+    # ========================================
+
+    def create_job(self, job: JobDefinition) -> JobInfo:
+        """
+        Create new job.
+
+        Args:
+            job: Job definition
+
+        Returns:
+            Created job info
+
+        Raises:
+            JobAlreadyExistsError: Job already exists
+        """
+        from chronis.core.common.exceptions import JobAlreadyExistsError
+
+        # Register on_failure handler if provided
+        if job.on_failure:
+            with self._registry_lock:
+                self._failure_handler_registry[job.job_id] = job.on_failure
+
+        # Register on_success handler if provided
+        if job.on_success:
+            with self._registry_lock:
+                self._success_handler_registry[job.job_id] = job.on_success
+
+        # Create job in storage
+        job_data = job.to_dict()
+        try:
+            result = self.storage.create_job(job_data)  # type: ignore[arg-type]
+            if self.verbose:
+                self.logger.info("Job created", job_id=job.job_id)
+            return JobInfo.from_dict(result)  # type: ignore[arg-type]
+        except ValueError as e:
+            raise JobAlreadyExistsError(str(e)) from e
+
+    def get_job(self, job_id: str) -> JobInfo | None:
+        """
+        Get job by ID.
+
+        Args:
+            job_id: Job ID
+
+        Returns:
+            Job info or None if not found
+        """
+        job_data = self.storage.get_job(job_id)
+        return JobInfo.from_dict(job_data) if job_data else None  # type: ignore[arg-type]
+
+    def query_jobs(
+        self, filters: dict[str, Any] | None = None, limit: int | None = None
+    ) -> list[JobInfo]:
+        """
+        Query jobs with flexible filters.
+
+        Args:
+            filters: Dictionary of filter conditions (None = get all jobs)
+            limit: Maximum number of jobs to return
+
+        Returns:
+            List of jobs matching filters
+        """
+        jobs_data = self.storage.query_jobs(filters=filters, limit=limit)
+        return [JobInfo.from_dict(job_data) for job_data in jobs_data]  # type: ignore[arg-type]
+
+    def update_job(
+        self,
+        job_id: str,
+        name: str | None = None,
+        trigger_type: TriggerType | None = None,
+        trigger_args: dict[str, Any] | None = None,
+        status: JobStatus | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> JobInfo:
+        """
+        Update job.
+
+        Args:
+            job_id: Job ID
+            name: New name (optional)
+            trigger_type: New trigger type (optional)
+            trigger_args: New trigger parameters (optional)
+            status: Job status (optional)
+            metadata: Metadata (optional)
+
+        Returns:
+            Updated job info
+
+        Raises:
+            JobNotFoundError: Job not found
+        """
+        from chronis.core.common.exceptions import JobNotFoundError
+
+        # Build updates dictionary
+        updates_dict: dict[str, Any] = {
+            k: v
+            for k, v in {
+                "name": name,
+                "trigger_type": trigger_type.value if trigger_type else None,
+                "trigger_args": trigger_args,
+                "status": status.value if status else None,
+                "metadata": metadata,
+            }.items()
+            if v is not None
+        }
+
+        if not updates_dict:
+            current = self.get_job(job_id)
+            if not current:
+                raise JobNotFoundError(f"Job {job_id} not found")
+            return current
+
+        updates_dict["updated_at"] = utc_now().isoformat()
+
+        try:
+            result = self.storage.update_job(job_id, updates_dict)  # type: ignore[arg-type]
+            return JobInfo.from_dict(result)  # type: ignore[arg-type]
+        except ValueError as e:
+            raise JobNotFoundError(str(e)) from e
+
+    def delete_job(self, job_id: str) -> bool:
+        """
+        Delete job.
+
+        Args:
+            job_id: Job ID
+
+        Returns:
+            Deletion success
+        """
+        return self.storage.delete_job(job_id)
+
+    def pause_job(self, job_id: str) -> bool:
+        """
+        Pause a scheduled job.
+
+        Args:
+            job_id: Job ID to pause
+
+        Returns:
+            True if job was paused
+
+        Raises:
+            JobNotFoundError: Job not found
+            InvalidJobStateError: Job not in pausable state
+        """
+        from chronis.core.common.exceptions import InvalidJobStateError, JobNotFoundError
+
+        job = self.get_job(job_id)
+        if not job:
+            raise JobNotFoundError(
+                f"Job '{job_id}' not found. It may have been deleted or never existed. Use scheduler.query_jobs() to see available jobs."
+            )
+
+        if job.status not in (JobStatus.SCHEDULED, JobStatus.PENDING):
+            raise InvalidJobStateError(
+                f"Cannot pause job '{job_id}' in {job.status.value} state. "
+                f"Only SCHEDULED or PENDING jobs can be paused."
+            )
+
+        self.storage.update_job(
+            job_id, {"status": JobStatus.PAUSED.value, "updated_at": utc_now().isoformat()}
+        )
+        self.logger.info(f"Job {job_id} paused", extra={"job_id": job_id})
+        return True
+
+    def resume_job(self, job_id: str) -> bool:
+        """
+        Resume a paused job.
+
+        Args:
+            job_id: Job ID to resume
+
+        Returns:
+            True if job was resumed
+
+        Raises:
+            JobNotFoundError: Job not found
+            InvalidJobStateError: Job not paused
+        """
+        from chronis.core.common.exceptions import InvalidJobStateError, JobNotFoundError
+
+        job = self.get_job(job_id)
+        if not job:
+            raise JobNotFoundError(
+                f"Job '{job_id}' not found. It may have been deleted or never existed. "
+                "Use scheduler.query_jobs() to see available jobs."
+            )
+
+        if job.status != JobStatus.PAUSED:
+            raise InvalidJobStateError(
+                f"Cannot resume job '{job_id}' in {job.status.value} state. "
+                f"Only PAUSED jobs can be resumed."
+            )
+
+        self.storage.update_job(
+            job_id, {"status": JobStatus.SCHEDULED.value, "updated_at": utc_now().isoformat()}
+        )
+        self.logger.info(f"Job {job_id} resumed", extra={"job_id": job_id})
+        return True
+
+    # ========================================
+    # Helper Methods (Common)
+    # ========================================
+
+    def _start_async_loop(self) -> None:
+        """Start dedicated event loop for async jobs."""
+        self._async_executor.start()
+
+    def _stop_async_loop(self, timeout: float = 30.0) -> bool:
+        """
+        Stop dedicated event loop.
+
+        Args:
+            timeout: Maximum seconds to wait for async tasks
+
+        Returns:
+            True if all async tasks completed, False if timeout
+        """
+        return self._async_executor.stop(timeout=timeout)

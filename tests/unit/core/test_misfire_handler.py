@@ -4,8 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 from chronis.core.common.types import TriggerType
 from chronis.core.jobs.definition import JobInfo
-from chronis.core.misfire import SimpleMisfirePolicy
-from chronis.core.misfire.handler import MisfireHandler
+from chronis.core.misfire import MisfireHandler, MisfirePolicy
 from chronis.core.state import JobStatus
 
 
@@ -25,7 +24,7 @@ class TestMisfireHandlerSkipPolicy:
             status=JobStatus.SCHEDULED,
             next_run_time=None,
             next_run_time_local=None,
-            metadata={"if_missed": SimpleMisfirePolicy.SKIP.value},
+            metadata={"if_missed": MisfirePolicy.SKIP.value},
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
         )
@@ -53,7 +52,7 @@ class TestMisfireHandlerRunOncePolicy:
             status=JobStatus.SCHEDULED,
             next_run_time=None,
             next_run_time_local=None,
-            metadata={"if_missed": SimpleMisfirePolicy.RUN_ONCE.value},
+            metadata={"if_missed": MisfirePolicy.RUN_ONCE.value},
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
         )
@@ -83,7 +82,7 @@ class TestMisfireHandlerRunAllPolicy:
             status=JobStatus.SCHEDULED,
             next_run_time=None,
             next_run_time_local=None,
-            metadata={"if_missed": SimpleMisfirePolicy.RUN_ALL.value},
+            metadata={"if_missed": MisfirePolicy.RUN_ALL.value},
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
         )
@@ -108,7 +107,7 @@ class TestMisfireHandlerRunAllPolicy:
             status=JobStatus.SCHEDULED,
             next_run_time=None,
             next_run_time_local=None,
-            metadata={"if_missed": SimpleMisfirePolicy.RUN_ALL.value},
+            metadata={"if_missed": MisfirePolicy.RUN_ALL.value},
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
         )

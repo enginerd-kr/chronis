@@ -25,7 +25,7 @@ from chronis.core.query import (
 )
 from chronis.core.scheduler import PollingScheduler
 from chronis.core.scheduling import NextRunTimeCalculator
-from chronis.core.services import ExecutionCoordinator, JobService, SchedulingOrchestrator
+from chronis.core.services import ExecutionCoordinator
 from chronis.core.state import JobStatus
 
 __all__ = [
@@ -54,8 +54,6 @@ __all__ = [
     "jobs_after_time",
     "combine_filters",
     # Services
-    "JobService",
-    "SchedulingOrchestrator",
     "ExecutionCoordinator",
     # Execution
     "AsyncExecutor",

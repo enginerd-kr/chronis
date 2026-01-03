@@ -119,7 +119,7 @@ class TestPauseResume:
         scheduler.pause_job(job.job_id)
 
         # Poll
-        added = scheduler._scheduling_orchestrator.poll_and_enqueue()
+        added = scheduler._orchestrator.enqueue_jobs()
 
         # Should not add paused jobs
         assert added == 0
