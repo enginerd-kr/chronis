@@ -3,17 +3,19 @@
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
-from chronis.core.callbacks import OnFailureCallback, OnSuccessCallback
-from chronis.core.common.types import TriggerType
 from chronis.core.execution.async_loop import AsyncExecutor
+from chronis.core.execution.callbacks import OnFailureCallback, OnSuccessCallback
 from chronis.core.jobs.definition import JobDefinition, JobInfo
-from chronis.core.services.execution_coordinator import ExecutionCoordinator
 from chronis.core.state import JobStatus
+from chronis.core.state.enums import TriggerType
 from chronis.utils.logging import ContextLogger, _default_logger
 from chronis.utils.time import utc_now
+
+if TYPE_CHECKING:
+    pass
 
 
 class BaseScheduler(ABC):
@@ -103,7 +105,9 @@ class BaseScheduler(ABC):
             max_workers=self.max_workers, thread_name_prefix="chronis-worker-"
         )
 
-        # Initialize execution coordinator
+        # Initialize execution coordinator (lazy import to avoid circular dependency)
+        from chronis.core.execution.coordinator import ExecutionCoordinator
+
         self._execution_coordinator = ExecutionCoordinator(
             storage=self.storage,
             lock=self.lock,

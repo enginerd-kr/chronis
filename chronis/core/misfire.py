@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 
 from chronis.core.jobs.definition import JobInfo
-from chronis.core.scheduling import NextRunTimeCalculator
+from chronis.core.schedulers.next_run_calculator import NextRunTimeCalculator
 from chronis.type_defs import JobStorageData
 
 
@@ -224,7 +224,7 @@ def get_default_policy(trigger_type):
     Returns:
         MisfirePolicy enum
     """
-    from chronis.core.common.types import TriggerType
+    from chronis.core.state.enums import TriggerType
 
     if isinstance(trigger_type, TriggerType):
         trigger_type_str = trigger_type.value

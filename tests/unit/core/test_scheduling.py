@@ -2,8 +2,8 @@
 
 from datetime import UTC, datetime
 
-from chronis.core.common.types import TriggerType
-from chronis.core.scheduling import NextRunTimeCalculator
+from chronis.core.schedulers.next_run_calculator import NextRunTimeCalculator
+from chronis.core.state.enums import TriggerType
 
 
 class TestNextRunTimeCalculator:

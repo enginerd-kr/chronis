@@ -5,16 +5,15 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from typing import Any
 
-from tenacity import RetryError, retry, stop_after_attempt, wait_random_exponential
-
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
-from chronis.core import lifecycle
-from chronis.core.callbacks import OnFailureCallback, OnSuccessCallback
-from chronis.core.common.types import TriggerType
 from chronis.core.execution.async_loop import AsyncExecutor
+from chronis.core.execution.callback_invoker import CallbackInvoker
+from chronis.core.execution.callbacks import OnFailureCallback, OnSuccessCallback
+from chronis.core.execution.retry_handler import RetryHandler
 from chronis.core.jobs.definition import JobInfo
-from chronis.core.scheduling import NextRunTimeCalculator
+from chronis.core.schedulers.next_run_calculator import NextRunTimeCalculator
 from chronis.core.state import JobStatus
+from chronis.core.state.enums import TriggerType
 from chronis.utils.logging import ContextLogger
 from chronis.utils.time import utc_now
 
@@ -73,6 +72,9 @@ class ExecutionCoordinator:
         self.lock_prefix = lock_prefix
         self.lock_ttl_seconds = lock_ttl_seconds
         self.verbose = verbose
+
+        # Initialize retry handler
+        self.retry_handler = RetryHandler(storage=storage, lock=lock, logger=logger)
 
     def try_execute(self, job_data: dict[str, Any], on_complete: Callable[[str], None]) -> bool:
         """
@@ -140,21 +142,7 @@ class ExecutionCoordinator:
             yield lock_acquired
         finally:
             if lock_acquired:
-                try:
-                    self._release_lock_with_retry(lock_key)
-                except RetryError as e:
-                    job_logger.error(
-                        f"Lock release failed after retries: {e}", lock_key=lock_key, exc_info=True
-                    )
-
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_random_exponential(multiplier=0.1, min=0.1, max=1),
-        reraise=True,
-    )
-    def _release_lock_with_retry(self, lock_key: str):
-        """Release lock with automatic retry with jitter (random 0.1-1s backoff) to prevent thundering herd."""
-        self.lock.release(lock_key)
+                self.retry_handler.try_release_lock(lock_key, job_logger)
 
     def _trigger_execution(
         self,
@@ -230,7 +218,7 @@ class ExecutionCoordinator:
                 )
 
             # Determine next status after successful execution
-            next_status = lifecycle.determine_next_status_after_execution(
+            next_status = JobInfo.determine_next_status_after_execution(
                 trigger_type=job_data["trigger_type"], execution_succeeded=True
             )
 
@@ -246,7 +234,13 @@ class ExecutionCoordinator:
 
             # Invoke success handler (skip for async - handled in callback)
             if not is_async:
-                self._invoke_success_handler(job_id, job_data)
+                CallbackInvoker(
+                    self.failure_handler_registry,
+                    self.success_handler_registry,
+                    self.global_on_failure,
+                    self.global_on_success,
+                    self.logger,
+                ).invoke_success_callback(job_id, job_data)
 
         except Exception as e:
             job_logger.error(f"Execution failed: {e}", exc_info=True)
@@ -257,11 +251,17 @@ class ExecutionCoordinator:
 
             if retry_count < max_retries:
                 # Schedule retry with exponential backoff
-                self._schedule_retry(job_data, retry_count + 1, job_logger)
+                self.retry_handler.schedule_retry(job_data, retry_count + 1, job_logger)
             else:
                 # No more retries - mark as FAILED
                 self._update_job_status(job_id, JobStatus.FAILED)
-                self._invoke_failure_handler(job_id, e, job_data)
+                CallbackInvoker(
+                    self.failure_handler_registry,
+                    self.success_handler_registry,
+                    self.global_on_failure,
+                    self.global_on_success,
+                    self.logger,
+                ).invoke_failure_callback(job_id, e, job_data)
 
     def _execute_job_function(self, job_data: dict[str, Any], job_logger: ContextLogger) -> None:
         """
@@ -310,7 +310,13 @@ class ExecutionCoordinator:
                 try:
                     fut.result()  # This will raise if the coroutine raised or timed out
                     # Async job succeeded - invoke success handler
-                    self._invoke_success_handler(job_id, job_data)
+                    CallbackInvoker(
+                        self.failure_handler_registry,
+                        self.success_handler_registry,
+                        self.global_on_failure,
+                        self.global_on_success,
+                        self.logger,
+                    ).invoke_success_callback(job_id, job_data)
                 except TimeoutError:
                     from chronis.core.common.exceptions import JobTimeoutError
 
@@ -321,12 +327,24 @@ class ExecutionCoordinator:
                         job_type="async",
                     )
                     self._update_job_status(job_id, JobStatus.FAILED)
-                    self._invoke_failure_handler(job_id, JobTimeoutError(timeout_msg), job_data)
+                    CallbackInvoker(
+                        self.failure_handler_registry,
+                        self.success_handler_registry,
+                        self.global_on_failure,
+                        self.global_on_success,
+                        self.logger,
+                    ).invoke_failure_callback(job_id, JobTimeoutError(timeout_msg), job_data)
                 except Exception as e:
                     job_logger.error(f"Async job execution failed: {e}", exc_info=True)
                     # Update job status to FAILED if async execution fails
                     self._update_job_status(job_id, JobStatus.FAILED)
-                    self._invoke_failure_handler(job_id, e, job_data)
+                    CallbackInvoker(
+                        self.failure_handler_registry,
+                        self.success_handler_registry,
+                        self.global_on_failure,
+                        self.global_on_success,
+                        self.logger,
+                    ).invoke_failure_callback(job_id, e, job_data)
 
             future.add_done_callback(_handle_async_completion)
         else:
@@ -378,53 +396,6 @@ class ExecutionCoordinator:
             else:
                 # No timeout - execute directly
                 func(*args, **kwargs)
-
-    def _schedule_retry(
-        self, job_data: dict[str, Any], next_retry_count: int, job_logger: ContextLogger
-    ) -> None:
-        """
-        Schedule job retry with exponential backoff.
-
-        Args:
-            job_data: Job data
-            next_retry_count: Next retry attempt number (1-indexed)
-            job_logger: Context logger
-        """
-        from datetime import timedelta
-
-        from chronis.utils.time import get_timezone
-
-        job_id = job_data["job_id"]
-        base_delay = job_data.get("retry_delay_seconds", 60)
-        timezone = job_data.get("timezone", "UTC")
-
-        delay_seconds = base_delay * (2 ** (next_retry_count - 1))
-        delay_seconds = min(delay_seconds, 3600)
-
-        next_run_time = utc_now() + timedelta(seconds=delay_seconds)
-
-        tz = get_timezone(timezone)
-        next_run_time_local = next_run_time.astimezone(tz)
-
-        try:
-            self.storage.update_job(
-                job_id,
-                {
-                    "retry_count": next_retry_count,
-                    "next_run_time": next_run_time.isoformat(),
-                    "next_run_time_local": next_run_time_local.isoformat(),
-                    "status": JobStatus.SCHEDULED.value,
-                    "updated_at": utc_now().isoformat(),
-                },
-            )
-
-            max_retries = job_data.get("max_retries", 0)
-            job_logger.info(
-                f"Retry scheduled: attempt {next_retry_count}/{max_retries} in {delay_seconds}s"
-            )
-
-        except Exception as e:
-            job_logger.error(f"Failed to schedule retry: {e}", exc_info=True)
 
     def _try_claim_job_with_cas(
         self, job_id: str, job_data: dict[str, Any]
@@ -570,72 +541,3 @@ class ExecutionCoordinator:
                 )
             except Exception:
                 self.logger.error("Failed to update job run times", job_id=job_id, exc_info=True)
-
-    def _invoke_failure_handler(
-        self, job_id: str, error: Exception, job_data: dict[str, Any]
-    ) -> None:
-        """
-        Invoke failure handlers. Both job-specific and global handlers are called.
-
-        Args:
-            job_id: Job ID that failed
-            error: Exception that occurred
-            job_data: Job data from storage
-        """
-        job_info = JobInfo.from_dict(job_data)
-
-        # Invoke job-specific handler first
-        job_handler = self.failure_handler_registry.get(job_id)
-        if job_handler:
-            try:
-                job_handler(job_id, error, job_info)
-            except Exception as handler_error:
-                self.logger.error(
-                    f"Job-specific failure handler raised exception: {handler_error}",
-                    job_id=job_id,
-                    exc_info=True,
-                )
-
-        # Also invoke global handler
-        if self.global_on_failure:
-            try:
-                self.global_on_failure(job_id, error, job_info)
-            except Exception as handler_error:
-                self.logger.error(
-                    f"Global failure handler raised exception: {handler_error}",
-                    job_id=job_id,
-                    exc_info=True,
-                )
-
-    def _invoke_success_handler(self, job_id: str, job_data: dict[str, Any]) -> None:
-        """
-        Invoke success handlers. Both job-specific and global handlers are called.
-
-        Args:
-            job_id: Job ID that succeeded
-            job_data: Job data from storage
-        """
-        job_info = JobInfo.from_dict(job_data)
-
-        # Invoke job-specific handler first
-        job_handler = self.success_handler_registry.get(job_id)
-        if job_handler:
-            try:
-                job_handler(job_id, job_info)
-            except Exception as handler_error:
-                self.logger.error(
-                    f"Job-specific success handler raised exception: {handler_error}",
-                    job_id=job_id,
-                    exc_info=True,
-                )
-
-        # Also invoke global handler
-        if self.global_on_success:
-            try:
-                self.global_on_success(job_id, job_info)
-            except Exception as handler_error:
-                self.logger.error(
-                    f"Global success handler raised exception: {handler_error}",
-                    job_id=job_id,
-                    exc_info=True,
-                )

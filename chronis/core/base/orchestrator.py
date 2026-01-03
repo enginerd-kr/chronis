@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any
 
-from chronis.core.job_queue import JobQueue
+from chronis.core.execution.job_queue import JobQueue
 from chronis.utils.logging import ContextLogger
 
 

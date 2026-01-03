@@ -6,7 +6,8 @@ from unittest.mock import Mock, patch
 import pytest
 from tenacity import RetryError
 
-from chronis.core.services.execution_coordinator import ExecutionCoordinator
+from chronis.core.execution.callback_invoker import CallbackInvoker
+from chronis.core.execution.coordinator import ExecutionCoordinator
 
 
 class TestLockReleaseRetryError:
@@ -32,8 +33,8 @@ class TestLockReleaseRetryError:
         # Mock lock to return True (acquired)
         mock_lock.acquire.return_value = True
 
-        # Mock _release_lock_with_retry to raise RetryError
-        coordinator._release_lock_with_retry = Mock(side_effect=RetryError("Failed"))
+        # Mock retry_handler.try_release_lock to simulate error
+        coordinator.retry_handler.release_lock_with_retry = Mock(side_effect=RetryError("Failed"))
 
         job_logger = Mock()
 
@@ -168,8 +169,10 @@ class TestExecuteInBackgroundRetryLogic:
             "updated_at": "2024-01-01T12:00:00+00:00",
         }
 
-        with patch("chronis.core.services.execution_coordinator.lifecycle") as lifecycle_mock:
-            lifecycle_mock.determine_next_status_after_execution.return_value = None
+        with patch(
+            "chronis.core.jobs.definition.JobInfo.determine_next_status_after_execution"
+        ) as status_mock:
+            status_mock.return_value = None
 
             coordinator._execute_in_background(job_data, Mock())
 
@@ -211,8 +214,10 @@ class TestExecuteInBackgroundRetryLogic:
 
         job_logger = Mock()
 
-        with patch("chronis.core.services.execution_coordinator.lifecycle") as lifecycle_mock:
-            lifecycle_mock.determine_next_status_after_execution.return_value = None
+        with patch(
+            "chronis.core.jobs.definition.JobInfo.determine_next_status_after_execution"
+        ) as status_mock:
+            status_mock.return_value = None
 
             coordinator._execute_in_background(job_data, job_logger)
 
@@ -222,7 +227,7 @@ class TestExecuteInBackgroundRetryLogic:
 
 
 class TestScheduleRetryErrorHandling:
-    """Test error handling in _schedule_retry."""
+    """Test error handling in retry_handler.schedule_retry."""
 
     @patch("chronis.utils.time.get_timezone")
     @patch("chronis.utils.time.utc_now")
@@ -259,7 +264,7 @@ class TestScheduleRetryErrorHandling:
         job_logger = Mock()
 
         # Should not raise
-        coordinator._schedule_retry(job_data, 1, job_logger)
+        coordinator.retry_handler.schedule_retry(job_data, 1, job_logger)
 
         # Verify error was logged
         job_logger.error.assert_called_once()
@@ -269,7 +274,7 @@ class TestScheduleRetryErrorHandling:
 class TestUpdateNextRunTimeErrorHandling:
     """Test error handling in _update_next_run_time."""
 
-    @patch("chronis.core.services.execution_coordinator.NextRunTimeCalculator")
+    @patch("chronis.core.execution.coordinator.NextRunTimeCalculator")
     @patch("chronis.utils.time.utc_now")
     def test_storage_error_during_update_is_logged(self, mock_utc_now, mock_calc):
         """Test that storage error during update_job is logged."""
@@ -311,7 +316,7 @@ class TestUpdateNextRunTimeErrorHandling:
         logger_mock.error.assert_called()
         assert "Failed to update job run times" in logger_mock.error.call_args[0][0]
 
-    @patch("chronis.core.services.execution_coordinator.NextRunTimeCalculator")
+    @patch("chronis.core.execution.coordinator.NextRunTimeCalculator")
     @patch("chronis.utils.time.utc_now")
     def test_update_local_time_error_is_logged(self, mock_utc_now, mock_calc):
         """Test that error during second update_job call is logged."""
@@ -389,7 +394,13 @@ class TestCallbackExceptionHandling:
         }
 
         # Should not raise
-        coordinator._invoke_success_handler("test-1", job_data)
+        CallbackInvoker(
+            coordinator.failure_handler_registry,
+            coordinator.success_handler_registry,
+            coordinator.global_on_failure,
+            coordinator.global_on_success,
+            coordinator.logger,
+        ).invoke_success_callback("test-1", job_data)
 
         # Verify error was logged
         coordinator.logger.error.assert_called_once()
@@ -430,7 +441,13 @@ class TestCallbackExceptionHandling:
             "updated_at": datetime.now(UTC).isoformat(),
         }
 
-        coordinator._invoke_success_handler("test-1", job_data)
+        CallbackInvoker(
+            coordinator.failure_handler_registry,
+            coordinator.success_handler_registry,
+            coordinator.global_on_failure,
+            coordinator.global_on_success,
+            coordinator.logger,
+        ).invoke_success_callback("test-1", job_data)
 
         coordinator.logger.error.assert_called_once()
         assert "Global success handler raised exception" in coordinator.logger.error.call_args[0][0]
@@ -467,7 +484,13 @@ class TestCallbackExceptionHandling:
             "updated_at": datetime.now(UTC).isoformat(),
         }
 
-        coordinator._invoke_failure_handler("test-1", ValueError("Test"), job_data)
+        CallbackInvoker(
+            coordinator.failure_handler_registry,
+            coordinator.success_handler_registry,
+            coordinator.global_on_failure,
+            coordinator.global_on_success,
+            coordinator.logger,
+        ).invoke_failure_callback("test-1", ValueError("Test"), job_data)
 
         coordinator.logger.error.assert_called_once()
         assert (
@@ -507,7 +530,13 @@ class TestCallbackExceptionHandling:
             "updated_at": datetime.now(UTC).isoformat(),
         }
 
-        coordinator._invoke_failure_handler("test-1", ValueError("Test"), job_data)
+        CallbackInvoker(
+            coordinator.failure_handler_registry,
+            coordinator.success_handler_registry,
+            coordinator.global_on_failure,
+            coordinator.global_on_success,
+            coordinator.logger,
+        ).invoke_failure_callback("test-1", ValueError("Test"), job_data)
 
         coordinator.logger.error.assert_called_once()
         assert "Global failure handler raised exception" in coordinator.logger.error.call_args[0][0]

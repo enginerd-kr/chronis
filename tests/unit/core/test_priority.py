@@ -2,8 +2,8 @@
 
 import pytest
 
-from chronis.core.common.types import TriggerType
 from chronis.core.jobs.definition import JobDefinition, JobInfo
+from chronis.core.state.enums import TriggerType
 
 
 class TestPriorityValidation:

@@ -4,7 +4,7 @@ from typing import Any, cast
 
 from chronis.adapters.base import JobStorageAdapter
 from chronis.core.base.orchestrator import BaseOrchestrator
-from chronis.core.job_queue import JobQueue
+from chronis.core.execution.job_queue import JobQueue
 from chronis.core.misfire import MisfireClassifier
 from chronis.core.query import jobs_ready_before
 from chronis.utils.logging import ContextLogger

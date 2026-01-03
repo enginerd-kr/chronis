@@ -1,6 +1,14 @@
-"""Job status enumeration."""
+"""Job status and trigger type enumerations."""
 
 from enum import Enum
+
+
+class TriggerType(Enum):
+    """Trigger type for job scheduling."""
+
+    INTERVAL = "interval"  # Periodic execution
+    CRON = "cron"  # Cron expression
+    DATE = "date"  # One-time execution
 
 
 class JobStatus(str, Enum):

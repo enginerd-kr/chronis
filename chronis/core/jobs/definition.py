@@ -7,12 +7,12 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from chronis.core.common.types import TriggerType
 from chronis.core.state import JobStatus
+from chronis.core.state.enums import TriggerType
 from chronis.utils.time import get_timezone, utc_now
 
 if TYPE_CHECKING:
-    from chronis.core.callbacks import OnFailureCallback, OnSuccessCallback
+    from chronis.core.execution.callbacks import OnFailureCallback, OnSuccessCallback
 else:
     OnFailureCallback = Any
     OnSuccessCallback = Any
@@ -125,7 +125,7 @@ class JobDefinition(BaseModel):
 
     def _calculate_initial_next_run_time(self) -> datetime | None:
         """Calculate initial next_run_time in UTC."""
-        from chronis.core.scheduling import NextRunTimeCalculator
+        from chronis.core.schedulers.next_run_calculator import NextRunTimeCalculator
 
         tz = get_timezone(self.timezone)
         current_time = datetime.now(tz)
@@ -187,9 +187,80 @@ class JobInfo:
             priority=data.get("priority", 5),
         )
 
-    def can_execute(self) -> bool:
-        """Check if this job can be executed."""
-        return self.status.can_execute()
+    def can_execute(self, current_time: datetime | None = None) -> bool:
+        """
+        Check if a job can be executed.
+
+        A job can be executed if:
+        1. Its state allows execution (via State pattern)
+        2. Its next_run_time has passed (if applicable)
+
+        Args:
+            current_time: Time to check against (defaults to now)
+
+        Returns:
+            True if job can be executed, False otherwise
+        """
+        if not self.status.can_execute():
+            return False
+
+        if self.next_run_time:
+            if current_time is None:
+                current_time = utc_now()
+            return self.next_run_time <= current_time
+
+        return True
+
+    def is_ready_for_execution(self, current_time: datetime | None = None) -> bool:
+        """
+        Check if a job is ready for execution at a specific time.
+
+        Args:
+            current_time: Time to check against (defaults to now)
+
+        Returns:
+            True if job is ready, False otherwise
+        """
+        if current_time is None:
+            current_time = utc_now()
+
+        if self.status not in (JobStatus.SCHEDULED, JobStatus.PENDING):
+            return False
+
+        if not self.next_run_time:
+            return False
+
+        return self.next_run_time <= current_time
+
+    @staticmethod
+    def determine_next_status_after_execution(
+        trigger_type: str | TriggerType, execution_succeeded: bool
+    ) -> JobStatus | None:
+        """
+        Determine what status a job should transition to after execution.
+
+        Business rules:
+        - One-time jobs (DATE trigger): Should be deleted (return None)
+        - Recurring jobs + success: SCHEDULED
+        - Any job + failure: FAILED
+
+        Args:
+            trigger_type: Job trigger type (string or enum)
+            execution_succeeded: Whether execution was successful
+
+        Returns:
+            Next status, or None if job should be deleted
+        """
+        if not execution_succeeded:
+            return JobStatus.FAILED
+
+        if isinstance(trigger_type, str):
+            trigger_type = TriggerType(trigger_type)
+
+        if trigger_type == TriggerType.DATE:
+            return None
+
+        return JobStatus.SCHEDULED
 
     def get_next_run_time(self, timezone: str | None = None) -> datetime | None:
         """

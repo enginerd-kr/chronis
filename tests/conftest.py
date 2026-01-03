@@ -362,8 +362,8 @@ def sample_job_data():
         def test_create(storage, sample_job_data):
             storage.create_job(sample_job_data)
     """
-    from chronis.core.common.types import TriggerType
     from chronis.core.state import JobStatus
+    from chronis.core.state.enums import TriggerType
     from chronis.utils.time import utc_now
 
     return {

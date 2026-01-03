@@ -7,7 +7,7 @@ import pytest
 
 from chronis.adapters.lock import InMemoryLockAdapter
 from chronis.adapters.storage import InMemoryStorageAdapter
-from chronis.core.scheduler import PollingScheduler
+from chronis.core.schedulers.polling_scheduler import PollingScheduler
 from chronis.utils.time import utc_now
 
 

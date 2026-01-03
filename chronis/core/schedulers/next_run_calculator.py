@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from chronis.core.common.types import TriggerType
+from chronis.core.state.enums import TriggerType
 from chronis.core.triggers import get_trigger_strategy
 from chronis.utils.time import get_timezone
 

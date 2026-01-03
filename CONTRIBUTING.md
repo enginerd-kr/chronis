@@ -165,10 +165,10 @@ chronis/
 ├── chronis/              # Main package
 │   ├── core/            # Core scheduler logic
 │   │   ├── base/       # Abstract base classes (BaseScheduler, BaseOrchestrator)
-│   │   ├── schedulers/ # Scheduler implementations (PollingOrchestrator)
-│   │   ├── services/   # Application services (ExecutionCoordinator)
+│   │   ├── schedulers/ # Scheduler implementations (PollingScheduler, PollingOrchestrator, job builders)
+│   │   ├── execution/  # Execution components (ExecutionCoordinator, RetryHandler, CallbackInvoker)
 │   │   ├── jobs/       # Job definitions
-│   │   ├── state/      # State management
+│   │   ├── state/      # State management (JobStatus, TriggerType enums)
 │   │   ├── triggers/   # Trigger strategies
 │   │   └── misfire.py  # Misfire handling (unified)
 │   ├── adapters/        # Storage and lock adapters

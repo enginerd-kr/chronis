@@ -4,7 +4,7 @@ import pytest
 
 from chronis.adapters.lock.memory import InMemoryLockAdapter
 from chronis.adapters.storage.memory import InMemoryStorageAdapter
-from chronis.core.scheduler import PollingScheduler
+from chronis.core.schedulers.polling_scheduler import PollingScheduler
 
 
 class TestPollingIntervalValidation:

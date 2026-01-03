@@ -1,6 +1,6 @@
 """Scheduler implementations."""
 
-from chronis.core.schedulers.polling import PollingOrchestrator
+from chronis.core.schedulers.polling_orchestrator import PollingOrchestrator
 
 __all__ = [
     "PollingOrchestrator",
