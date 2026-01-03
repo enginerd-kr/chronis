@@ -1,44 +1,72 @@
-"""Scheduling orchestration service."""
+"""Base orchestrator for scheduling logic."""
 
+from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any
 
-from chronis.adapters.base import JobStorageAdapter
 from chronis.core.job_queue import JobQueue
-from chronis.core.misfire.utils import MisfireClassifier
-from chronis.core.query import jobs_ready_before
 from chronis.utils.logging import ContextLogger
-from chronis.utils.time import utc_now
 
 
-class SchedulingOrchestrator:
-    """Orchestrates job polling and queue management."""
+class BaseOrchestrator(ABC):
+    """
+    Base class for scheduling orchestrators.
+
+    Defines the contract for:
+    1. Retrieving ready jobs (implementation-specific)
+    2. Managing job queue (common)
+    3. Tracking queue status (common)
+
+    Subclasses implement job retrieval strategy:
+    - PollingOrchestrator: Queries storage periodically
+    - EventOrchestrator: Listens to event streams
+    """
 
     def __init__(
         self,
-        storage: JobStorageAdapter,
         job_queue: JobQueue,
         logger: ContextLogger,
         verbose: bool = False,
     ) -> None:
         """
-        Initialize scheduling orchestrator.
+        Initialize base orchestrator.
 
         Args:
-            storage: Storage adapter for querying jobs
             job_queue: Job queue for managing execution
             logger: Context logger
             verbose: Enable verbose logging
         """
-        self.storage = storage
         self.job_queue = job_queue
         self.logger = logger
         self.verbose = verbose
         self.last_poll_time: datetime | None = None
 
-    def poll_and_enqueue(self) -> int:
+    @abstractmethod
+    def _get_ready_jobs(self, limit: int | None = None) -> list[Any]:
         """
-        Poll storage for ready jobs and add them to queue.
+        Get ready jobs using implementation-specific strategy.
+
+        Args:
+            limit: Maximum number of jobs to return
+
+        Returns:
+            List of job data dictionaries sorted by priority
+
+        Note:
+            This method must be implemented by subclasses.
+            - PollingOrchestrator: Queries storage
+            - EventOrchestrator: Listens to events
+        """
+        pass
+
+    def enqueue_jobs(self) -> int:
+        """
+        Get ready jobs and enqueue them.
+
+        This is the main public method that orchestrates the flow:
+        1. Check available queue slots
+        2. Get ready jobs (via _get_ready_jobs)
+        3. Add jobs to queue with priority
 
         Returns:
             Number of jobs added to queue
@@ -48,12 +76,11 @@ class SchedulingOrchestrator:
 
             if available_slots <= 0:
                 self.logger.warning(
-                    "Job queue is full, skipping poll", queue_status=self.job_queue.get_status()
+                    "Job queue is full, skipping enqueue", queue_status=self.job_queue.get_status()
                 )
                 return 0
 
-            current_time = utc_now()
-            jobs = self._query_ready_jobs(current_time, limit=available_slots)
+            jobs = self._get_ready_jobs(limit=available_slots)
 
             if jobs:
                 if self.verbose or len(jobs) >= 10:
@@ -65,29 +92,26 @@ class SchedulingOrchestrator:
 
                 added_count = 0
                 for job_data in jobs:
-                    # OPTIMIZED: Only store job_id + priority in queue
                     job_id = job_data.get("job_id")
+                    if not job_id:
+                        continue
                     priority = job_data.get("priority", 5)
                     if self.job_queue.add_job(job_id, priority):
                         added_count += 1
                     else:
                         self.logger.warning("Failed to add job to queue", job_id=job_id)
 
-                self.last_poll_time = current_time
                 return added_count
 
-            self.last_poll_time = current_time
             return 0
 
         except Exception as e:
-            self.logger.error(f"Polling error: {e}", exc_info=True)
+            self.logger.error(f"Enqueue error: {e}", exc_info=True)
             return 0
 
     def get_next_job_from_queue(self) -> str | None:
         """
         Get next job ID from queue for execution.
-
-        OPTIMIZED: Returns only job_id. Caller must fetch job data from storage.
 
         Returns:
             Job ID or None if queue is empty
@@ -123,45 +147,3 @@ class SchedulingOrchestrator:
             True if queue has no pending jobs
         """
         return self.job_queue.is_empty()
-
-    def _query_ready_jobs(self, current_time: datetime, limit: int | None = None) -> list[Any]:
-        """
-        Query ready jobs from storage and classify them (normal vs misfired).
-
-        Args:
-            current_time: Current time
-            limit: Maximum number of jobs to return
-
-        Returns:
-            List of ready job data sorted by priority (high to low) then time (early to late)
-        """
-        from typing import cast
-
-        filters = jobs_ready_before(current_time)
-
-        jobs = self.storage.query_jobs(filters=cast(dict[str, Any], filters), limit=None)
-
-        normal_jobs, misfired_jobs = MisfireClassifier.classify_due_jobs(
-            jobs, current_time.isoformat()
-        )
-
-        if misfired_jobs:
-            self.logger.warning(
-                "Misfired jobs detected",
-                count=len(misfired_jobs),
-                job_ids=[j.get("job_id") for j in misfired_jobs],
-            )
-
-        all_jobs = normal_jobs + misfired_jobs
-
-        def sort_key(job: Any) -> tuple[int, str]:
-            priority = job.get("priority", 5)
-            next_run = job.get("next_run_time", "")
-            return (-int(priority), str(next_run))
-
-        all_jobs.sort(key=sort_key)
-
-        if limit is not None:
-            all_jobs = all_jobs[:limit]
-
-        return all_jobs

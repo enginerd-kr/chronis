@@ -164,17 +164,19 @@ feat(scheduler): add support for recurring jobs
 chronis/
 ├── chronis/              # Main package
 │   ├── core/            # Core scheduler logic
-│   │   ├── services/   # Application services
+│   │   ├── base/       # Abstract base classes (BaseScheduler, BaseOrchestrator)
+│   │   ├── schedulers/ # Scheduler implementations (PollingOrchestrator)
+│   │   ├── services/   # Application services (ExecutionCoordinator)
 │   │   ├── jobs/       # Job definitions
 │   │   ├── state/      # State management
 │   │   ├── triggers/   # Trigger strategies
-│   │   └── misfire/    # Misfire handling
+│   │   └── misfire.py  # Misfire handling (unified)
 │   ├── adapters/        # Storage and lock adapters
 │   └── utils/           # Utility functions
 ├── tests/               # Test files
 │   ├── unit/           # Unit tests
 │   ├── integration/    # Integration tests
-│   └── e2e/            # End-to-end tests
+│   └── distributed/    # Distributed tests
 └── examples/            # Example scripts
 ```
 

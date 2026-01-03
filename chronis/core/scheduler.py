@@ -1,10 +1,7 @@
 """Polling-based scheduler implementation."""
 
-import logging
 import secrets
-import threading
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -12,27 +9,26 @@ from apscheduler.schedulers.background import BackgroundScheduler  # type: ignor
 from apscheduler.triggers.interval import IntervalTrigger  # type: ignore[import-untyped]
 
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
+from chronis.core.base.scheduler import BaseScheduler
 from chronis.core.callbacks import OnFailureCallback, OnSuccessCallback
 from chronis.core.common.types import TriggerType
-from chronis.core.execution.async_loop import AsyncExecutor
 from chronis.core.job_queue import JobQueue
 from chronis.core.jobs.definition import JobDefinition, JobInfo
-from chronis.core.services import ExecutionCoordinator, JobService, SchedulingOrchestrator
-from chronis.core.state import JobStatus
-from chronis.utils.logging import ContextLogger, _default_logger
+from chronis.core.schedulers.polling import PollingOrchestrator
+from chronis.utils.logging import ContextLogger
 from chronis.utils.time import get_timezone
 
 
-class PollingScheduler:
+class PollingScheduler(BaseScheduler):
     """
     Polling-based scheduler with non-blocking APScheduler backend.
 
     Supports various storage and lock systems through adapter pattern.
+    Uses periodic polling to discover and execute scheduled jobs.
     """
 
     MIN_POLLING_INTERVAL = 1
     MAX_POLLING_INTERVAL = 3600
-    DEFAULT_MAX_WORKERS = 20
 
     def __init__(
         self,
@@ -45,7 +41,7 @@ class PollingScheduler:
         max_queue_size: int | None = None,
         executor_interval_seconds: int | None = None,
         verbose: bool = False,
-        logger: logging.Logger | None = None,
+        logger: ContextLogger | None = None,
         on_failure: OnFailureCallback | None = None,
         on_success: OnSuccessCallback | None = None,
     ) -> None:
@@ -69,7 +65,7 @@ class PollingScheduler:
         Raises:
             ValueError: If parameters are invalid
         """
-        # Validate parameters
+        # Validate polling-specific parameters
         if polling_interval_seconds < self.MIN_POLLING_INTERVAL:
             raise ValueError(f"polling_interval_seconds must be >= {self.MIN_POLLING_INTERVAL}")
         if polling_interval_seconds > self.MAX_POLLING_INTERVAL:
@@ -81,47 +77,39 @@ class PollingScheduler:
                 "lock_ttl_seconds should be at least 2x polling_interval_seconds "
                 "to prevent premature lock expiration"
             )
-        if not lock_prefix:
-            raise ValueError("lock_prefix cannot be empty")
 
-        self.storage = storage_adapter
-        self.lock = lock_adapter
+        # Initialize base scheduler
+        super().__init__(
+            storage_adapter=storage_adapter,
+            lock_adapter=lock_adapter,
+            max_workers=max_workers,
+            lock_prefix=lock_prefix,
+            lock_ttl_seconds=lock_ttl_seconds,
+            verbose=verbose,
+            logger=logger,
+            on_failure=on_failure,
+            on_success=on_success,
+        )
+
+        # Polling-specific configuration
         self.polling_interval_seconds = polling_interval_seconds
-        self.lock_ttl_seconds = lock_ttl_seconds
-        self.lock_prefix = lock_prefix
-        self.max_workers = max_workers or self.DEFAULT_MAX_WORKERS
         self.max_queue_size = max_queue_size or (self.max_workers * 5)
-        # Default executor interval: half of polling interval (min 1 second)
         self.executor_interval_seconds = executor_interval_seconds or max(
             1, polling_interval_seconds / 2
         )
-        self.verbose = verbose
-        self.on_failure = on_failure
-        self.on_success = on_success
-
-        self._running = False
-        self._job_registry: dict[str, Callable] = {}
-        self._failure_handler_registry: dict[str, OnFailureCallback] = {}
-        self._success_handler_registry: dict[str, OnSuccessCallback] = {}
-        self._registry_lock = threading.RLock()
-
-        # Initialize structured logger
-        base_logger = logger or _default_logger
-        self.logger = ContextLogger(base_logger, {"component": "PollingScheduler"})
 
         # Initialize job queue for backpressure control
         self._job_queue = JobQueue(max_queue_size=self.max_queue_size)
 
-        # Initialize ThreadPoolExecutor for job execution
-        self._executor = ThreadPoolExecutor(
-            max_workers=self.max_workers, thread_name_prefix="chronis-worker-"
+        # Initialize polling orchestrator
+        self._orchestrator = PollingOrchestrator(
+            storage=self.storage,
+            job_queue=self._job_queue,
+            logger=self.logger,
+            verbose=self.verbose,
         )
 
-        # Initialize dedicated event loop for async jobs
-        self._async_executor = AsyncExecutor()
-
         # Initialize APScheduler (BackgroundScheduler - non-blocking)
-        # Use single-threaded executor to prevent concurrent execution of internal jobs
         from apscheduler.executors.pool import (  # type: ignore[import-untyped]
             ThreadPoolExecutor as APSThreadPoolExecutor,
         )
@@ -132,54 +120,9 @@ class PollingScheduler:
 
         self._apscheduler = BackgroundScheduler(
             timezone="UTC",
-            daemon=True,  # Run as daemon thread
+            daemon=True,
             executors=executors,
         )
-        self._last_poll_time: datetime | None = None
-
-        # Initialize application services (DDD architecture)
-        self._job_service = JobService(
-            storage=self.storage, logger=self.logger, verbose=self.verbose
-        )
-
-        self._scheduling_orchestrator = SchedulingOrchestrator(
-            storage=self.storage,
-            job_queue=self._job_queue,
-            logger=self.logger,
-            verbose=self.verbose,
-        )
-
-        self._execution_coordinator = ExecutionCoordinator(
-            storage=self.storage,
-            lock=self.lock,
-            executor=self._executor,
-            async_executor=self._async_executor,
-            function_registry=self._job_registry,
-            failure_handler_registry=self._failure_handler_registry,
-            success_handler_registry=self._success_handler_registry,
-            global_on_failure=self.on_failure,
-            global_on_success=self.on_success,
-            logger=self.logger,
-            lock_prefix=self.lock_prefix,
-            lock_ttl_seconds=self.lock_ttl_seconds,
-            verbose=self.verbose,
-        )
-
-    def register_job_function(self, name: str, func: Callable) -> None:
-        """
-        Register job function (thread-safe).
-
-        Args:
-            name: Function name (e.g., "my_module.my_job")
-            func: Function object
-
-        Example:
-            >>> def send_email():
-            ...     print("Sending email...")
-            >>> scheduler.register_job_function("send_email", send_email)
-        """
-        with self._registry_lock:
-            self._job_registry[name] = func
 
     def start(self) -> None:
         """
@@ -215,18 +158,18 @@ class PollingScheduler:
             id="executor_job",
             name="Job Executor",
             replace_existing=True,
-            max_instances=1,  # Prevent concurrent execution of executor job
+            max_instances=1,
         )
 
         # Register polling job to APScheduler
         polling_trigger = IntervalTrigger(seconds=self.polling_interval_seconds, timezone="UTC")
         self._apscheduler.add_job(
-            func=self._poll_and_add_to_queue,
+            func=self._poll_and_enqueue,
             trigger=polling_trigger,
             id="polling_job",
             name="Job Polling",
             replace_existing=True,
-            max_instances=1,  # Prevent concurrent execution of polling job
+            max_instances=1,
         )
 
         # Start APScheduler (non-blocking)
@@ -241,7 +184,6 @@ class PollingScheduler:
 
         Args:
             timeout: Maximum seconds to wait for async jobs to complete (default: 30).
-                     Sync jobs always complete (ThreadPoolExecutor.shutdown waits).
 
         Returns:
             Dictionary with shutdown status:
@@ -278,10 +220,6 @@ class PollingScheduler:
             "was_running": True,
         }
 
-    def is_running(self) -> bool:
-        """Check if scheduler is running."""
-        return self._running
-
     def get_queue_status(self) -> dict[str, Any]:
         """
         Get job queue status for monitoring.
@@ -295,7 +233,55 @@ class PollingScheduler:
             - utilization: Queue utilization ratio (0.0 to 1.0)
             - in_flight_job_ids: List of job IDs currently in-flight
         """
-        return self._scheduling_orchestrator.get_queue_status()
+        return self._orchestrator.get_queue_status()
+
+    # ------------------------------------------------------------------------
+    # Internal Methods (APScheduler Polling Logic)
+    # ------------------------------------------------------------------------
+
+    def _poll_and_enqueue(self) -> None:
+        """
+        Poll ready jobs from storage and add to queue.
+
+        Called periodically by APScheduler.
+        This method runs in APScheduler's background thread.
+        """
+        self._orchestrator.enqueue_jobs()
+
+    def _execute_queued_jobs(self) -> None:
+        """
+        Execute jobs from queue.
+
+        Called periodically by APScheduler.
+        Fetches job data from storage for each queued job ID.
+
+        This method runs in APScheduler's background thread.
+        """
+        try:
+            # Execute jobs while queue is not empty
+            while not self._orchestrator.is_queue_empty():
+                job_id = self._orchestrator.get_next_job_from_queue()
+                if job_id is None:
+                    break
+
+                # Fetch fresh job data from storage
+                job_data = self.storage.get_job(job_id)
+                if job_data is None:
+                    # Job was deleted - mark as completed and continue
+                    self._orchestrator.mark_job_completed(job_id)
+                    continue
+
+                # Try to execute with distributed lock
+                executed = self._execution_coordinator.try_execute(
+                    dict(job_data), on_complete=self._orchestrator.mark_job_completed
+                )
+
+                # If not executed (lock failed or wrong status), mark as completed in queue
+                if not executed:
+                    self._orchestrator.mark_job_completed(job_id)
+
+        except Exception as e:
+            self.logger.error(f"Executor error: {e}", exc_info=True)
 
     # ------------------------------------------------------------------------
     # Helper Methods for Auto-Generation
@@ -317,10 +303,9 @@ class PollingScheduler:
             func_name = func.__name__
 
         # Convert snake_case to Title Case
-        # send_email -> Send Email
         return func_name.replace("_", " ").title()
 
-    def _generate_job_id(self, func: Callable | str, name: str) -> str:
+    def _generate_job_id(self, func: Callable | str) -> str:
         """
         Generate unique job ID.
 
@@ -329,7 +314,6 @@ class PollingScheduler:
 
         Args:
             func: Function object or import path string
-            name: Job name (for fallback)
 
         Returns:
             Unique job identifier
@@ -348,322 +332,12 @@ class PollingScheduler:
             func_name = func_name[:30]
 
         # Timestamp (sortable, UTC)
-
         timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
 
         # Random suffix (8 chars) for collision prevention
         random_suffix = secrets.token_hex(4)
 
         return f"{func_name}_{timestamp}_{random_suffix}"
-
-    # ------------------------------------------------------------------------
-    # Async Event Loop Management
-    # ------------------------------------------------------------------------
-
-    def _start_async_loop(self) -> None:
-        """Start dedicated event loop for async jobs in background thread."""
-        # AsyncExecutor manages its own event loop - just ensure it's started
-        self._async_executor.start()
-
-    def _stop_async_loop(self, timeout: float = 30.0) -> bool:
-        """
-        Stop dedicated event loop.
-
-        Args:
-            timeout: Maximum seconds to wait for async tasks
-
-        Returns:
-            True if all async tasks completed, False if timeout
-        """
-        # AsyncExecutor manages its own event loop cleanup
-        return self._async_executor.stop(timeout=timeout)
-
-    # ------------------------------------------------------------------------
-    # Internal Methods (APScheduler Polling Logic)
-    # ------------------------------------------------------------------------
-
-    def _poll_and_add_to_queue(self) -> None:
-        """
-        Poll ready jobs from storage and add to queue (called periodically by APScheduler).
-
-        This method runs in APScheduler's background thread.
-        """
-        # Delegate to SchedulingOrchestrator
-        self._scheduling_orchestrator.poll_and_enqueue()
-        self._last_poll_time = self._scheduling_orchestrator.last_poll_time
-
-    def _execute_queued_jobs(self) -> None:
-        """
-        Execute jobs from queue (called every 1 second by APScheduler).
-
-        OPTIMIZED: Fetches job data from storage instead of using queued data.
-        Queue only stores job_id + priority for memory efficiency.
-
-        This method runs in APScheduler's background thread.
-        """
-        try:
-            # Execute jobs while queue is not empty
-            while not self._scheduling_orchestrator.is_queue_empty():
-                job_id = self._scheduling_orchestrator.get_next_job_from_queue()
-                if job_id is None:
-                    break
-
-                # Fetch fresh job data from storage
-                job_data = self.storage.get_job(job_id)
-                if job_data is None:
-                    # Job was deleted - mark as completed and continue
-                    self._scheduling_orchestrator.mark_job_completed(job_id)
-                    continue
-
-                # Try to execute with distributed lock
-                # Cast to dict for type compatibility
-                executed = self._execution_coordinator.try_execute(
-                    dict(job_data), on_complete=self._scheduling_orchestrator.mark_job_completed
-                )
-
-                # If not executed (lock failed or wrong status), mark as completed in queue
-                if not executed:
-                    self._scheduling_orchestrator.mark_job_completed(job_id)
-
-        except Exception as e:
-            self.logger.error(f"Executor error: {e}", exc_info=True)
-
-    # ------------------------------------------------------------------------
-    # Job CRUD Operations (Delegated to JobService)
-    # ------------------------------------------------------------------------
-
-    def create_job(self, job: JobDefinition) -> JobInfo:
-        """
-        Create new job (using adapter).
-
-        Args:
-            job: Job definition
-
-        Returns:
-            Created job info
-
-        Raises:
-            JobAlreadyExistsError: Job already exists
-
-        Example:
-            >>> job = JobDefinition(
-            ...     job_id="email-001",
-            ...     name="Daily Email",
-            ...     trigger_type=TriggerType.CRON,
-            ...     trigger_args={"hour": "9", "minute": "0"},
-            ...     func=send_email,
-            ... )
-            >>> scheduler.create_job(job)
-        """
-        # Register on_failure handler if provided
-        if job.on_failure:
-            with self._registry_lock:
-                self._failure_handler_registry[job.job_id] = job.on_failure
-
-        # Register on_success handler if provided
-        if job.on_success:
-            with self._registry_lock:
-                self._success_handler_registry[job.job_id] = job.on_success
-
-        return self._job_service.create(job)
-
-    def get_job(self, job_id: str) -> JobInfo | None:
-        """
-        Get job (using adapter).
-
-        Args:
-            job_id: Job ID
-
-        Returns:
-            Job info or None
-
-        Example:
-            >>> job = scheduler.get_job("email-001")
-            >>> if job:
-            ...     print(f"Next run: {job.next_run_time}")
-        """
-        return self._job_service.get(job_id)
-
-    def query_jobs(
-        self, filters: dict[str, Any] | None = None, limit: int | None = None
-    ) -> list[JobInfo]:
-        """
-        Query jobs with flexible filters.
-
-        Args:
-            filters: Dictionary of filter conditions (None = get all jobs)
-                - {"status": "scheduled"}: Filter by status
-                - {"metadata.tenant_id": "acme"}: Filter by tenant (multi-tenancy)
-                - {"metadata.priority": "high", "status": "scheduled"}: Multiple filters
-            limit: Maximum number of jobs to return
-
-        Returns:
-            List of jobs matching filters
-
-        Example:
-            >>> # Get all jobs
-            >>> all_jobs = scheduler.query_jobs()
-            >>>
-            >>> # Get all scheduled jobs
-            >>> jobs = scheduler.query_jobs(filters={"status": "scheduled"})
-            >>>
-            >>> # Multi-tenancy: Get tenant-specific jobs
-            >>> jobs = scheduler.query_jobs(
-            ...     filters={"metadata.tenant_id": "acme", "status": "scheduled"}
-            ... )
-            >>>
-            >>> # Access trigger info from JobInfo
-            >>> for job in jobs:
-            ...     print(f"{job.job_id}: {job.trigger_type} - {job.next_run_time}")
-        """
-        return self._job_service.query(filters=filters, limit=limit)
-
-    def update_job(
-        self,
-        job_id: str,
-        name: str | None = None,
-        trigger_type: TriggerType | None = None,
-        trigger_args: dict[str, Any] | None = None,
-        status: JobStatus | None = None,
-        metadata: dict[str, Any] | None = None,
-    ) -> JobInfo:
-        """
-        Update job (using adapter).
-
-        Args:
-            job_id: Job ID
-            name: New name (optional)
-            trigger_type: New trigger type (optional)
-            trigger_args: New trigger parameters (optional)
-            status: Job status (optional)
-            metadata: Metadata (optional)
-
-        Returns:
-            Updated job info
-
-        Raises:
-            JobNotFoundError: Job not found
-
-        Example:
-            >>> scheduler.update_job(
-            ...     "email-001",
-            ...     trigger_args={"hour": "10", "minute": "0"},
-            ...     status=JobStatus.PAUSED
-            ... )
-        """
-        # Convert TriggerType enum to string if provided
-        trigger_type_str = trigger_type.value if trigger_type else None
-
-        return self._job_service.update(
-            job_id=job_id,
-            name=name,
-            trigger_type=trigger_type_str,
-            trigger_args=trigger_args,
-            status=status,
-            metadata=metadata,
-        )
-
-    def delete_job(self, job_id: str) -> bool:
-        """
-        Delete job (using adapter).
-
-        Args:
-            job_id: Job ID
-
-        Returns:
-            Deletion success
-
-        Example:
-            >>> scheduler.delete_job("email-001")
-            True
-        """
-        return self._job_service.delete(job_id)
-
-    def pause_job(self, job_id: str) -> bool:
-        """
-        Pause a scheduled job.
-
-        Paused jobs will not be polled or executed until resumed.
-        Only SCHEDULED or PENDING jobs can be paused.
-
-        Args:
-            job_id: Job ID to pause
-
-        Returns:
-            True if job was paused, False if job was not in pausable state
-
-        Raises:
-            JobNotFoundError: Job not found
-
-        Example:
-            >>> # Pause during deployment
-            >>> scheduler.pause_job("email-001")
-            True
-            >>>
-            >>> # Bulk pause by tenant
-            >>> jobs = scheduler.query_jobs(filters={"metadata.tenant_id": "acme"})
-            >>> for job in jobs:
-            ...     scheduler.pause_job(job.job_id)
-        """
-        from chronis.core.common.exceptions import InvalidJobStateError, JobNotFoundError
-
-        job = self._job_service.get(job_id)
-        if not job:
-            raise JobNotFoundError(
-                f"Job '{job_id}' not found. It may have been deleted or never existed. "
-                "Use scheduler.query_jobs() to see available jobs."
-            )
-
-        # Can only pause SCHEDULED or PENDING jobs
-        if job.status not in (JobStatus.SCHEDULED, JobStatus.PENDING):
-            raise InvalidJobStateError(
-                f"Cannot pause job '{job_id}' in {job.status.value} state. "
-                f"Only SCHEDULED or PENDING jobs can be paused. "
-                f"Current status: {job.status.value}"
-            )
-
-        self._job_service.update(job_id=job_id, status=JobStatus.PAUSED)
-
-        self.logger.info(f"Job {job_id} paused", extra={"job_id": job_id})
-        return True
-
-    def resume_job(self, job_id: str) -> bool:
-        """
-        Resume a paused job.
-
-        Args:
-            job_id: Job ID to resume
-
-        Returns:
-            True if job was resumed, False if job was not paused
-
-        Raises:
-            JobNotFoundError: Job not found
-
-        Example:
-            >>> scheduler.resume_job("email-001")
-            True
-        """
-        from chronis.core.common.exceptions import InvalidJobStateError, JobNotFoundError
-
-        job = self._job_service.get(job_id)
-        if not job:
-            raise JobNotFoundError(
-                f"Job '{job_id}' not found. It may have been deleted or never existed. "
-                "Use scheduler.query_jobs() to see available jobs."
-            )
-
-        if job.status != JobStatus.PAUSED:
-            raise InvalidJobStateError(
-                f"Cannot resume job '{job_id}' in {job.status.value} state. "
-                f"Only PAUSED jobs can be resumed. "
-                f"Current status: {job.status.value}"
-            )
-
-        self._job_service.update(job_id=job_id, status=JobStatus.SCHEDULED)
-
-        self.logger.info(f"Job {job_id} resumed", extra={"job_id": job_id})
-        return True
 
     # ========================================
     # Simplified Public API (TriggerType hidden)
@@ -708,39 +382,17 @@ class PollingScheduler:
             args: Positional arguments for func
             kwargs: Keyword arguments for func
             metadata: User-defined metadata (optional)
-                - For multi-tenancy: {"tenant_id": "acme"}
-                - For custom tags: {"priority": "high", "team": "eng"}
             on_failure: Failure handler for this specific job (optional)
             on_success: Success handler for this specific job (optional)
-            max_retries: Maximum number of retry attempts (default: 0, no retry)
+            max_retries: Maximum number of retry attempts (default: 0)
             retry_delay_seconds: Base delay between retries in seconds (default: 60)
-            timeout_seconds: Job execution timeout in seconds (default: None, no timeout)
+            timeout_seconds: Job execution timeout in seconds (default: None)
+            priority: Job priority 0-10 (default: 5, higher = more urgent)
+            if_missed: Misfire policy (default: None, uses trigger default)
+            misfire_threshold_seconds: Misfire threshold in seconds (default: 60)
 
         Returns:
             Created job info with generated or provided job_id
-
-        Example:
-            >>> # AI-friendly: Auto-generated ID
-            >>> job = scheduler.create_interval_job(
-            ...     func=send_heartbeat,
-            ...     seconds=30
-            ... )
-            >>> print(job.job_id)  # "send_heartbeat_20251226_120000_abc123"
-            >>>
-            >>> # Human-friendly: Explicit ID
-            >>> scheduler.create_interval_job(
-            ...     func=send_heartbeat,
-            ...     job_id="heartbeat",
-            ...     name="System Heartbeat",
-            ...     seconds=30
-            ... )
-            >>>
-            >>> # Multi-tenant job
-            >>> scheduler.create_interval_job(
-            ...     func=generate_report,
-            ...     hours=24,
-            ...     metadata={"tenant_id": "acme"}
-            ... )
         """
         # Auto-generate name if not provided
         if name is None:
@@ -748,7 +400,7 @@ class PollingScheduler:
 
         # Auto-generate job_id if not provided
         if job_id is None:
-            job_id = self._generate_job_id(func, name)
+            job_id = self._generate_job_id(func)
 
         # Build trigger_args from non-None parameters
         trigger_args = {
@@ -832,40 +484,15 @@ class PollingScheduler:
             metadata: Additional metadata
             on_failure: Failure handler for this specific job (optional)
             on_success: Success handler for this specific job (optional)
-            max_retries: Maximum number of retry attempts (default: 0, no retry)
+            max_retries: Maximum number of retry attempts (default: 0)
             retry_delay_seconds: Base delay between retries in seconds (default: 60)
-            timeout_seconds: Job execution timeout in seconds (default: None, no timeout)
+            timeout_seconds: Job execution timeout in seconds (default: None)
+            priority: Job priority 0-10 (default: 5, higher = more urgent)
+            if_missed: Misfire policy (default: None, uses trigger default)
+            misfire_threshold_seconds: Misfire threshold in seconds (default: 60)
 
         Returns:
             Created job info with generated or provided job_id
-
-        Example:
-            >>> # AI-friendly: Auto-generated ID
-            >>> job = scheduler.create_cron_job(
-            ...     func=generate_report,
-            ...     hour=9,
-            ...     minute=0,
-            ...     timezone="Asia/Seoul"
-            ... )
-            >>> print(job.job_id)  # "generate_report_20251226_120000_abc123"
-            >>>
-            >>> # Human-friendly: Explicit ID
-            >>> scheduler.create_cron_job(
-            ...     func=generate_report,
-            ...     job_id="daily-report",
-            ...     name="Daily Report",
-            ...     hour=9,
-            ...     minute=0,
-            ...     timezone="Asia/Seoul"
-            ... )
-            >>>
-            >>> # Run every Monday at 6 PM
-            >>> scheduler.create_cron_job(
-            ...     func=send_summary,
-            ...     day_of_week="mon",
-            ...     hour=18,
-            ...     minute=0
-            ... )
         """
         # Auto-generate name if not provided
         if name is None:
@@ -873,7 +500,7 @@ class PollingScheduler:
 
         # Auto-generate job_id if not provided
         if job_id is None:
-            job_id = self._generate_job_id(func, name)
+            job_id = self._generate_job_id(func)
 
         # Build trigger_args from non-None parameters
         trigger_args = {
@@ -947,31 +574,15 @@ class PollingScheduler:
             metadata: Additional metadata
             on_failure: Failure handler for this specific job (optional)
             on_success: Success handler for this specific job (optional)
-            max_retries: Maximum number of retry attempts (default: 0, no retry)
+            max_retries: Maximum number of retry attempts (default: 0)
             retry_delay_seconds: Base delay between retries in seconds (default: 60)
-            timeout_seconds: Job execution timeout in seconds (default: None, no timeout)
+            timeout_seconds: Job execution timeout in seconds (default: None)
+            priority: Job priority 0-10 (default: 5, higher = more urgent)
+            if_missed: Misfire policy (default: None, uses trigger default)
+            misfire_threshold_seconds: Misfire threshold in seconds (default: 60)
 
         Returns:
             Created job info with generated or provided job_id
-
-        Example:
-            >>> # AI-friendly: Auto-generated ID
-            >>> from datetime import datetime, timedelta
-            >>> job = scheduler.create_date_job(
-            ...     func=send_welcome_email,
-            ...     run_date=datetime.now() + timedelta(hours=1),
-            ...     kwargs={"user_id": 123}
-            ... )
-            >>> print(job.job_id)  # "send_welcome_email_20251226_120000_abc123"
-            >>>
-            >>> # Human-friendly: Explicit ID
-            >>> scheduler.create_date_job(
-            ...     func=send_reminder,
-            ...     run_date="2025-11-08 10:00:00",
-            ...     job_id="reminder",
-            ...     name="Important Reminder",
-            ...     timezone="Asia/Seoul"
-            ... )
         """
         # Auto-generate name if not provided
         if name is None:
@@ -979,13 +590,11 @@ class PollingScheduler:
 
         # Auto-generate job_id if not provided
         if job_id is None:
-            job_id = self._generate_job_id(func, name)
+            job_id = self._generate_job_id(func)
 
         if isinstance(run_date, datetime):
             if run_date.tzinfo is None:
-                # Naive datetime is assumed to be in local system timezone
-                # Convert to aware datetime in local timezone, then to UTC
-
+                # Naive datetime - convert to aware datetime in UTC
                 run_date = run_date.astimezone(get_timezone("UTC"))
             run_date = run_date.isoformat()
 

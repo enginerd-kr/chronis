@@ -519,52 +519,6 @@ class ExecutionCoordinator:
             },
         )
 
-    def _update_job_status_and_next_run_time_atomic(
-        self, job_id: str, job_data: dict[str, Any]
-    ) -> None:
-        """
-        Atomically update job status to RUNNING and next_run_time in a single storage operation.
-
-        This optimization reduces lock holding time by batching two storage operations into one.
-        For recurring jobs, optimistically updates next_run_time before execution.
-
-        Args:
-            job_id: Job ID
-            job_data: Job data containing trigger information
-        """
-        from chronis.type_defs import JobUpdateData
-
-        trigger_type = job_data["trigger_type"]
-        updates: JobUpdateData = {
-            "status": JobStatus.RUNNING.value,
-            "updated_at": utc_now().isoformat(),
-        }
-
-        # For recurring jobs, optimistically update next_run_time
-        if trigger_type != TriggerType.DATE.value:
-            trigger_args = job_data["trigger_args"]
-            timezone = job_data.get("timezone", "UTC")
-
-            utc_time, local_time = NextRunTimeCalculator.calculate_with_local_time(
-                trigger_type, trigger_args, timezone
-            )
-
-            if utc_time:
-                updates["next_run_time"] = utc_time.isoformat()
-                if local_time:
-                    updates["next_run_time_local"] = local_time.isoformat()
-
-        # Single storage operation instead of two separate calls
-        try:
-            self.storage.update_job(job_id, updates)
-        except Exception as e:
-            # Log error but don't fail - will be retried in background
-            self.logger.error(
-                f"Atomic status+next_run_time update failed: {e}",
-                job_id=job_id,
-                exc_info=True,
-            )
-
     def _update_next_run_time(self, job_data: dict[str, Any]) -> None:
         """
         Calculate and update next run time and execution times for recurring jobs.

@@ -4,8 +4,7 @@ from datetime import UTC, datetime
 
 from chronis.core.common.types import TriggerType
 from chronis.core.jobs.definition import JobDefinition
-from chronis.core.misfire import SimpleMisfirePolicy, get_default_policy
-from chronis.core.misfire.utils import MisfireClassifier
+from chronis.core.misfire import MisfireClassifier, MisfirePolicy, get_default_policy
 
 
 class TestMisfireClassifier:
@@ -137,9 +136,9 @@ class TestDefaultPolicies:
 
     def test_get_default_policy_function(self):
         """Test get_default_policy helper function."""
-        assert get_default_policy(TriggerType.DATE) == SimpleMisfirePolicy.RUN_ONCE
-        assert get_default_policy(TriggerType.CRON) == SimpleMisfirePolicy.SKIP
-        assert get_default_policy(TriggerType.INTERVAL) == SimpleMisfirePolicy.RUN_ONCE
+        assert get_default_policy(TriggerType.DATE) == MisfirePolicy.RUN_ONCE
+        assert get_default_policy(TriggerType.CRON) == MisfirePolicy.SKIP
+        assert get_default_policy(TriggerType.INTERVAL) == MisfirePolicy.RUN_ONCE
 
 
 class TestMisfirePolicyOverride:
