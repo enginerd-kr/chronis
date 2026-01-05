@@ -1,6 +1,11 @@
 """Type definitions using TypedDict for internal data structures."""
 
-from typing import Any, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
+
+# Type aliases for string literal types
+type TriggerTypeStr = Literal["interval", "cron", "date"]
+type JobStatusStr = Literal["pending", "scheduled", "running", "paused", "failed"]
+type MisfirePolicyStr = Literal["skip", "run_once", "run_all"]
 
 
 # Storage adapter data format
@@ -9,13 +14,13 @@ class JobStorageData(TypedDict):
 
     job_id: str
     name: str
-    trigger_type: str
+    trigger_type: TriggerTypeStr
     trigger_args: dict[str, Any]
     timezone: str
     func_name: str
     args: tuple
     kwargs: dict[str, Any]
-    status: str
+    status: JobStatusStr
     next_run_time: str | None
     next_run_time_local: str | None
     metadata: dict[str, Any]
@@ -30,7 +35,7 @@ class JobStorageData(TypedDict):
     # Priority configuration
     priority: int
     # Misfire configuration
-    if_missed: str  # "skip" | "run_once" | "run_all"
+    if_missed: MisfirePolicyStr
     misfire_threshold_seconds: int
     last_run_time: str | None
     last_scheduled_time: str | None
@@ -69,8 +74,8 @@ class DateTriggerArgs(TypedDict):
 class JobQueryFilter(TypedDict, total=False):
     """Type definition for job query filters."""
 
-    status: str
-    trigger_type: str
+    status: JobStatusStr
+    trigger_type: TriggerTypeStr
     next_run_time_lte: str
     next_run_time_gte: str
     # Metadata filters are dynamic: "metadata.{key}": value
@@ -81,10 +86,10 @@ class JobUpdateData(TypedDict, total=False):
     """Type definition for job update data."""
 
     name: NotRequired[str]
-    trigger_type: NotRequired[str]
+    trigger_type: NotRequired[TriggerTypeStr]
     trigger_args: NotRequired[dict[str, Any]]
     timezone: NotRequired[str]
-    status: NotRequired[str]
+    status: NotRequired[JobStatusStr]
     next_run_time: NotRequired[str | None]
     next_run_time_local: NotRequired[str | None]
     last_scheduled_time: NotRequired[str | None]
