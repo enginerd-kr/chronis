@@ -23,7 +23,7 @@ import psycopg2
 
 from chronis import PollingScheduler
 from chronis.adapters.lock import InMemoryLockAdapter
-from chronis.contrib.storage import PostgreSQLStorageAdapter
+from chronis.contrib.adapters.storage import PostgreSQLStorageAdapter
 
 
 def send_notification():

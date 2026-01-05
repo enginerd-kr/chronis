@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from chronis.contrib.storage.postgres import PostgreSQLStorageAdapter
+from chronis.contrib.adapters.storage.postgres import PostgreSQLStorageAdapter
 
 
 class TestTableNameValidation:

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from chronis.contrib.storage.postgres.migration import Migration, MigrationRunner
+from chronis.contrib.adapters.storage.postgres.migration import Migration, MigrationRunner
 
 
 class TestMigration:
