@@ -28,7 +28,7 @@ class TestTableNameValidation:
         # Mock connection and migration runner to avoid DB operations
         mock_conn = MagicMock()
 
-        with patch("chronis.contrib.storage.postgres.adapter.MigrationRunner"):
+        with patch("chronis.contrib.adapters.storage.postgres.adapter.MigrationRunner"):
             # Should not raise ValueError for valid names
             PostgreSQLStorageAdapter(mock_conn, table_name=valid_name, auto_migrate=False)
 
