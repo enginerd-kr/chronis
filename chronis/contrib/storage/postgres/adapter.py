@@ -103,8 +103,13 @@ class PostgreSQLStorageAdapter(JobStorageAdapter):
             try:
                 cursor.execute(
                     sql.SQL("""
-                        INSERT INTO {}
-                        (job_id, data, status, next_run_time, metadata)
+                        INSERT INTO {} (
+                            job_id,
+                            data,
+                            status,
+                            next_run_time,
+                            metadata
+                        )
                         VALUES (%s, %s, %s, %s, %s)
                     """).format(sql.Identifier(self.table_name)),
                     (
@@ -128,9 +133,11 @@ class PostgreSQLStorageAdapter(JobStorageAdapter):
         """Get a job from PostgreSQL."""
         with self.conn.cursor() as cursor:
             cursor.execute(
-                sql.SQL("SELECT data FROM {} WHERE job_id = %s").format(
-                    sql.Identifier(self.table_name)
-                ),
+                sql.SQL("""
+                    SELECT data
+                    FROM {}
+                    WHERE job_id = %s
+                """).format(sql.Identifier(self.table_name)),
                 (job_id,),
             )
             row = cursor.fetchone()
@@ -160,7 +167,8 @@ class PostgreSQLStorageAdapter(JobStorageAdapter):
             cursor.execute(
                 sql.SQL("""
                     UPDATE {}
-                    SET data = %s,
+                    SET
+                        data = %s,
                         status = %s,
                         next_run_time = %s,
                         metadata = %s,
@@ -234,7 +242,8 @@ class PostgreSQLStorageAdapter(JobStorageAdapter):
             where_clause = " AND ".join(where_conditions)
             query = sql.SQL("""
                 UPDATE {}
-                SET data = %s,
+                SET
+                    data = %s,
                     status = %s,
                     next_run_time = %s,
                     metadata = %s,
@@ -269,7 +278,10 @@ class PostgreSQLStorageAdapter(JobStorageAdapter):
         """Delete a job from PostgreSQL."""
         with self.conn.cursor() as cursor:
             cursor.execute(
-                sql.SQL("DELETE FROM {} WHERE job_id = %s").format(sql.Identifier(self.table_name)),
+                sql.SQL("""
+                    DELETE FROM {}
+                    WHERE job_id = %s
+                """).format(sql.Identifier(self.table_name)),
                 (job_id,),
             )
             deleted = cursor.rowcount > 0
@@ -321,7 +333,8 @@ class PostgreSQLStorageAdapter(JobStorageAdapter):
 
         # Build main query with sql.Identifier for table name
         query = sql.SQL("""
-            SELECT data FROM {}
+            SELECT data
+            FROM {}
             {}
             ORDER BY next_run_time NULLS LAST
         """).format(
@@ -370,7 +383,11 @@ class PostgreSQLStorageAdapter(JobStorageAdapter):
             else sql.SQL("")
         )
 
-        query = sql.SQL("SELECT COUNT(*) FROM {} {}").format(
+        query = sql.SQL("""
+            SELECT COUNT(*)
+            FROM {}
+            {}
+        """).format(
             sql.Identifier(self.table_name),
             where_clause,
         )
