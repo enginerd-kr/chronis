@@ -4,14 +4,20 @@
 
 ## Why Chronis?
 
-**Agentic AI needs autonomous scheduling.** For AI agents to truly work independently, they must manage their own schedules - setting reminders, scheduling follow-ups, and orchestrating time-based workflows without human intervention. Chronis makes this possible with a simple, LLM-friendly API designed for autonomous operation.
+**Agentic AI needs autonomous scheduling.** For AI agents to truly work independently, they must manage their own schedules - setting reminders, scheduling follow-ups, and orchestrating time-based workflows without human intervention. Traditional schedulers require complex configuration and aren't built for this. Chronis makes it possible with a simple, LLM-friendly API designed for autonomous operation.
 
-Traditional schedulers require complex configuration and aren't built for AI agents to self-manage. Chronis provides:
+**AI-optimized real-time scheduling.** Traditional schedulers optimize for millisecond precision, but when an AI agent schedules "30 minutes from now," human perception doesn't distinguish between 30:00 and 30:08—both feel like "30 minutes later."
+
+This insight drives our architecture:
 
 - **AI Agent Ready**: Simple API perfect for LLM function calling and agent workflows
-- **Autonomous Scheduling**: Agents can create, modify, and manage their own jobs
+- **Human-Scale Timing**: Configurable polling intervals deliver the responsiveness AI agents need
+- **Architectural Simplicity**: No message brokers or event streams—just configurable polling with your database
+
+Chronis also provides:
+
+- **Pluggable Everything**: Bring your own storage and locks (PostgreSQL, Redis, or custom adapters)
 - **Distributed by Default**: No duplicate executions across containers or processes
-- **Pluggable Everything**: Bring your own database and distributed locks
 - **Timezone Aware**: IANA timezones with automatic DST handling
 - **Async Native**: Built for modern Python with full async/await support
 
