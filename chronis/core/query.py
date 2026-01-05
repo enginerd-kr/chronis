@@ -3,7 +3,7 @@
 from datetime import datetime
 
 from chronis.core.state import JobStatus
-from chronis.type_defs import JobQueryFilter
+from chronis.type_defs import JobQueryFilter, TriggerTypeStr
 
 
 def scheduled_jobs() -> JobQueryFilter:
@@ -47,7 +47,7 @@ def jobs_by_status(status: JobStatus) -> JobQueryFilter:
     return {"status": status.value}
 
 
-def jobs_by_trigger_type(trigger_type: str) -> JobQueryFilter:
+def jobs_by_trigger_type(trigger_type: TriggerTypeStr) -> JobQueryFilter:
     """
     Get filter for jobs by trigger type.
 

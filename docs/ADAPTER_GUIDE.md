@@ -61,7 +61,7 @@ All adapters must store and return these fields:
 ```python
 {
     "job_id": str,
-    "status": str,  # "scheduled", "running", "paused", "completed", "failed"
+    "status": str,  # "pending" | "scheduled" | "running" | "paused" | "failed"
     "next_run_time": str,  # ISO format UTC (e.g., "2025-01-15T10:00:00Z")
 
     # Misfire handling - CRITICAL for misfire detection
@@ -478,6 +478,13 @@ def test_storage_adapter():
 
 ## Reference Implementations
 
-- **In-Memory**: [`chronis/adapters/storage/memory.py`](../chronis/adapters/storage/memory.py), [`chronis/adapters/lock/memory.py`](../chronis/adapters/lock/memory.py)
-- **PostgreSQL**: [`chronis/contrib/storage/postgres.py`](../chronis/contrib/storage/postgres.py)
-- **Redis**: [`chronis/contrib/storage/redis.py`](../chronis/contrib/storage/redis.py), [`chronis/contrib/lock/redis.py`](../chronis/contrib/lock/redis.py)
+### Storage Adapters
+
+- **In-Memory**: [`chronis/adapters/storage/memory.py`](../chronis/adapters/storage/memory.py)
+- **PostgreSQL**: [`chronis/contrib/storage/postgres/adapter.py`](../chronis/contrib/storage/postgres/adapter.py)
+- **Redis**: [`chronis/contrib/storage/redis.py`](../chronis/contrib/storage/redis.py)
+
+### Lock Adapters
+
+- **In-Memory**: [`chronis/adapters/lock/memory.py`](../chronis/adapters/lock/memory.py)
+- **Redis**: [`chronis/contrib/lock/redis.py`](../chronis/contrib/lock/redis.py)
