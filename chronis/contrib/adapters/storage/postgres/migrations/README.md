@@ -39,24 +39,24 @@ V010__add_retry_tracking.sql
 
 ```python
 import psycopg2
-from chronis.contrib.storage.postgres import PostgreSQLStorageAdapter
+from chronis.contrib.adapters.storage.postgres import PostgreSQLStorageAdapter
 
 conn = psycopg2.connect(...)
 
 # Automatically runs pending migrations on initialization
 storage = PostgreSQLStorageAdapter(
     conn,
-    migrations_dir="chronis/contrib/storage/postgres/migrations"
+    migrations_dir="chronis/contrib/adapters/storage/postgres/migrations"
 )
 ```
 
 ### Manual Migration Control
 
 ```python
-from chronis.contrib.storage.postgres import MigrationRunner
+from chronis.contrib.adapters.storage.postgres import MigrationRunner
 from pathlib import Path
 
-runner = MigrationRunner(conn, Path("chronis/contrib/storage/postgres/migrations"))
+runner = MigrationRunner(conn, Path("chronis/contrib/adapters/storage/postgres/migrations"))
 
 # Check status
 status = runner.status()
@@ -75,7 +75,7 @@ runner.migrate(target_version=5)
 # Initialize without running migrations
 storage = PostgreSQLStorageAdapter(
     conn,
-    migrations_dir="chronis/contrib/storage/postgres/migrations",
+    migrations_dir="chronis/contrib/adapters/storage/postgres/migrations",
     auto_migrate=False
 )
 ```
@@ -84,12 +84,12 @@ storage = PostgreSQLStorageAdapter(
 
 1. Find the next available version number:
    ```bash
-   ls chronis/contrib/storage/postgres/migrations/V*.sql | tail -1
+   ls chronis/contrib/adapters/storage/postgres/migrations/V*.sql | tail -1
    ```
 
 2. Create a new file with the next version:
    ```bash
-   touch chronis/contrib/storage/postgres/migrations/V002__add_feature.sql
+   touch chronis/contrib/adapters/storage/postgres/migrations/V002__add_feature.sql
    ```
 
 3. Write your SQL migration:
@@ -104,7 +104,7 @@ storage = PostgreSQLStorageAdapter(
 
 4. Test your migration:
    ```python
-   runner = MigrationRunner(conn, Path("chronis/contrib/storage/postgres/migrations"))
+   runner = MigrationRunner(conn, Path("chronis/contrib/adapters/storage/postgres/migrations"))
    runner.migrate()
    ```
 
@@ -151,11 +151,11 @@ If you need more control, disable auto-migration and run manually:
 ```python
 storage = PostgreSQLStorageAdapter(
     conn,
-    migrations_dir="chronis/contrib/storage/migrations",
+    migrations_dir="chronis/contrib/adapters/storage/migrations",
     auto_migrate=False
 )
 
 # Later, run migrations when ready
-runner = MigrationRunner(conn, Path("chronis/contrib/storage/migrations"))
+runner = MigrationRunner(conn, Path("chronis/contrib/adapters/storage/migrations"))
 runner.migrate()
 ```

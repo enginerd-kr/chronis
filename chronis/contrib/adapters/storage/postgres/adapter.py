@@ -8,7 +8,7 @@ from typing import Any
 from psycopg2 import sql
 
 from chronis.adapters.base import JobStorageAdapter
-from chronis.contrib.storage.postgres.migration import MigrationRunner
+from chronis.contrib.adapters.storage.postgres.migration import MigrationRunner
 from chronis.type_defs import JobStorageData, JobUpdateData
 from chronis.utils.time import utc_now
 

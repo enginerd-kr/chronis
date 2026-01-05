@@ -27,7 +27,7 @@ Chronis uses a **Flyway-style migration system** for PostgreSQL:
 
 ### Migration Files
 
-Located in `chronis/contrib/storage/postgres/migrations/`:
+Located in `chronis/contrib/adapters/storage/postgres/migrations/`:
 
 ```
 V001__initial_schema.sql    # Creates tables and indexes
@@ -105,7 +105,7 @@ You can provide your own migration directory:
 
 ```python
 from pathlib import Path
-from chronis.contrib.storage import PostgreSQLStorageAdapter
+from chronis.contrib.adapters.storage import PostgreSQLStorageAdapter
 
 storage = PostgreSQLStorageAdapter(
     conn,
@@ -116,10 +116,10 @@ storage = PostgreSQLStorageAdapter(
 ### Manual Migration Control
 
 ```python
-from chronis.contrib.storage.postgres import MigrationRunner
+from chronis.contrib.adapters.storage.postgres import MigrationRunner
 
 # Check status
-runner = MigrationRunner(conn, Path("chronis/contrib/storage/postgres/migrations"))
+runner = MigrationRunner(conn, Path("chronis/contrib/adapters/storage/postgres/migrations"))
 status = runner.status()
 print(f"Applied: {status['applied_count']}, Pending: {status['pending_count']}")
 

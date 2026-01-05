@@ -4,7 +4,7 @@ __all__ = []
 
 # Redis lock adapter (optional)
 try:
-    from chronis.contrib.lock.redis import RedisLockAdapter
+    from chronis.contrib.adapters.lock.redis import RedisLockAdapter
 
     __all__.append("RedisLockAdapter")
 except ImportError:

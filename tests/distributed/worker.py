@@ -11,8 +11,8 @@ import time
 import redis
 
 from chronis import PollingScheduler
-from chronis.contrib.lock import RedisLockAdapter
-from chronis.contrib.storage import RedisStorageAdapter
+from chronis.contrib.adapters.lock import RedisLockAdapter
+from chronis.contrib.adapters.storage import RedisStorageAdapter
 
 # Global flag for graceful shutdown
 shutdown_requested = False
