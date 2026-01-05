@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 from chronis.core.execution.callbacks import OnFailureCallback, OnSuccessCallback
-from chronis.core.jobs.definition import JobDefinition, JobInfo
+from chronis.core.jobs.definition import JobDefinition
 from chronis.core.state.enums import TriggerType
 from chronis.utils.time import get_timezone
 
@@ -66,7 +66,6 @@ def generate_job_id(func: Callable | str) -> str:
 
 
 def create_interval_job(
-    create_job_func: Callable[[JobDefinition], JobInfo],
     func: Callable | str,
     job_id: str | None = None,
     name: str | None = None,
@@ -87,12 +86,11 @@ def create_interval_job(
     priority: int = 5,
     if_missed: Literal["skip", "run_once", "run_all"] | None = None,
     misfire_threshold_seconds: int = 60,
-) -> JobInfo:
+) -> JobDefinition:
     """
-    Create interval job (runs repeatedly at fixed intervals).
+    Build interval job definition.
 
     Args:
-        create_job_func: Function to call to create the job (scheduler.create_job)
         func: Function to execute (callable or import path string)
         job_id: Unique job identifier (auto-generated if None)
         name: Human-readable job name (auto-generated if None)
@@ -115,7 +113,7 @@ def create_interval_job(
         misfire_threshold_seconds: Misfire threshold in seconds (default: 60)
 
     Returns:
-        Created job info with generated or provided job_id
+        Job definition ready to be created
     """
     # Auto-generate name if not provided
     if name is None:
@@ -141,7 +139,7 @@ def create_interval_job(
     if not trigger_args:
         raise ValueError("At least one interval parameter must be specified")
 
-    job = JobDefinition(
+    return JobDefinition(
         job_id=job_id,
         name=name,
         trigger_type=TriggerType.INTERVAL,
@@ -160,11 +158,9 @@ def create_interval_job(
         if_missed=if_missed,
         misfire_threshold_seconds=misfire_threshold_seconds,
     )
-    return create_job_func(job)
 
 
 def create_cron_job(
-    create_job_func: Callable[[JobDefinition], JobInfo],
     func: Callable | str,
     job_id: str | None = None,
     name: str | None = None,
@@ -187,12 +183,11 @@ def create_cron_job(
     priority: int = 5,
     if_missed: Literal["skip", "run_once", "run_all"] | None = None,
     misfire_threshold_seconds: int = 60,
-) -> JobInfo:
+) -> JobDefinition:
     """
-    Create cron job (runs on specific date/time patterns).
+    Build cron job definition.
 
     Args:
-        create_job_func: Function to call to create the job (scheduler.create_job)
         func: Function to execute (callable or import path string)
         job_id: Unique job identifier (auto-generated if None)
         name: Human-readable job name (auto-generated if None)
@@ -217,7 +212,7 @@ def create_cron_job(
         misfire_threshold_seconds: Misfire threshold in seconds (default: 60)
 
     Returns:
-        Created job info with generated or provided job_id
+        Job definition ready to be created
     """
     # Auto-generate name if not provided
     if name is None:
@@ -245,7 +240,7 @@ def create_cron_job(
     if not trigger_args:
         raise ValueError("At least one cron parameter must be specified")
 
-    job = JobDefinition(
+    return JobDefinition(
         job_id=job_id,
         name=name,
         trigger_type=TriggerType.CRON,
@@ -264,11 +259,9 @@ def create_cron_job(
         if_missed=if_missed,
         misfire_threshold_seconds=misfire_threshold_seconds,
     )
-    return create_job_func(job)
 
 
 def create_date_job(
-    create_job_func: Callable[[JobDefinition], JobInfo],
     func: Callable | str,
     run_date: str | datetime,
     job_id: str | None = None,
@@ -285,12 +278,11 @@ def create_date_job(
     priority: int = 5,
     if_missed: Literal["skip", "run_once", "run_all"] | None = None,
     misfire_threshold_seconds: int = 60,
-) -> JobInfo:
+) -> JobDefinition:
     """
-    Create one-time job (runs once at specific date/time).
+    Build one-time job definition.
 
     Args:
-        create_job_func: Function to call to create the job (scheduler.create_job)
         func: Function to execute (callable or import path string)
         run_date: ISO format datetime string or datetime object
         job_id: Unique job identifier (auto-generated if None)
@@ -309,7 +301,7 @@ def create_date_job(
         misfire_threshold_seconds: Misfire threshold in seconds (default: 60)
 
     Returns:
-        Created job info with generated or provided job_id
+        Job definition ready to be created
     """
     # Auto-generate name if not provided
     if name is None:
@@ -325,7 +317,7 @@ def create_date_job(
             run_date = run_date.astimezone(get_timezone("UTC"))
         run_date = run_date.isoformat()
 
-    job = JobDefinition(
+    return JobDefinition(
         job_id=job_id,
         name=name,
         trigger_type=TriggerType.DATE,
@@ -344,4 +336,3 @@ def create_date_job(
         if_missed=if_missed,
         misfire_threshold_seconds=misfire_threshold_seconds,
     )
-    return create_job_func(job)

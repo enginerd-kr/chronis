@@ -309,8 +309,7 @@ class PollingScheduler(BaseScheduler):
         misfire_threshold_seconds: int = 60,
     ) -> JobInfo:
         """Create interval job (runs repeatedly at fixed intervals)."""
-        return job_builders.create_interval_job(
-            create_job_func=self.create_job,
+        job_def = job_builders.create_interval_job(
             func=func,
             job_id=job_id,
             name=name,
@@ -332,6 +331,7 @@ class PollingScheduler(BaseScheduler):
             if_missed=if_missed,
             misfire_threshold_seconds=misfire_threshold_seconds,
         )
+        return self.create_job(job_def)
 
     def create_cron_job(
         self,
@@ -359,8 +359,7 @@ class PollingScheduler(BaseScheduler):
         misfire_threshold_seconds: int = 60,
     ) -> JobInfo:
         """Create cron job (runs on specific date/time patterns)."""
-        return job_builders.create_cron_job(
-            create_job_func=self.create_job,
+        job_def = job_builders.create_cron_job(
             func=func,
             job_id=job_id,
             name=name,
@@ -384,6 +383,7 @@ class PollingScheduler(BaseScheduler):
             if_missed=if_missed,
             misfire_threshold_seconds=misfire_threshold_seconds,
         )
+        return self.create_job(job_def)
 
     def create_date_job(
         self,
@@ -405,8 +405,7 @@ class PollingScheduler(BaseScheduler):
         misfire_threshold_seconds: int = 60,
     ) -> JobInfo:
         """Create one-time job (runs once at specific date/time)."""
-        return job_builders.create_date_job(
-            create_job_func=self.create_job,
+        job_def = job_builders.create_date_job(
             func=func,
             run_date=run_date,
             job_id=job_id,
@@ -424,3 +423,4 @@ class PollingScheduler(BaseScheduler):
             if_missed=if_missed,
             misfire_threshold_seconds=misfire_threshold_seconds,
         )
+        return self.create_job(job_def)
