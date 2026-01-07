@@ -59,6 +59,8 @@ class MigrationRunner:
     """Executes database migrations with version tracking."""
 
     HISTORY_TABLE = "chronis_migration_history"
+    # Advisory lock key for migration synchronization (arbitrary unique number)
+    MIGRATION_LOCK_KEY = 7283946501
 
     def __init__(self, connection: Any, migrations_dir: Path | str) -> None:
         """
@@ -74,12 +76,36 @@ class MigrationRunner:
         if not self.migrations_dir.exists():
             raise ValueError(f"Migrations directory not found: {self.migrations_dir}")
 
+    def _table_exists(self, table_name: str) -> bool:
+        """Check if a table exists in the database."""
+        with self.conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables
+                    WHERE table_name = %s
+                )
+                """,
+                (table_name,),
+            )
+            return cursor.fetchone()[0]
+
     def _ensure_history_table(self) -> None:
-        """Create migration history table if it doesn't exist."""
+        """Create migration history table if it doesn't exist.
+
+        This is the bootstrap operation for the migration system. The history
+        table itself cannot be managed via migration files (chicken-and-egg problem).
+
+        Note: This method should be called within an advisory lock context
+        to prevent race conditions in multi-instance deployments.
+        """
+        if self._table_exists(self.HISTORY_TABLE):
+            return
+
         with self.conn.cursor() as cursor:
             cursor.execute(
                 sql.SQL("""
-                    CREATE TABLE IF NOT EXISTS {} (
+                    CREATE TABLE {} (
                         version INTEGER PRIMARY KEY,
                         description TEXT NOT NULL,
                         filename TEXT NOT NULL,
@@ -164,9 +190,22 @@ class MigrationRunner:
                     f"Error: {e}"
                 ) from e
 
+    def _acquire_lock(self) -> None:
+        """Acquire advisory lock for migration synchronization."""
+        with self.conn.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_lock(%s)", (self.MIGRATION_LOCK_KEY,))
+
+    def _release_lock(self) -> None:
+        """Release advisory lock."""
+        with self.conn.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_unlock(%s)", (self.MIGRATION_LOCK_KEY,))
+
     def migrate(self, target_version: int | None = None) -> int:
         """
         Run pending migrations up to target version.
+
+        Uses PostgreSQL advisory locks to ensure only one instance runs
+        migrations at a time in multi-instance deployments.
 
         Args:
             target_version: Stop at this version (None = run all)
@@ -177,32 +216,36 @@ class MigrationRunner:
         Raises:
             RuntimeError: If migration fails
         """
-        self._ensure_history_table()
+        self._acquire_lock()
+        try:
+            self._ensure_history_table()
 
-        # Get applied and pending migrations
-        applied_versions = self._get_applied_versions()
-        all_migrations = self._discover_migrations()
+            # Get applied and pending migrations
+            applied_versions = self._get_applied_versions()
+            all_migrations = self._discover_migrations()
 
-        # Filter pending migrations
-        pending = [
-            m
-            for m in all_migrations
-            if m.version not in applied_versions
-            and (target_version is None or m.version <= target_version)
-        ]
+            # Filter pending migrations
+            pending = [
+                m
+                for m in all_migrations
+                if m.version not in applied_versions
+                and (target_version is None or m.version <= target_version)
+            ]
 
-        if not pending:
-            print("✓ No pending migrations")
-            return 0
+            if not pending:
+                print("✓ No pending migrations")
+                return 0
 
-        # Execute pending migrations in order
-        print(f"Found {len(pending)} pending migration(s)")
+            # Execute pending migrations in order
+            print(f"Found {len(pending)} pending migration(s)")
 
-        for migration in pending:
-            self._execute_migration(migration)
+            for migration in pending:
+                self._execute_migration(migration)
 
-        print(f"\n✓ Successfully applied {len(pending)} migration(s)")
-        return len(pending)
+            print(f"\n✓ Successfully applied {len(pending)} migration(s)")
+            return len(pending)
+        finally:
+            self._release_lock()
 
     def status(self) -> dict[str, Any]:
         """
@@ -211,10 +254,26 @@ class MigrationRunner:
         Returns:
             Dict with applied/pending migration info
         """
-        self._ensure_history_table()
+        all_migrations = self._discover_migrations()
+
+        # If history table doesn't exist, all migrations are pending
+        if not self._table_exists(self.HISTORY_TABLE):
+            return {
+                "total_migrations": len(all_migrations),
+                "applied_count": 0,
+                "pending_count": len(all_migrations),
+                "applied": [],
+                "pending": [
+                    {
+                        "version": m.version,
+                        "description": m.description,
+                        "filename": m.filepath.name,
+                    }
+                    for m in all_migrations
+                ],
+            }
 
         applied_versions = self._get_applied_versions()
-        all_migrations = self._discover_migrations()
 
         applied = [m for m in all_migrations if m.version in applied_versions]
         pending = [m for m in all_migrations if m.version not in applied_versions]

@@ -84,17 +84,40 @@ class TestMigrationRunner:
             yield migrations_path
 
     def test_init_creates_history_table(self, mock_conn, migrations_dir):
-        """Test that initialization creates history table."""
+        """Test that initialization creates history table when it doesn't exist."""
         runner = MigrationRunner(mock_conn, migrations_dir)
+
+        # Mock _table_exists to return False (table doesn't exist)
+        cursor = mock_conn.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (False,)
+
         runner._ensure_history_table()
 
-        # Verify CREATE TABLE was called
-        cursor = mock_conn.cursor.return_value.__enter__.return_value
-        assert cursor.execute.called
+        # Verify both SELECT EXISTS and CREATE TABLE were called
+        assert cursor.execute.call_count == 2
 
-        # Check that it creates the history table
+        # First call: check if table exists
+        first_call = cursor.execute.call_args_list[0][0][0]
+        assert "information_schema.tables" in str(first_call)
+
+        # Second call: create the history table
+        second_call = cursor.execute.call_args_list[1][0][0]
+        assert "chronis_migration_history" in str(second_call)
+
+    def test_ensure_history_table_skips_if_exists(self, mock_conn, migrations_dir):
+        """Test that _ensure_history_table skips creation if table exists."""
+        runner = MigrationRunner(mock_conn, migrations_dir)
+
+        # Mock _table_exists to return True (table already exists)
+        cursor = mock_conn.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (True,)
+
+        runner._ensure_history_table()
+
+        # Verify only SELECT EXISTS was called (no CREATE TABLE)
+        assert cursor.execute.call_count == 1
         call_args = cursor.execute.call_args[0][0]
-        assert "chronis_migration_history" in str(call_args)
+        assert "information_schema.tables" in str(call_args)
 
     def test_init_nonexistent_directory(self, mock_conn):
         """Test that initialization fails with nonexistent directory."""
