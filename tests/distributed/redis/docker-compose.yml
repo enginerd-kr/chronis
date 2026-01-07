@@ -14,8 +14,8 @@ services:
   # Leader pod - creates jobs
   scheduler-leader:
     build:
-      context: ../..
-      dockerfile: tests/distributed/Dockerfile
+      context: ../../..
+      dockerfile: tests/distributed/redis/Dockerfile
     environment:
       - POD_NAME=scheduler-leader
       - REDIS_HOST=redis
@@ -23,13 +23,13 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    command: python -u tests/distributed/worker.py
+    command: python -u tests/distributed/redis/worker.py
 
   # Follower pods
   scheduler-1:
     build:
-      context: ../..
-      dockerfile: tests/distributed/Dockerfile
+      context: ../../..
+      dockerfile: tests/distributed/redis/Dockerfile
     environment:
       - POD_NAME=scheduler-1
       - REDIS_HOST=redis
@@ -37,12 +37,12 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    command: python -u tests/distributed/worker.py
+    command: python -u tests/distributed/redis/worker.py
 
   scheduler-2:
     build:
-      context: ../..
-      dockerfile: tests/distributed/Dockerfile
+      context: ../../..
+      dockerfile: tests/distributed/redis/Dockerfile
     environment:
       - POD_NAME=scheduler-2
       - REDIS_HOST=redis
@@ -50,12 +50,12 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    command: python -u tests/distributed/worker.py
+    command: python -u tests/distributed/redis/worker.py
 
   scheduler-3:
     build:
-      context: ../..
-      dockerfile: tests/distributed/Dockerfile
+      context: ../../..
+      dockerfile: tests/distributed/redis/Dockerfile
     environment:
       - POD_NAME=scheduler-3
       - REDIS_HOST=redis
@@ -63,17 +63,17 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    command: python -u tests/distributed/worker.py
+    command: python -u tests/distributed/redis/worker.py
 
   # Analysis container
   analyzer:
     build:
-      context: ../..
-      dockerfile: tests/distributed/Dockerfile
+      context: ../../..
+      dockerfile: tests/distributed/redis/Dockerfile
     environment:
       - REDIS_HOST=redis
     depends_on:
       - redis
-    command: python -u tests/distributed/analyze.py
+    command: python -u tests/distributed/redis/analyze.py
     profiles:
       - analyze

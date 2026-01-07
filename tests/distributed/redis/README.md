@@ -1,6 +1,6 @@
-# Distributed Scheduler Test
+# Distributed Scheduler Test (Redis)
 
-This example simulates a Kubernetes environment using Docker Compose.
+This example simulates a Kubernetes environment using Docker Compose with Redis for both storage and distributed locking.
 
 ## Architecture
 
@@ -14,7 +14,7 @@ This example simulates a Kubernetes environment using Docker Compose.
 ### 1. Run Test
 
 ```bash
-cd tests/distributed
+cd tests/distributed/redis
 
 # Start all containers (runs for ~30 seconds)
 docker-compose up --build
