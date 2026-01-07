@@ -1,0 +1,120 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=chronis_test
+      - POSTGRES_USER=chronis
+      - POSTGRES_PASSWORD=chronis123
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chronis -d chronis_test"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  # Leader pod - creates jobs
+  scheduler-leader:
+    build:
+      context: ../../..
+      dockerfile: tests/distributed/postgresql/Dockerfile
+    environment:
+      - POD_NAME=scheduler-leader
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=chronis_test
+      - POSTGRES_USER=chronis
+      - POSTGRES_PASSWORD=chronis123
+      - REDIS_HOST=redis
+      - IS_LEADER=true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: python -u tests/distributed/postgresql/worker.py
+
+  # Follower pods
+  scheduler-1:
+    build:
+      context: ../../..
+      dockerfile: tests/distributed/postgresql/Dockerfile
+    environment:
+      - POD_NAME=scheduler-1
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=chronis_test
+      - POSTGRES_USER=chronis
+      - POSTGRES_PASSWORD=chronis123
+      - REDIS_HOST=redis
+      - IS_LEADER=false
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: python -u tests/distributed/postgresql/worker.py
+
+  scheduler-2:
+    build:
+      context: ../../..
+      dockerfile: tests/distributed/postgresql/Dockerfile
+    environment:
+      - POD_NAME=scheduler-2
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=chronis_test
+      - POSTGRES_USER=chronis
+      - POSTGRES_PASSWORD=chronis123
+      - REDIS_HOST=redis
+      - IS_LEADER=false
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: python -u tests/distributed/postgresql/worker.py
+
+  scheduler-3:
+    build:
+      context: ../../..
+      dockerfile: tests/distributed/postgresql/Dockerfile
+    environment:
+      - POD_NAME=scheduler-3
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=chronis_test
+      - POSTGRES_USER=chronis
+      - POSTGRES_PASSWORD=chronis123
+      - REDIS_HOST=redis
+      - IS_LEADER=false
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: python -u tests/distributed/postgresql/worker.py
+
+  # Analysis container
+  analyzer:
+    build:
+      context: ../../..
+      dockerfile: tests/distributed/postgresql/Dockerfile
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=chronis_test
+      - POSTGRES_USER=chronis
+      - POSTGRES_PASSWORD=chronis123
+    depends_on:
+      - postgres
+    command: python -u tests/distributed/postgresql/analyze.py
+    profiles:
+      - analyze
