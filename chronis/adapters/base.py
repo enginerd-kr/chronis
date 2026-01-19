@@ -60,6 +60,53 @@ class JobStorageAdapter(ABC):
         """
         pass
 
+    def get_jobs_batch(self, job_ids: list[str]) -> dict[str, JobStorageData]:
+        """
+        Get multiple jobs by IDs in a single operation (batch optimization).
+
+        ┌──────────────────────────────────────────────────────────────┐
+        │                   IMPLEMENTATION CONTRACT                     │
+        ├──────────────────────────────────────────────────────────────┤
+        │ WHO IMPLEMENTS: Storage adapter developer (RECOMMENDED)      │
+        │ WHO CALLS:      Chronis Core (PollingScheduler, query_jobs)  │
+        │ WHEN CALLED:    Batch job execution, query result fetching   │
+        │                                                              │
+        │ DEFAULT IMPLEMENTATION: Sequential get_job() calls           │
+        │ ⚠️  Override for performance in high-throughput scenarios   │
+        └──────────────────────────────────────────────────────────────┘
+
+        DEFAULT IMPLEMENTATION:
+            This base implementation calls get_job() sequentially for each ID.
+            This works but causes N network round-trips for N jobs.
+
+            Override with optimized batch operations:
+            - Redis: Use pipeline to batch HGET commands
+            - PostgreSQL: Use IN clause to fetch multiple rows in one query
+            - DynamoDB: Use BatchGetItem
+            - MongoDB: Use $in operator
+
+        Performance Impact:
+            - Default: O(N) network calls
+            - Optimized: O(1) network call
+            - 20 jobs: ~20x faster with optimization
+
+        Args:
+            job_ids: List of job IDs to retrieve
+
+        Returns:
+            Dictionary mapping job_id to job data (only includes found jobs)
+
+        Example:
+            >>> jobs = storage.get_jobs_batch(["job-1", "job-2", "job-3"])
+            >>> # jobs = {"job-1": {...}, "job-2": {...}}  # job-3 not found
+        """
+        result: dict[str, JobStorageData] = {}
+        for job_id in job_ids:
+            job_data = self.get_job(job_id)
+            if job_data is not None:
+                result[job_id] = job_data
+        return result
+
     @abstractmethod
     def update_job(self, job_id: str, updates: JobUpdateData) -> JobStorageData:
         """

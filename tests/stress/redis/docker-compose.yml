@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  # Leader pod - creates jobs
+  scheduler-leader:
+    build:
+      context: ../../..
+      dockerfile: tests/stress/redis/Dockerfile
+    environment:
+      - POD_NAME=scheduler-leader
+      - REDIS_HOST=redis
+      - IS_LEADER=true
+      - JOB_COUNT=${JOB_COUNT:-100}
+      - JOB_INTERVAL_MS=${JOB_INTERVAL_MS:-1000}
+      - JOB_DURATION_MS=${JOB_DURATION_MS:-50}
+      - TEST_DURATION_SEC=${TEST_DURATION_SEC:-60}
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: python -u tests/stress/redis/worker.py
+
+  # Follower pods (scalable)
+  # Use: docker-compose up --scale scheduler-follower=N
+  scheduler-follower:
+    build:
+      context: ../../..
+      dockerfile: tests/stress/redis/Dockerfile
+    environment:
+      - REDIS_HOST=redis
+      - IS_LEADER=false
+      - JOB_COUNT=${JOB_COUNT:-100}
+      - JOB_INTERVAL_MS=${JOB_INTERVAL_MS:-1000}
+      - JOB_DURATION_MS=${JOB_DURATION_MS:-50}
+      - TEST_DURATION_SEC=${TEST_DURATION_SEC:-60}
+      - WORKER_COUNT=${WORKER_COUNT:-3}
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: python -u tests/stress/redis/worker.py
+
+  # Analysis container
+  analyzer:
+    build:
+      context: ../../..
+      dockerfile: tests/stress/redis/Dockerfile
+    environment:
+      - REDIS_HOST=redis
+    depends_on:
+      - redis
+    command: python -u tests/stress/redis/analyze.py
+    profiles:
+      - analyze

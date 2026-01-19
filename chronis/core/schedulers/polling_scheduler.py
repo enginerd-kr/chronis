@@ -25,7 +25,7 @@ class PollingScheduler(BaseScheduler):
     Uses periodic polling to discover and execute scheduled jobs.
     """
 
-    MIN_POLLING_INTERVAL = 1
+    MIN_POLLING_INTERVAL = 0.1
     MAX_POLLING_INTERVAL = 3600
 
     def __init__(
@@ -248,35 +248,51 @@ class PollingScheduler(BaseScheduler):
 
     def _execute_queued_jobs(self) -> None:
         """
-        Execute jobs from queue.
+        Execute jobs from queue in batches.
 
         Called periodically by APScheduler.
-        Fetches job data from storage for each queued job ID.
+        Fetches job data from storage and submits jobs to thread pool in batches
+        for concurrent execution, improving throughput in distributed environments.
 
         This method runs in APScheduler's background thread.
         """
         try:
-            # Execute jobs while queue is not empty
+            # Process jobs in batches for better concurrency
+            batch_size = 100  # Process up to 100 jobs per iteration (increased for throughput)
+
             while not self._orchestrator.is_queue_empty():
-                job_id = self._orchestrator.get_next_job_from_queue()
-                if job_id is None:
+                # Get batch of job IDs from queue
+                job_ids = []
+                for _ in range(batch_size):
+                    if self._orchestrator.is_queue_empty():
+                        break
+                    job_id = self._orchestrator.get_next_job_from_queue()
+                    if job_id:
+                        job_ids.append(job_id)
+
+                if not job_ids:
                     break
 
-                # Fetch fresh job data from storage
-                job_data = self.storage.get_job(job_id)
-                if job_data is None:
-                    # Job was deleted - mark as completed and continue
-                    self._orchestrator.mark_job_completed(job_id)
-                    continue
+                # Fetch all job data in single batch operation (optimized!)
+                jobs_dict = self.storage.get_jobs_batch(job_ids)
 
-                # Try to execute with distributed lock
-                executed = self._execution_coordinator.try_execute(
-                    dict(job_data), on_complete=self._orchestrator.mark_job_completed
-                )
+                # Process batch: submit for execution
+                # Each try_execute() is non-blocking and submits to thread pool
+                for job_id in job_ids:
+                    job_data = jobs_dict.get(job_id)
+                    if job_data is None:
+                        # Job was deleted - mark as completed and continue
+                        self._orchestrator.mark_job_completed(job_id)
+                        continue
 
-                # If not executed (lock failed or wrong status), mark as completed in queue
-                if not executed:
-                    self._orchestrator.mark_job_completed(job_id)
+                    # Try to execute with distributed lock (non-blocking)
+                    executed = self._execution_coordinator.try_execute(
+                        dict(job_data), on_complete=self._orchestrator.mark_job_completed
+                    )
+
+                    # If not executed (lock failed or wrong status), mark as completed in queue
+                    if not executed:
+                        self._orchestrator.mark_job_completed(job_id)
 
         except Exception as e:
             self.logger.error(f"Executor error: {e}", exc_info=True)

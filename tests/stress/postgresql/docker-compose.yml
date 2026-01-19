@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: chronis
+      POSTGRES_PASSWORD: chronis
+      POSTGRES_DB: chronis
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chronis"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  # Leader pod - creates jobs
+  scheduler-leader:
+    build:
+      context: ../../..
+      dockerfile: tests/stress/postgresql/Dockerfile
+    environment:
+      - POD_NAME=scheduler-leader
+      - POSTGRES_HOST=postgres
+      - REDIS_HOST=redis
+      - IS_LEADER=true
+      - JOB_COUNT=${JOB_COUNT:-100}
+      - JOB_INTERVAL_MS=${JOB_INTERVAL_MS:-1000}
+      - JOB_DURATION_MS=${JOB_DURATION_MS:-50}
+      - TEST_DURATION_SEC=${TEST_DURATION_SEC:-60}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: python -u tests/stress/postgresql/worker.py
+
+  # Follower pods (scalable)
+  # Use: docker-compose up --scale scheduler-follower=N
+  scheduler-follower:
+    build:
+      context: ../../..
+      dockerfile: tests/stress/postgresql/Dockerfile
+    environment:
+      - POSTGRES_HOST=postgres
+      - REDIS_HOST=redis
+      - IS_LEADER=false
+      - JOB_COUNT=${JOB_COUNT:-100}
+      - JOB_INTERVAL_MS=${JOB_INTERVAL_MS:-1000}
+      - JOB_DURATION_MS=${JOB_DURATION_MS:-50}
+      - TEST_DURATION_SEC=${TEST_DURATION_SEC:-60}
+      - WORKER_COUNT=${WORKER_COUNT:-3}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: python -u tests/stress/postgresql/worker.py
+
+  # Analysis container
+  analyzer:
+    build:
+      context: ../../..
+      dockerfile: tests/stress/postgresql/Dockerfile
+    environment:
+      - POSTGRES_HOST=postgres
+      - REDIS_HOST=redis
+    depends_on:
+      - postgres
+      - redis
+    command: python -u tests/stress/postgresql/analyze.py
+    profiles:
+      - analyze
