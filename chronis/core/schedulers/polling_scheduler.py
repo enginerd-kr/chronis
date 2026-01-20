@@ -32,7 +32,7 @@ class PollingScheduler(BaseScheduler):
         self,
         storage_adapter: JobStorageAdapter,
         lock_adapter: LockAdapter,
-        polling_interval_seconds: int = 10,
+        polling_interval_seconds: int = 1,
         lock_ttl_seconds: int = 300,
         lock_prefix: str = "scheduler:lock:",
         max_workers: int | None = None,
