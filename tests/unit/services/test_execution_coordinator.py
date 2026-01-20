@@ -116,6 +116,7 @@ class TestExecuteInBackgroundRetryLogic:
         update_calls = [call for call in storage_mock.method_calls if call[0] == "update_job"]
         assert any("retry_count" in str(call) and "0" in str(call) for call in update_calls)
 
+
 class TestScheduleRetryErrorHandling:
     """Test error handling in retry_handler.schedule_retry."""
 

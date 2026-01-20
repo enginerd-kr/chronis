@@ -2,7 +2,12 @@
 
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+from chronis.core.schedulers.fluent_builders import DayOfWeek, Month
+
+if TYPE_CHECKING:
+    from chronis.core.schedulers.fluent_builders import FluentJobBuilder
 
 from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore[import-untyped]
 from apscheduler.triggers.interval import IntervalTrigger  # type: ignore[import-untyped]
@@ -444,3 +449,157 @@ class PollingScheduler(BaseScheduler):
             misfire_threshold_seconds=misfire_threshold_seconds,
         )
         return self.create_job(job_def)
+
+    # ========================================
+    # Fluent Builder API (Simplified Interface)
+    # ========================================
+
+    def every(
+        self,
+        seconds: int | None = None,
+        minutes: int | None = None,
+        hours: int | None = None,
+        days: int | None = None,
+        weeks: int | None = None,
+    ) -> "FluentJobBuilder":
+        """
+        Create an interval job using fluent API.
+
+        Args:
+            seconds: Run every N seconds
+            minutes: Run every N minutes
+            hours: Run every N hours
+            days: Run every N days
+            weeks: Run every N weeks
+
+        Returns:
+            FluentJobBuilder for method chaining
+
+        Example:
+            scheduler.every(minutes=5).run("sync_data")
+            scheduler.every(hours=1).config(retry=3).run("backup")
+        """
+        from chronis.core.schedulers.fluent_builders import FluentJobBuilder
+
+        return FluentJobBuilder(self).every(
+            seconds=seconds,
+            minutes=minutes,
+            hours=hours,
+            days=days,
+            weeks=weeks,
+        )
+
+    def on(
+        self,
+        *,
+        minute: int | None = None,
+        hour: int | None = None,
+        day: int | None = None,
+        day_of_week: int | DayOfWeek | None = None,
+        month: int | Month | None = None,
+        year: int | None = None,
+        week: int | None = None,
+    ) -> "FluentJobBuilder":
+        """
+        Create a cron job - run at specific times.
+
+        Args:
+            minute: Minute (0-59)
+            hour: Hour (0-23)
+            day: Day of month (1-31)
+            day_of_week: Day of week (0-6 for Mon-Sun, or "mon", "tue", etc.)
+            month: Month (1-12)
+            year: 4-digit year
+            week: ISO week (1-53)
+
+        Returns:
+            FluentJobBuilder for method chaining
+
+        Examples:
+            # Every hour at minute 5
+            scheduler.on(minute=5).run("task")
+
+            # Daily at 9:30
+            scheduler.on(hour=9, minute=30).run("report")
+
+            # Every Monday at 9:00
+            scheduler.on(day_of_week="mon", hour=9, minute=0).run("weekly")
+
+            # Every month on the 1st at midnight
+            scheduler.on(day=1, hour=0, minute=0).run("monthly")
+        """
+        from chronis.core.schedulers.fluent_builders import FluentJobBuilder
+
+        return FluentJobBuilder(self).on(
+            minute=minute,
+            hour=hour,
+            day=day,
+            day_of_week=day_of_week,
+            month=month,
+            year=year,
+            week=week,
+        )
+
+    def once(self, when: str | datetime) -> "FluentJobBuilder":
+        """
+        Create a one-time job at specified datetime.
+
+        Args:
+            when: ISO format datetime string or datetime object
+
+        Returns:
+            FluentJobBuilder for method chaining
+
+        Example:
+            scheduler.once(when="2025-01-20T10:00:00").run("notify")
+        """
+        from chronis.core.schedulers.fluent_builders import FluentJobBuilder
+
+        return FluentJobBuilder(self).once(when=when)
+
+    def config(
+        self,
+        *,
+        job_id: str | None = None,
+        name: str | None = None,
+        timezone: str | None = None,
+        retry: int | None = None,
+        retry_delay: int | None = None,
+        timeout: int | None = None,
+        priority: int | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> "FluentJobBuilder":
+        """
+        Start building a job with configuration options.
+
+        Can be called before or after trigger methods (every, daily_at, etc.).
+
+        Args:
+            job_id: Custom job ID
+            name: Custom job name
+            timezone: Timezone for scheduling
+            retry: Maximum retry attempts
+            retry_delay: Delay between retries in seconds
+            timeout: Execution timeout in seconds
+            priority: Job priority (0-10, higher = more urgent)
+            metadata: Custom metadata dict
+
+        Returns:
+            FluentJobBuilder for method chaining
+
+        Example:
+            scheduler.config(retry=3, timeout=300).every(minutes=5).run("sync")
+            scheduler.every(minutes=5).config(retry=3).run("sync")
+        """
+        from chronis.core.schedulers.fluent_builders import FluentJobBuilder
+
+        return FluentJobBuilder(self).config(
+            job_id=job_id,
+            name=name,
+            timezone=timezone,
+            retry=retry,
+            retry_delay=retry_delay,
+            timeout=timeout,
+            priority=priority,
+            metadata=metadata,
+        )

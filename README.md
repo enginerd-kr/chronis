@@ -35,157 +35,87 @@ pip install chronis[all]        # All adapters
 ## Quick Start
 
 ```python
-from chronis import PollingScheduler
-from chronis.adapters.storage import InMemoryStorageAdapter
-from chronis.adapters.lock import InMemoryLockAdapter
+from chronis import PollingScheduler, InMemoryStorageAdapter, InMemoryLockAdapter
 
-# 1. Create adapters
-storage = InMemoryStorageAdapter()
-lock = InMemoryLockAdapter()
-
-# 2. Create scheduler
+# Setup
 scheduler = PollingScheduler(
-    storage_adapter=storage,
-    lock_adapter=lock,
-    polling_interval_seconds=10,
+    storage_adapter=InMemoryStorageAdapter(),
+    lock_adapter=InMemoryLockAdapter(),
 )
 
-# 3. Define job function
-def send_daily_email():
-    print("Sending daily email...")
+def send_email():
+    print("Sending email...")
 
-# 4. Register function
-scheduler.register_job_function("send_daily_email", send_daily_email)
+scheduler.register_job_function("send_email", send_email)
 
-# 5. Create jobs
+# Create jobs with simple fluent API
+scheduler.every(minutes=5).run("send_email")                          # Every 5 minutes
+scheduler.on(hour=9, minute=30).run("send_email")                     # Daily at 9:30
+scheduler.on(day_of_week="mon", hour=9).run("send_email")             # Every Monday at 9:00
+scheduler.once(when="2025-12-25T09:00:00").run("send_email")          # Once at specific time
 
-# Interval - runs every 30 seconds
-job1 = scheduler.create_interval_job(
-    func="send_daily_email",
-    seconds=30
-)
+# With options
+scheduler.every(hours=1).config(retry=3, timeout=300).run("send_email")
+scheduler.on(hour=9).config(timezone="Asia/Seoul").run("send_email")
 
-# Cron - runs daily at 9 AM Seoul time
-job2 = scheduler.create_cron_job(
-    func="send_daily_email",
-    hour=9,
-    minute=0,
-    timezone="Asia/Seoul"
-)
-
-# Date - runs once at specific time
-job3 = scheduler.create_date_job(
-    func="send_daily_email",
-    run_date="2025-11-08 10:00:00",
-    timezone="Asia/Seoul"
-)
-
-# 6. Start scheduler
 scheduler.start()
+```
+
+## API
+
+```python
+# every() - Interval scheduling
+scheduler.every(seconds=30).run("task")
+scheduler.every(minutes=5).run("task")
+scheduler.every(hours=1, minutes=30).run("task")
+
+# on() - Cron scheduling (specific times)
+scheduler.on(minute=5).run("task")                      # Every hour at :05
+scheduler.on(hour=9, minute=30).run("task")             # Daily at 9:30
+scheduler.on(day_of_week="mon", hour=9).run("task")     # Weekly on Monday
+scheduler.on(day=1, hour=0, minute=0).run("task")       # Monthly on 1st
+scheduler.on(month="jan", day=1).run("task")            # Yearly on Jan 1st
+
+# once() - One-time scheduling
+scheduler.once(when="2025-12-25T09:00:00").run("task")
+scheduler.once(when=datetime.now() + timedelta(hours=1)).run("task")
+
+# config() - Options (can be chained in any order before run())
+scheduler.every(minutes=5).config(
+    retry=3,                    # Max retry attempts
+    timeout=300,                # Timeout in seconds
+    timezone="Asia/Seoul",      # Timezone
+    metadata={"env": "prod"},   # Custom metadata
+).run("task")
+
+# config() first is also valid
+scheduler.config(retry=3).every(minutes=5).run("task")
+```
+
+## AI Agent Example
+
+```python
+# LLM function calling - minimal parameters!
+def schedule_reminder(message: str, hours_from_now: int):
+    """AI agent schedules a reminder."""
+    job = scheduler.once(
+        when=datetime.now() + timedelta(hours=hours_from_now)
+    ).run("send_notification", message=message)
+    return f"Reminder scheduled: {job.job_id}"
+
+schedule_reminder("Check on customer", 24)
 ```
 
 ## Job Management
 
 ```python
-# Create job
-job = scheduler.create_interval_job(func=my_func, hours=1)
+# Query and manage jobs
+jobs = scheduler.query_jobs(filters={"status": "scheduled"})
+job = scheduler.get_job(job_id)
 
-# Query jobs
-jobs = scheduler.query_jobs(filters={"status": "scheduled"}, limit=10)
-
-# Get specific job
-job = scheduler.get_job(saved_id)
-
-# Pause/Resume jobs
-scheduler.pause_job(saved_id)   # Temporarily suspend execution
-scheduler.resume_job(saved_id)  # Resume execution
-
-# Delete job
-scheduler.delete_job(saved_id)
-```
-
-## Misfire Handling
-
-Handle jobs that miss their scheduled time (system downtime, busy workers):
-
-```python
-# Cron job - defaults to "skip" (time-specific jobs)
-scheduler.create_cron_job(
-    func=generate_report,
-    hour=9,
-    minute=0,
-    # if_missed="skip"  # Default: skip if 9am passed
-)
-
-# Critical job - run even if late
-scheduler.create_cron_job(
-    func=backup_database,
-    hour=2,
-    minute=0,
-    if_missed="run_once",  # Override: run even if late
-)
-
-# Event sync - catch up all missed
-scheduler.create_interval_job(
-    func=sync_events,
-    minutes=5,
-    if_missed="run_all",  # Run all missed executions
-    misfire_threshold_seconds=30,  # Custom threshold
-)
-```
-
-**Policies**: `skip` (ignore), `run_once` (execute once), `run_all` (all missed runs)
-
-## Timeout & Retry
-
-Prevent runaway jobs and handle transient failures:
-
-```python
-# Timeout - prevent infinite execution
-scheduler.create_interval_job(
-    func=process_data,
-    minutes=5,
-    timeout_seconds=60,  # Kill job if it exceeds 60 seconds
-)
-
-# Retry with exponential backoff + jitter
-scheduler.create_cron_job(
-    func=sync_external_api,
-    hour=2,
-    minute=0,
-    max_retries=3,              # Retry up to 3 times on failure
-    retry_delay_seconds=60,     # Base delay: 60s, 120s, 240s (with jitter)
-    timeout_seconds=30,          # Per-attempt timeout
-)
-
-# Timeout errors trigger failure handlers
-def handle_timeout(job_id: str, error: Exception, job_info):
-    if isinstance(error, JobTimeoutError):
-        logger.error(f"Job {job_id} exceeded timeout")
-        # Send alert, update monitoring, etc.
-
-scheduler.create_interval_job(
-    func=long_running_task,
-    hours=1,
-    timeout_seconds=300,
-    on_failure=handle_timeout,
-)
-```
-
-## Multi-Tenancy & Metadata
-
-Perfect for SaaS applications and multi-agent systems:
-
-```python
-# Create job with metadata
-job = scheduler.create_interval_job(
-    func=generate_report,
-    hours=24,
-    metadata={"tenant_id": "acme", "priority": "high"}
-)
-
-# Query by metadata
-jobs = scheduler.query_jobs(filters={"metadata.tenant_id": "acme"})
+scheduler.pause_job(job_id)
+scheduler.resume_job(job_id)
+scheduler.delete_job(job_id)
 ```
 
 ## Callbacks
@@ -204,34 +134,69 @@ def on_job_success(job_id: str, job_info):
 scheduler = PollingScheduler(
     storage_adapter=storage,
     lock_adapter=lock,
-    on_failure=on_job_failure,  # Global failure handler
-    on_success=on_job_success,  # Global success handler
+    on_failure=on_job_failure,
+    on_success=on_job_success,
 )
 
 # Job-specific handlers
-scheduler.create_interval_job(
-    func=critical_task,
-    hours=1,
-    on_failure=lambda job_id, err, info: send_urgent_alert(err),
-    on_success=lambda job_id, info: update_dashboard(job_id)
-)
+def on_critical_failure(job_id: str, error: Exception, job_info):
+    send_urgent_alert(error)
+
+def on_critical_success(job_id: str, job_info):
+    update_dashboard(job_id)
+
+scheduler.every(hours=1).config(
+    on_failure=on_critical_failure,
+    on_success=on_critical_success,
+).run("critical_task")
 ```
 
-## AI Agent Example
+## Direct API
+
+For advanced use cases, the direct API with full parameter control is also available. Use these methods when you need explicit control over all job parameters or when integrating programmatically:
 
 ```python
-# LLM function calling - minimal parameters!
-def schedule_reminder(message: str, hours_from_now: int):
-    """AI agent schedules a reminder."""
-    job = scheduler.create_date_job(
-        func="send_notification",
-        run_date=datetime.now() + timedelta(hours=hours_from_now),
-        kwargs={"message": message}
-    )
-    return f"Reminder scheduled with ID: {job.job_id}"
+scheduler.create_interval_job(func="task", seconds=30, max_retries=3)
+scheduler.create_cron_job(func="task", hour=9, minute=0, timezone="UTC")
+scheduler.create_date_job(func="task", run_date="2025-12-25T09:00:00")
+```
 
-# Agent can now manage its own schedule
-schedule_reminder("Check on customer", 24)
+These methods accept all configuration options as explicit parameters, making them suitable for dynamic job creation where parameters are determined at runtime.
+
+## Advanced Options
+
+### Misfire Handling
+
+When a scheduler is down or busy, jobs may miss their scheduled execution time. The `if_missed` option controls how Chronis handles these misfired jobs when the scheduler recovers:
+
+- `skip`: Ignore missed executions entirely (default)
+- `run_once`: Execute the job once to catch up, regardless of how many executions were missed
+- `run_all`: Execute all missed runs (use with caution for interval jobs)
+
+```python
+scheduler.on(hour=9).config(if_missed="run_once").run("daily_report")
+scheduler.every(hours=1).config(if_missed="skip").run("cleanup")
+```
+
+### Timeout & Retry
+
+Jobs can fail due to network issues, external service outages, or long-running operations. Configure timeout and retry behavior to handle these scenarios gracefully:
+
+```python
+scheduler.every(minutes=5).config(
+    timeout=60,           # Kill job if it exceeds 60 seconds
+    retry=3,              # Retry up to 3 times on failure
+    retry_delay=60,       # Wait 60 seconds between retries
+).run("sync_external_api")
+```
+
+### Multi-Tenancy & Metadata
+
+Store custom key-value pairs with jobs using the `metadata` option. This is useful for multi-tenancy (tag jobs by tenant/environment), filtering (query jobs by metadata fields), and passing additional context for logging or debugging.
+
+```python
+scheduler.every(hours=1).config(metadata={"tenant_id": "acme", "env": "prod"}).run("task")
+jobs = scheduler.query_jobs(filters={"metadata.tenant_id": "acme"})
 ```
 
 ## Learn More
