@@ -137,47 +137,6 @@ scheduler.every(hours=1).config(
 ).run("critical_task")
 ```
 
-## Misfire Handling
-
-When a scheduler is down or busy, jobs may miss their scheduled execution time. The `if_missed` option controls how Chronis handles these misfired jobs when the scheduler recovers:
-
-- `skip`: Ignore missed executions entirely (default)
-- `run_once`: Execute the job once to catch up, regardless of how many executions were missed
-- `run_all`: Execute all missed runs (use with caution for interval jobs)
-
-```python
-scheduler.on(hour=9).config(if_missed="run_once").run("daily_report")
-scheduler.every(hours=1).config(if_missed="skip").run("cleanup")
-```
-
-## Timeout & Retry
-
-Jobs can fail due to network issues, external service outages, or long-running operations. Configure timeout and retry behavior to handle these scenarios gracefully:
-
-```python
-scheduler.every(minutes=5).config(
-    timeout=60,           # Kill job if it exceeds 60 seconds
-    retry=3,              # Retry up to 3 times on failure
-    retry_delay=60,       # Wait 60 seconds between retries
-).run("sync_external_api")
-```
-
-## Multi-Tenancy & Metadata
-
-Store custom key-value pairs with jobs using the `metadata` option. This is useful for:
-
-- **Multi-tenancy**: Tag jobs by tenant, environment, or team
-- **Filtering**: Query jobs by metadata fields
-- **Context**: Pass additional information for logging or debugging
-
-```python
-# Tag jobs with tenant information
-scheduler.every(hours=1).config(metadata={"tenant_id": "acme", "env": "prod"}).run("task")
-
-# Query jobs by metadata
-jobs = scheduler.query_jobs(filters={"metadata.tenant_id": "acme"})
-```
-
 ## AI Agent Example
 
 ```python
@@ -203,6 +162,42 @@ scheduler.create_date_job(func="task", run_date="2025-12-25T09:00:00")
 ```
 
 These methods accept all configuration options as explicit parameters, making them suitable for dynamic job creation where parameters are determined at runtime.
+
+## Advanced Options
+
+### Misfire Handling
+
+When a scheduler is down or busy, jobs may miss their scheduled execution time. The `if_missed` option controls how Chronis handles these misfired jobs when the scheduler recovers:
+
+- `skip`: Ignore missed executions entirely (default)
+- `run_once`: Execute the job once to catch up, regardless of how many executions were missed
+- `run_all`: Execute all missed runs (use with caution for interval jobs)
+
+```python
+scheduler.on(hour=9).config(if_missed="run_once").run("daily_report")
+scheduler.every(hours=1).config(if_missed="skip").run("cleanup")
+```
+
+### Timeout & Retry
+
+Jobs can fail due to network issues, external service outages, or long-running operations. Configure timeout and retry behavior to handle these scenarios gracefully:
+
+```python
+scheduler.every(minutes=5).config(
+    timeout=60,           # Kill job if it exceeds 60 seconds
+    retry=3,              # Retry up to 3 times on failure
+    retry_delay=60,       # Wait 60 seconds between retries
+).run("sync_external_api")
+```
+
+### Multi-Tenancy & Metadata
+
+Store custom key-value pairs with jobs using the `metadata` option. This is useful for multi-tenancy (tag jobs by tenant/environment), filtering (query jobs by metadata fields), and passing additional context for logging or debugging.
+
+```python
+scheduler.every(hours=1).config(metadata={"tenant_id": "acme", "env": "prod"}).run("task")
+jobs = scheduler.query_jobs(filters={"metadata.tenant_id": "acme"})
+```
 
 ## Learn More
 
