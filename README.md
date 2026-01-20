@@ -61,7 +61,7 @@ scheduler.on(hour=9).config(timezone="Asia/Seoul").run("send_email")
 scheduler.start()
 ```
 
-## Fluent API
+## API
 
 ```python
 # every() - Interval scheduling
@@ -90,6 +90,20 @@ scheduler.every(minutes=5).config(
 
 # config() first is also valid
 scheduler.config(retry=3).every(minutes=5).run("task")
+```
+
+## AI Agent Example
+
+```python
+# LLM function calling - minimal parameters!
+def schedule_reminder(message: str, hours_from_now: int):
+    """AI agent schedules a reminder."""
+    job = scheduler.once(
+        when=datetime.now() + timedelta(hours=hours_from_now)
+    ).run("send_notification", message=message)
+    return f"Reminder scheduled: {job.job_id}"
+
+schedule_reminder("Check on customer", 24)
 ```
 
 ## Job Management
@@ -135,20 +149,6 @@ scheduler.every(hours=1).config(
     on_failure=on_critical_failure,
     on_success=on_critical_success,
 ).run("critical_task")
-```
-
-## AI Agent Example
-
-```python
-# LLM function calling - minimal parameters!
-def schedule_reminder(message: str, hours_from_now: int):
-    """AI agent schedules a reminder."""
-    job = scheduler.once(
-        when=datetime.now() + timedelta(hours=hours_from_now)
-    ).run("send_notification", message=message)
-    return f"Reminder scheduled: {job.job_id}"
-
-schedule_reminder("Check on customer", 24)
 ```
 
 ## Direct API
