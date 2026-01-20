@@ -56,7 +56,8 @@ class CallbackInvoker:
                 job_handler(job_id, error, job_info)
             except Exception as handler_error:
                 self.logger.error(
-                    f"Job-specific failure handler raised exception: {handler_error}",
+                    "Job-specific failure handler raised exception",
+                    error=str(handler_error),
                     job_id=job_id,
                     exc_info=True,
                 )
@@ -67,7 +68,8 @@ class CallbackInvoker:
                 self.global_on_failure(job_id, error, job_info)
             except Exception as handler_error:
                 self.logger.error(
-                    f"Global failure handler raised exception: {handler_error}",
+                    "Global failure handler raised exception",
+                    error=str(handler_error),
                     job_id=job_id,
                     exc_info=True,
                 )
@@ -91,7 +93,8 @@ class CallbackInvoker:
                 job_handler(job_id, job_info)
             except Exception as handler_error:
                 self.logger.error(
-                    f"Job-specific success handler raised exception: {handler_error}",
+                    "Job-specific success handler raised exception",
+                    error=str(handler_error),
                     job_id=job_id,
                     exc_info=True,
                 )
@@ -102,7 +105,8 @@ class CallbackInvoker:
                 self.global_on_success(job_id, job_info)
             except Exception as handler_error:
                 self.logger.error(
-                    f"Global success handler raised exception: {handler_error}",
+                    "Global success handler raised exception",
+                    error=str(handler_error),
                     job_id=job_id,
                     exc_info=True,
                 )

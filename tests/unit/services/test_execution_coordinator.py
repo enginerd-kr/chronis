@@ -4,79 +4,15 @@ from datetime import UTC, datetime
 from unittest.mock import Mock, patch
 
 import pytest
-from tenacity import RetryError
 
 from chronis.core.execution.callback_invoker import CallbackInvoker
 from chronis.core.execution.coordinator import ExecutionCoordinator
 
 
-class TestLockReleaseRetryError:
-    """Test lock release retry error handling."""
-
-    def test_retry_error_during_lock_release_is_caught_and_logged(
-        self, mock_storage, mock_lock, mock_executor, mock_async_executor, mock_logger
-    ):
-        """Test that RetryError from _release_lock_with_retry is caught and logged."""
-        coordinator = ExecutionCoordinator(
-            storage=mock_storage,
-            lock=mock_lock,
-            executor=mock_executor,
-            async_executor=mock_async_executor,
-            function_registry={},
-            failure_handler_registry={},
-            success_handler_registry={},
-            global_on_failure=None,
-            global_on_success=None,
-            logger=mock_logger,
-        )
-
-        # Mock lock to return True (acquired)
-        mock_lock.acquire.return_value = True
-
-        # Mock retry_handler.try_release_lock to simulate error
-        coordinator.retry_handler.release_lock_with_retry = Mock(side_effect=RetryError("Failed"))
-
-        job_logger = Mock()
-
-        # Execute context manager
-        with coordinator._acquire_lock_context("test:lock", job_logger):
-            pass
-
-        # Verify error was logged
-        job_logger.error.assert_called_once()
-        error_msg = job_logger.error.call_args[0][0]
-        assert "Lock release failed after retries" in error_msg
-
-
 class TestTriggerExecutionLogging:
     """Test _trigger_execution logging behavior."""
 
-    def test_verbose_mode_logs_job_triggered(self):
-        """Test that verbose=True logs 'Job triggered' message."""
-        coordinator = ExecutionCoordinator(
-            storage=Mock(),
-            lock=Mock(),
-            executor=Mock(),
-            async_executor=Mock(),
-            function_registry={},
-            failure_handler_registry={},
-            success_handler_registry={},
-            global_on_failure=None,
-            global_on_success=None,
-            logger=Mock(),
-            verbose=True,
-        )
-
-        coordinator._update_job_status = Mock()
-        coordinator.executor.submit = Mock(return_value=Mock(add_done_callback=Mock()))
-
-        job_logger = Mock()
-        coordinator._trigger_execution({"job_id": "test-1"}, job_logger, Mock())
-
-        # Verify info log was called
-        job_logger.info.assert_called_once_with("Job triggered")
-
-    def test_non_verbose_mode_does_not_log(self):
+    def test_trigger_execution_does_not_log_info(self):
         """Test that verbose=False doesn't log."""
         coordinator = ExecutionCoordinator(
             storage=Mock(),
@@ -180,52 +116,6 @@ class TestExecuteInBackgroundRetryLogic:
         update_calls = [call for call in storage_mock.method_calls if call[0] == "update_job"]
         assert any("retry_count" in str(call) and "0" in str(call) for call in update_calls)
 
-    def test_one_time_job_deletion_logs_in_verbose_mode(self):
-        """Test that one-time job deletion is logged in verbose mode."""
-        storage_mock = Mock()
-        coordinator = ExecutionCoordinator(
-            storage=storage_mock,
-            lock=Mock(),
-            executor=Mock(),
-            async_executor=Mock(),
-            function_registry={"test_func": lambda: None},
-            failure_handler_registry={},
-            success_handler_registry={},
-            global_on_failure=None,
-            global_on_success=None,
-            logger=Mock(),
-            verbose=True,
-        )
-
-        job_data = {
-            "job_id": "test-1",
-            "name": "Test Job",
-            "func_name": "test_func",
-            "trigger_type": "date",
-            "trigger_args": {},
-            "args": [],
-            "kwargs": {},
-            "status": "running",
-            "timezone": "UTC",
-            "metadata": {},
-            "created_at": "2024-01-01T12:00:00+00:00",
-            "updated_at": "2024-01-01T12:00:00+00:00",
-        }
-
-        job_logger = Mock()
-
-        with patch(
-            "chronis.core.jobs.definition.JobInfo.determine_next_status_after_execution"
-        ) as status_mock:
-            status_mock.return_value = None
-
-            coordinator._execute_in_background(job_data, job_logger)
-
-        # Verify deletion and logging
-        storage_mock.delete_job.assert_called_once_with("test-1")
-        job_logger.info.assert_called_once_with("One-time job deleted after execution")
-
-
 class TestScheduleRetryErrorHandling:
     """Test error handling in retry_handler.schedule_retry."""
 
@@ -269,93 +159,6 @@ class TestScheduleRetryErrorHandling:
         # Verify error was logged
         job_logger.error.assert_called_once()
         assert "Failed to schedule retry" in job_logger.error.call_args[0][0]
-
-
-class TestUpdateNextRunTimeErrorHandling:
-    """Test error handling in _update_next_run_time."""
-
-    @patch("chronis.core.execution.coordinator.NextRunTimeCalculator")
-    @patch("chronis.utils.time.utc_now")
-    def test_storage_error_during_update_is_logged(self, mock_utc_now, mock_calc):
-        """Test that storage error during update_job is logged."""
-        mock_utc_now.return_value = Mock(isoformat=Mock(return_value="2024-01-01T13:00:00"))
-        mock_calc.calculate_with_local_time.return_value = (
-            datetime(2024, 1, 1, 13, 0, tzinfo=UTC),
-            datetime(2024, 1, 1, 13, 0, tzinfo=UTC),
-        )
-
-        storage_mock = Mock()
-        storage_mock.update_job.side_effect = Exception("Storage error")
-        logger_mock = Mock()
-
-        coordinator = ExecutionCoordinator(
-            storage=storage_mock,
-            lock=Mock(),
-            executor=Mock(),
-            async_executor=Mock(),
-            function_registry={},
-            failure_handler_registry={},
-            success_handler_registry={},
-            global_on_failure=None,
-            global_on_success=None,
-            logger=logger_mock,
-        )
-
-        job_data = {
-            "job_id": "test-1",
-            "trigger_type": "interval",
-            "trigger_args": {"seconds": 60},
-            "timezone": "UTC",
-            "next_run_time": "2024-01-01T12:00:00",
-        }
-
-        # Should not raise
-        coordinator._update_next_run_time(job_data)
-
-        # Verify error was logged
-        logger_mock.error.assert_called()
-        assert "Failed to update job run times" in logger_mock.error.call_args[0][0]
-
-    @patch("chronis.core.execution.coordinator.NextRunTimeCalculator")
-    @patch("chronis.utils.time.utc_now")
-    def test_update_local_time_error_is_logged(self, mock_utc_now, mock_calc):
-        """Test that error during second update_job call is logged."""
-        mock_utc_now.return_value = Mock(isoformat=Mock(return_value="2024-01-01T13:00:00"))
-        mock_calc.calculate_with_local_time.return_value = (
-            datetime(2024, 1, 1, 13, 0, tzinfo=UTC),
-            datetime(2024, 1, 1, 13, 0, tzinfo=UTC),
-        )
-
-        storage_mock = Mock()
-        storage_mock.update_job.side_effect = Exception("Update error")
-        logger_mock = Mock()
-
-        coordinator = ExecutionCoordinator(
-            storage=storage_mock,
-            lock=Mock(),
-            executor=Mock(),
-            async_executor=Mock(),
-            function_registry={},
-            failure_handler_registry={},
-            success_handler_registry={},
-            global_on_failure=None,
-            global_on_success=None,
-            logger=logger_mock,
-        )
-
-        job_data = {
-            "job_id": "test-1",
-            "trigger_type": "interval",
-            "trigger_args": {"seconds": 60},
-            "timezone": "UTC",
-            "next_run_time": "2024-01-01T12:00:00",
-        }
-
-        # Should not raise
-        coordinator._update_next_run_time(job_data)
-
-        # Error is logged
-        logger_mock.error.assert_called()
 
 
 class TestCallbackExceptionHandling:

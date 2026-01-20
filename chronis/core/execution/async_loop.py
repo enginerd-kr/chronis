@@ -136,7 +136,7 @@ class AsyncExecutor:
 
             if self._logger:
                 self._logger.debug(
-                    f"Waiting for {len(self._running_tasks)} async tasks to complete"
+                    "Waiting for %d async tasks to complete", len(self._running_tasks)
                 )
 
             try:
@@ -149,7 +149,8 @@ class AsyncExecutor:
                 # Timeout - cancel remaining tasks
                 if self._logger:
                     self._logger.warning(
-                        f"Timeout waiting for async tasks. Cancelling {len(self._running_tasks)} tasks"
+                        "Timeout waiting for async tasks, cancelling %d tasks",
+                        len(self._running_tasks),
                     )
                 for task in self._running_tasks:
                     task.cancel()
@@ -161,7 +162,7 @@ class AsyncExecutor:
             all_completed = wait_future.result(timeout=timeout + 1)
         except Exception as e:
             if self._logger:
-                self._logger.error(f"Error during graceful shutdown: {e}")
+                self._logger.error("Error during graceful shutdown: %s", e)
             all_completed = False
 
         # Stop the event loop
@@ -177,7 +178,7 @@ class AsyncExecutor:
 
         if self._logger:
             status = "gracefully" if all_completed else "with timeout"
-            self._logger.debug(f"Stopped dedicated event loop {status}")
+            self._logger.debug("Stopped dedicated event loop %s", status)
 
         return all_completed
 

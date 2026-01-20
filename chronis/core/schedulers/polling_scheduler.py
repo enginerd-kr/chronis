@@ -136,14 +136,18 @@ class PollingScheduler(BaseScheduler):
             >>> time.sleep(60)
             >>> scheduler.stop()
         """
+        import logging
+
+        # Suppress APScheduler's verbose INFO logs (Running job, executed successfully)
+        logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
+        logging.getLogger("apscheduler.scheduler").setLevel(logging.WARNING)
+
         if self._running:
             from chronis.core.common.exceptions import SchedulerError
 
             raise SchedulerError(
                 "Scheduler is already running. Call scheduler.stop() first to restart."
             )
-
-        self.logger.info("Starting scheduler")
 
         # Start dedicated event loop for async jobs
         self._start_async_loop()
@@ -295,7 +299,7 @@ class PollingScheduler(BaseScheduler):
                         self._orchestrator.mark_job_completed(job_id)
 
         except Exception as e:
-            self.logger.error(f"Executor error: {e}", exc_info=True)
+            self.logger.error("Executor error", error=str(e))
 
     # ========================================
     # Simplified Public API (TriggerType hidden)
