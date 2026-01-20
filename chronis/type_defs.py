@@ -6,6 +6,10 @@ from typing import Any, Literal, NotRequired, TypedDict
 type TriggerTypeStr = Literal["interval", "cron", "date"]
 type JobStatusStr = Literal["pending", "scheduled", "running", "paused", "failed"]
 type MisfirePolicyStr = Literal["skip", "run_once", "run_all"]
+type DayOfWeek = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+type Month = Literal[
+    "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"
+]
 
 
 # Storage adapter data format

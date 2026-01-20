@@ -6,8 +6,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 
-DayOfWeek = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-Month = Literal["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+from chronis.type_defs import DayOfWeek, Month
 
 if TYPE_CHECKING:
     from chronis.core.execution.callbacks import OnFailureCallback, OnSuccessCallback
