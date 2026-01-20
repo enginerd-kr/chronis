@@ -4,7 +4,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 
-from chronis.core.schedulers.fluent_builders import DayOfWeek, Month
+from chronis.type_defs import DayOfWeek, Month
 
 if TYPE_CHECKING:
     from chronis.core.schedulers.fluent_builders import FluentJobBuilder
