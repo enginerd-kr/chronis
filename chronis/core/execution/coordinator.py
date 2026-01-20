@@ -3,6 +3,7 @@
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from datetime import datetime
 from typing import Any
 
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
@@ -436,9 +437,21 @@ class ExecutionCoordinator:
             trigger_args = job_data["trigger_args"]
             timezone = job_data.get("timezone", "UTC")
 
+            # Use scheduled time as base to prevent drift accumulation
+            scheduled_time = job_data.get("next_run_time")
+            base_time = None
+            if scheduled_time:
+                base_time = datetime.fromisoformat(scheduled_time.replace("Z", "+00:00"))
+
             utc_time, local_time = NextRunTimeCalculator.calculate_with_local_time(
-                trigger_type, trigger_args, timezone
+                trigger_type, trigger_args, timezone, current_time=base_time
             )
+
+            # Handle misfire: if next_run_time is in the past, recalculate from now
+            if utc_time and utc_time <= utc_now():
+                utc_time, local_time = NextRunTimeCalculator.calculate_with_local_time(
+                    trigger_type, trigger_args, timezone
+                )
 
             if utc_time:
                 updates["next_run_time"] = utc_time.isoformat()
@@ -450,7 +463,12 @@ class ExecutionCoordinator:
             success, updated_job = self.storage.compare_and_swap_job(
                 job_id, expected_values, updates
             )
-            return (success, dict(updated_job) if updated_job else None)
+            if success and updated_job:
+                result = dict(updated_job)
+                # Preserve original scheduled time for _update_next_run_time()
+                result["_original_scheduled_time"] = queue_next_run
+                return (True, result)
+            return (False, None)
         except ValueError:
             # Job not found (deleted)
             return (False, None)
@@ -479,50 +497,48 @@ class ExecutionCoordinator:
 
     def _update_next_run_time(self, job_data: dict[str, Any]) -> None:
         """
-        Calculate and update next run time and execution times for recurring jobs.
+        Update execution times for recurring jobs.
+
+        Note: next_run_time is already calculated in _try_claim_job_with_cas().
+        This method only updates last_scheduled_time and last_run_time.
 
         Args:
-            job_data: Job data
+            job_data: Job data (with _original_scheduled_time from CAS)
         """
         job_id = job_data["job_id"]
         trigger_type = job_data["trigger_type"]
-        trigger_args = job_data["trigger_args"]
-        timezone = job_data.get("timezone", "UTC")
 
-        scheduled_time = job_data.get("next_run_time")
+        # Use original scheduled time (before CAS update) for last_scheduled_time
+        original_scheduled_time = job_data.get("_original_scheduled_time")
         actual_time = utc_now().isoformat()
 
         if trigger_type == TriggerType.DATE.value:
-            if scheduled_time:
+            if original_scheduled_time:
                 try:
                     self.storage.update_job(
                         job_id,
                         {
-                            "last_scheduled_time": scheduled_time,
+                            "last_scheduled_time": original_scheduled_time,
                             "last_run_time": actual_time,
                             "next_run_time": None,
                             "updated_at": utc_now().isoformat(),
                         },
                     )
                 except Exception:
-                    pass  # Non-critical, next run time will be recalculated
+                    pass  # Non-critical
             return
 
-        utc_time, local_time = NextRunTimeCalculator.calculate_with_local_time(
-            trigger_type, trigger_args, timezone
-        )
-
-        if utc_time and scheduled_time:
+        # For recurring jobs, next_run_time was already updated in _try_claim_job_with_cas()
+        # Only update last_scheduled_time and last_run_time here
+        if original_scheduled_time:
             try:
                 self.storage.update_job(
                     job_id,
                     {
-                        "last_scheduled_time": scheduled_time,
+                        "last_scheduled_time": original_scheduled_time,
                         "last_run_time": actual_time,
-                        "next_run_time": utc_time.isoformat(),
-                        "next_run_time_local": local_time.isoformat() if local_time else None,
                         "updated_at": utc_now().isoformat(),
                     },
                 )
             except Exception:
-                pass  # Non-critical, next run time will be recalculated
+                pass  # Non-critical
