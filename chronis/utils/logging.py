@@ -17,6 +17,7 @@ def setup_logger(name: str = "scheduler", level: int = logging.INFO) -> logging.
     """
     logger = logging.getLogger(name)
     logger.setLevel(level)
+    logger.propagate = False  # Prevent duplicate logs to root logger
 
     # Prevent duplicate handlers
     if logger.handlers:

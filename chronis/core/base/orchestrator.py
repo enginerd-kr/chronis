@@ -75,21 +75,12 @@ class BaseOrchestrator(ABC):
             available_slots = self.job_queue.get_available_slots()
 
             if available_slots <= 0:
-                self.logger.warning(
-                    "Job queue is full, skipping enqueue", queue_status=self.job_queue.get_status()
-                )
+                self.logger.warning("Job queue full, skipping enqueue")
                 return 0
 
             jobs = self._get_ready_jobs(limit=available_slots)
 
             if jobs:
-                if self.verbose or len(jobs) >= 10:
-                    self.logger.info(
-                        "Found ready jobs",
-                        count=len(jobs),
-                        queue_status=self.job_queue.get_status(),
-                    )
-
                 added_count = 0
                 for job_data in jobs:
                     job_id = job_data.get("job_id")
@@ -106,7 +97,7 @@ class BaseOrchestrator(ABC):
             return 0
 
         except Exception as e:
-            self.logger.error(f"Enqueue error: {e}", exc_info=True)
+            self.logger.error("Enqueue error", error=str(e))
             return 0
 
     def get_next_job_from_queue(self) -> str | None:

@@ -196,8 +196,6 @@ class BaseScheduler(ABC):
         job_data = job.to_dict()
         try:
             result = self.storage.create_job(job_data)  # type: ignore[arg-type]
-            if self.verbose:
-                self.logger.info("Job created", job_id=job.job_id)
             return JobInfo.from_dict(result)  # type: ignore[arg-type]
         except ValueError as e:
             raise JobAlreadyExistsError(str(e)) from e
@@ -329,7 +327,8 @@ class BaseScheduler(ABC):
         self.storage.update_job(
             job_id, {"status": JobStatus.PAUSED.value, "updated_at": utc_now().isoformat()}
         )
-        self.logger.info(f"Job {job_id} paused", extra={"job_id": job_id})
+        if self.verbose:
+            self.logger.info("Job paused", job_id=job_id)
         return True
 
     def resume_job(self, job_id: str) -> bool:
@@ -364,7 +363,8 @@ class BaseScheduler(ABC):
         self.storage.update_job(
             job_id, {"status": JobStatus.SCHEDULED.value, "updated_at": utc_now().isoformat()}
         )
-        self.logger.info(f"Job {job_id} resumed", extra={"job_id": job_id})
+        if self.verbose:
+            self.logger.info("Job resumed", job_id=job_id)
         return True
 
     # ========================================

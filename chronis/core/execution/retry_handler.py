@@ -85,12 +85,15 @@ class RetryHandler:
             )
 
             max_retries = job_data.get("max_retries", 0)
-            job_logger.info(
-                f"Retry scheduled: attempt {next_retry_count}/{max_retries} in {delay_seconds}s"
+            job_logger.warning(
+                "Retry scheduled",
+                attempt=next_retry_count,
+                max_retries=max_retries,
+                delay_seconds=delay_seconds,
             )
 
         except Exception as e:
-            job_logger.error(f"Failed to schedule retry: {e}", exc_info=True)
+            job_logger.error("Failed to schedule retry", error=str(e))
 
     @retry(
         stop=stop_after_attempt(3),
@@ -111,17 +114,14 @@ class RetryHandler:
         """
         self.lock.release(lock_key)
 
-    def try_release_lock(self, lock_key: str, job_logger: ContextLogger) -> None:
+    def try_release_lock(self, lock_key: str) -> None:
         """
-        Try to release lock, catching and logging retry errors.
+        Try to release lock, catching retry errors.
 
         Args:
             lock_key: Lock key to release
-            job_logger: Context logger for this job
         """
         try:
             self.release_lock_with_retry(lock_key)
-        except RetryError as e:
-            job_logger.error(
-                f"Lock release failed after retries: {e}", lock_key=lock_key, exc_info=True
-            )
+        except RetryError:
+            pass  # Non-critical, lock will expire via TTL

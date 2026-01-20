@@ -98,7 +98,7 @@ class ExecutionCoordinator:
         if job_status != JobStatus.SCHEDULED:
             return False
 
-        with self._acquire_lock_context(lock_key, job_logger) as lock_acquired:
+        with self._acquire_lock_context(lock_key) as lock_acquired:
             if not lock_acquired:
                 return False
 
@@ -110,8 +110,6 @@ class ExecutionCoordinator:
 
                 if not success or updated_job is None:
                     # Job was already claimed by another instance or no longer ready
-                    if self.verbose:
-                        job_logger.info("Skipped - job already claimed or not ready")
                     return False
 
                 # Job successfully claimed - trigger execution
@@ -119,19 +117,16 @@ class ExecutionCoordinator:
                 return True
 
             except Exception as e:
-                job_logger.error(f"Failed to execute job: {e}", exc_info=True)
+                job_logger.error("Job execution failed", error=str(e), exc_info=True)
                 return False
 
     @contextmanager
-    def _acquire_lock_context(
-        self, lock_key: str, job_logger: ContextLogger
-    ) -> Generator[bool, None, None]:
+    def _acquire_lock_context(self, lock_key: str) -> Generator[bool, None, None]:
         """
         Context manager for lock acquisition and release with retry.
 
         Args:
             lock_key: Lock key
-            job_logger: Context logger
 
         Yields:
             True if lock acquired, False otherwise
@@ -142,7 +137,7 @@ class ExecutionCoordinator:
             yield lock_acquired
         finally:
             if lock_acquired:
-                self.retry_handler.try_release_lock(lock_key, job_logger)
+                self.retry_handler.try_release_lock(lock_key)
 
     def _trigger_execution(
         self,
@@ -175,10 +170,6 @@ class ExecutionCoordinator:
 
             # Add done callback
             future.add_done_callback(lambda f: on_complete(job_id))
-
-            # Log only in verbose mode
-            if self.verbose:
-                job_logger.info("Job triggered")
 
         except Exception as submit_error:
             # Rollback to SCHEDULED on submission failure
@@ -225,8 +216,6 @@ class ExecutionCoordinator:
             if next_status is None:
                 # One-time job - delete after execution
                 self.storage.delete_job(job_id)
-                if self.verbose:
-                    job_logger.info("One-time job deleted after execution")
             else:
                 # Recurring job - update next_run_time and mark as SCHEDULED
                 self._update_next_run_time(job_data)
@@ -243,7 +232,7 @@ class ExecutionCoordinator:
                 ).invoke_success_callback(job_id, job_data)
 
         except Exception as e:
-            job_logger.error(f"Execution failed: {e}", exc_info=True)
+            job_logger.error("Execution failed", error=str(e), exc_info=True)
 
             # Check if retry is possible
             retry_count = job_data.get("retry_count", 0)
@@ -322,7 +311,7 @@ class ExecutionCoordinator:
 
                     timeout_msg = f"Job exceeded timeout of {timeout_seconds}s"
                     job_logger.error(
-                        timeout_msg,
+                        "Job timeout",
                         timeout_seconds=timeout_seconds,
                         job_type="async",
                     )
@@ -335,7 +324,7 @@ class ExecutionCoordinator:
                         self.logger,
                     ).invoke_failure_callback(job_id, JobTimeoutError(timeout_msg), job_data)
                 except Exception as e:
-                    job_logger.error(f"Async job execution failed: {e}", exc_info=True)
+                    job_logger.error("Async job execution failed", error=str(e), exc_info=True)
                     # Update job status to FAILED if async execution fails
                     self._update_job_status(job_id, JobStatus.FAILED)
                     CallbackInvoker(
@@ -377,10 +366,9 @@ class ExecutionCoordinator:
                         "Note: Thread cannot be forcefully stopped and may continue running."
                     )
                     job_logger.warning(
-                        timeout_msg,
+                        "Job timeout (thread still running)",
                         timeout_seconds=timeout_seconds,
                         job_type="sync",
-                        thread_alive=True,
                     )
                     # Note: We cannot forcefully stop the thread, but we report timeout
                     raise JobTimeoutError(timeout_msg)
@@ -466,9 +454,8 @@ class ExecutionCoordinator:
         except ValueError:
             # Job not found (deleted)
             return (False, None)
-        except Exception as e:
-            # Other errors - log but don't claim job
-            self.logger.error(f"CAS operation failed: {e}", job_id=job_id, exc_info=True)
+        except Exception:
+            # Other errors - don't claim job (expected in distributed environments)
             return (False, None)
 
     def _update_job_status(self, job_id: str, status: JobStatus) -> None:
@@ -518,9 +505,7 @@ class ExecutionCoordinator:
                         },
                     )
                 except Exception:
-                    self.logger.error(
-                        "Failed to update job run times", job_id=job_id, exc_info=True
-                    )
+                    pass  # Non-critical, next run time will be recalculated
             return
 
         utc_time, local_time = NextRunTimeCalculator.calculate_with_local_time(
@@ -540,4 +525,4 @@ class ExecutionCoordinator:
                     },
                 )
             except Exception:
-                self.logger.error("Failed to update job run times", job_id=job_id, exc_info=True)
+                pass  # Non-critical, next run time will be recalculated

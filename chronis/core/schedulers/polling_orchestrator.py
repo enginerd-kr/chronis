@@ -41,7 +41,7 @@ class PollingOrchestrator(BaseOrchestrator):
         # Random node ID for distributed job ordering
         # Each scheduler instance gets a unique ID to reduce lock contention
         self._node_id = str(uuid.uuid4())
-        logger.info(f"PollingOrchestrator initialized with node_id={self._node_id[:8]}...")
+        logger.debug("PollingOrchestrator initialized", node_id=self._node_id[:8])
 
     def _get_ready_jobs(self, limit: int | None = None) -> list[Any]:
         """
