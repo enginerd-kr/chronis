@@ -1,12 +1,11 @@
 """Polling-based scheduler implementation."""
 
 import hashlib
+import secrets
 import uuid
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
-
-from chronis.type_defs import DayOfWeek, Month
 
 if TYPE_CHECKING:
     from chronis.core.schedulers.fluent_builders import FluentJobBuilder
@@ -19,11 +18,25 @@ from chronis.core.base.scheduler import BaseScheduler
 from chronis.core.common.exceptions import SchedulerError
 from chronis.core.execution.callbacks import OnFailureCallback, OnSuccessCallback
 from chronis.core.execution.job_queue import JobQueue
-from chronis.core.jobs.definition import JobInfo
+from chronis.core.jobs.definition import JobDefinition, JobInfo
 from chronis.core.misfire import MisfireDetector
-from chronis.core.schedulers import job_builders
+from chronis.core.state.enums import TriggerType
 from chronis.utils.logging import ContextLogger
-from chronis.utils.time import utc_now
+from chronis.utils.time import get_timezone, utc_now
+
+
+def _generate_job_name(func: Callable | str) -> str:
+    """Generate human-readable job name from function (snake_case → Title Case)."""
+    func_name = func.split(".")[-1] if isinstance(func, str) else func.__name__
+    return func_name.replace("_", " ").title()
+
+
+def _generate_job_id(func: Callable | str) -> str:
+    """Generate unique job ID: {func_name}_{timestamp}_{random}."""
+    func_name = func.split(".")[-1] if isinstance(func, str) else func.__name__
+    func_name = "".join(c if c.isalnum() or c == "_" else "_" for c in func_name)[:30]
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+    return f"{func_name}_{timestamp}_{secrets.token_hex(4)}"
 
 
 class PollingScheduler(BaseScheduler):
@@ -415,29 +428,28 @@ class PollingScheduler(BaseScheduler):
         misfire_threshold_seconds: int = 60,
     ) -> JobInfo:
         """Create interval job (runs repeatedly at fixed intervals)."""
-        job_def = job_builders.create_interval_job(
-            func=func,
-            job_id=job_id,
-            name=name,
-            seconds=seconds,
-            minutes=minutes,
-            hours=hours,
-            days=days,
-            weeks=weeks,
-            timezone=timezone,
-            args=args,
-            kwargs=kwargs,
-            metadata=metadata,
-            on_failure=on_failure,
-            on_success=on_success,
-            max_retries=max_retries,
-            retry_delay_seconds=retry_delay_seconds,
-            timeout_seconds=timeout_seconds,
-            priority=priority,
-            if_missed=if_missed,
-            misfire_threshold_seconds=misfire_threshold_seconds,
-        )
-        return self.create_job(job_def)
+        trigger_args = {
+            k: v
+            for k, v in {
+                "seconds": seconds, "minutes": minutes, "hours": hours,
+                "days": days, "weeks": weeks,
+            }.items()
+            if v is not None
+        }
+        if not trigger_args:
+            raise ValueError("At least one interval parameter must be specified")
+
+        return self.create_job(JobDefinition(
+            job_id=job_id or _generate_job_id(func),
+            name=name or _generate_job_name(func),
+            trigger_type=TriggerType.INTERVAL,
+            trigger_args=trigger_args,
+            func=func, timezone=timezone, args=args, kwargs=kwargs, metadata=metadata,
+            on_failure=on_failure, on_success=on_success,
+            max_retries=max_retries, retry_delay_seconds=retry_delay_seconds,
+            timeout_seconds=timeout_seconds, priority=priority,
+            if_missed=if_missed, misfire_threshold_seconds=misfire_threshold_seconds,
+        ))
 
     def create_cron_job(
         self,
@@ -465,31 +477,28 @@ class PollingScheduler(BaseScheduler):
         misfire_threshold_seconds: int = 60,
     ) -> JobInfo:
         """Create cron job (runs on specific date/time patterns)."""
-        job_def = job_builders.create_cron_job(
-            func=func,
-            job_id=job_id,
-            name=name,
-            year=year,
-            month=month,
-            day=day,
-            week=week,
-            day_of_week=day_of_week,
-            hour=hour,
-            minute=minute,
-            timezone=timezone,
-            args=args,
-            kwargs=kwargs,
-            metadata=metadata,
-            on_failure=on_failure,
-            on_success=on_success,
-            max_retries=max_retries,
-            retry_delay_seconds=retry_delay_seconds,
-            timeout_seconds=timeout_seconds,
-            priority=priority,
-            if_missed=if_missed,
-            misfire_threshold_seconds=misfire_threshold_seconds,
-        )
-        return self.create_job(job_def)
+        trigger_args = {
+            k: v
+            for k, v in {
+                "year": year, "month": month, "day": day, "week": week,
+                "day_of_week": day_of_week, "hour": hour, "minute": minute,
+            }.items()
+            if v is not None
+        }
+        if not trigger_args:
+            raise ValueError("At least one cron parameter must be specified")
+
+        return self.create_job(JobDefinition(
+            job_id=job_id or _generate_job_id(func),
+            name=name or _generate_job_name(func),
+            trigger_type=TriggerType.CRON,
+            trigger_args=trigger_args,
+            func=func, timezone=timezone, args=args, kwargs=kwargs, metadata=metadata,
+            on_failure=on_failure, on_success=on_success,
+            max_retries=max_retries, retry_delay_seconds=retry_delay_seconds,
+            timeout_seconds=timeout_seconds, priority=priority,
+            if_missed=if_missed, misfire_threshold_seconds=misfire_threshold_seconds,
+        ))
 
     def create_date_job(
         self,
@@ -511,25 +520,22 @@ class PollingScheduler(BaseScheduler):
         misfire_threshold_seconds: int = 60,
     ) -> JobInfo:
         """Create one-time job (runs once at specific date/time)."""
-        job_def = job_builders.create_date_job(
-            func=func,
-            run_date=run_date,
-            job_id=job_id,
-            name=name,
-            timezone=timezone,
-            args=args,
-            kwargs=kwargs,
-            metadata=metadata,
-            on_failure=on_failure,
-            on_success=on_success,
-            max_retries=max_retries,
-            retry_delay_seconds=retry_delay_seconds,
-            timeout_seconds=timeout_seconds,
-            priority=priority,
-            if_missed=if_missed,
-            misfire_threshold_seconds=misfire_threshold_seconds,
-        )
-        return self.create_job(job_def)
+        if isinstance(run_date, datetime):
+            if run_date.tzinfo is None:
+                run_date = run_date.astimezone(get_timezone("UTC"))
+            run_date = run_date.isoformat()
+
+        return self.create_job(JobDefinition(
+            job_id=job_id or _generate_job_id(func),
+            name=name or _generate_job_name(func),
+            trigger_type=TriggerType.DATE,
+            trigger_args={"run_date": run_date},
+            func=func, timezone=timezone, args=args, kwargs=kwargs, metadata=metadata,
+            on_failure=on_failure, on_success=on_success,
+            max_retries=max_retries, retry_delay_seconds=retry_delay_seconds,
+            timeout_seconds=timeout_seconds, priority=priority,
+            if_missed=if_missed, misfire_threshold_seconds=misfire_threshold_seconds,
+        ))
 
     # ========================================
     # Fluent Builder API (Simplified Interface)
@@ -576,8 +582,8 @@ class PollingScheduler(BaseScheduler):
         minute: int | None = None,
         hour: int | None = None,
         day: int | None = None,
-        day_of_week: int | DayOfWeek | None = None,
-        month: int | Month | None = None,
+        day_of_week: int | str | None = None,
+        month: int | str | None = None,
         year: int | None = None,
         week: int | None = None,
     ) -> "FluentJobBuilder":

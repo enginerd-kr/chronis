@@ -6,8 +6,6 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 
-from chronis.type_defs import DayOfWeek, Month
-
 if TYPE_CHECKING:
     from chronis.core.execution.callbacks import OnFailureCallback, OnSuccessCallback
     from chronis.core.jobs.definition import JobInfo
@@ -123,8 +121,8 @@ class FluentJobBuilder:
         minute: int | None = None,
         hour: int | None = None,
         day: int | None = None,
-        day_of_week: int | DayOfWeek | None = None,
-        month: int | Month | None = None,
+        day_of_week: int | str | None = None,
+        month: int | str | None = None,
         year: int | None = None,
         week: int | None = None,
     ) -> FluentJobBuilder:

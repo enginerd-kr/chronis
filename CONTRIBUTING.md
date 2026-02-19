@@ -165,7 +165,7 @@ chronis/
 ├── chronis/              # Main package
 │   ├── core/            # Core scheduler logic
 │   │   ├── base/       # Abstract base classes (BaseScheduler)
-│   │   ├── schedulers/ # Scheduler implementations (PollingScheduler, job builders)
+│   │   ├── schedulers/ # Scheduler implementations (PollingScheduler)
 │   │   ├── execution/  # Execution components (ExecutionCoordinator)
 │   │   ├── jobs/       # Job definitions
 │   │   ├── state/      # State management (JobStatus, TriggerType enums)
