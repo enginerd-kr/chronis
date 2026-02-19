@@ -217,7 +217,10 @@ class PollingScheduler(BaseScheduler):
         # Shutdown APScheduler (stops polling for new jobs)
         self._apscheduler.shutdown(wait=True)
 
-        # Shutdown thread pool executor (waits for all jobs - sync and async)
+        # Wait for async jobs on shared event loop
+        self._execution_coordinator.shutdown_async(wait=True)
+
+        # Shutdown thread pool executor (waits for sync jobs)
         self._executor.shutdown(wait=True, cancel_futures=False)
 
         self._running = False
