@@ -7,7 +7,6 @@ from datetime import datetime
 from typing import Any
 
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
-from chronis.core.execution.callback_invoker import CallbackInvoker
 from chronis.core.execution.callbacks import OnFailureCallback, OnSuccessCallback
 from chronis.core.execution.retry_handler import RetryHandler
 from chronis.core.jobs.definition import JobInfo
@@ -212,13 +211,7 @@ class ExecutionCoordinator:
                 self._update_job_status(job_id, next_status)
 
             # Invoke success handler
-            CallbackInvoker(
-                self.failure_handler_registry,
-                self.success_handler_registry,
-                self.global_on_failure,
-                self.global_on_success,
-                self.logger,
-            ).invoke_success_callback(job_id, job_data)
+            self._invoke_success_callback(job_id, job_data)
 
         except Exception as e:
             job_logger.error("Execution failed", error=str(e), exc_info=True)
@@ -233,13 +226,7 @@ class ExecutionCoordinator:
             else:
                 # No more retries - mark as FAILED
                 self._update_job_status(job_id, JobStatus.FAILED)
-                CallbackInvoker(
-                    self.failure_handler_registry,
-                    self.success_handler_registry,
-                    self.global_on_failure,
-                    self.global_on_success,
-                    self.logger,
-                ).invoke_failure_callback(job_id, e, job_data)
+                self._invoke_failure_callback(job_id, e, job_data)
 
     def _execute_job_function(self, job_data: dict[str, Any], job_logger: ContextLogger) -> None:
         """
@@ -485,3 +472,59 @@ class ExecutionCoordinator:
                 )
             except Exception:
                 pass  # Non-critical
+
+    def _invoke_success_callback(self, job_id: str, job_data: dict[str, Any]) -> None:
+        """Invoke job-specific and global success handlers."""
+        job_info = JobInfo.from_dict(job_data)
+
+        handler = self.success_handler_registry.get(job_id)
+        if handler:
+            try:
+                handler(job_id, job_info)
+            except Exception as e:
+                self.logger.error(
+                    "Job-specific success handler raised exception",
+                    error=str(e),
+                    job_id=job_id,
+                    exc_info=True,
+                )
+
+        if self.global_on_success:
+            try:
+                self.global_on_success(job_id, job_info)
+            except Exception as e:
+                self.logger.error(
+                    "Global success handler raised exception",
+                    error=str(e),
+                    job_id=job_id,
+                    exc_info=True,
+                )
+
+    def _invoke_failure_callback(
+        self, job_id: str, error: Exception, job_data: dict[str, Any]
+    ) -> None:
+        """Invoke job-specific and global failure handlers."""
+        job_info = JobInfo.from_dict(job_data)
+
+        handler = self.failure_handler_registry.get(job_id)
+        if handler:
+            try:
+                handler(job_id, error, job_info)
+            except Exception as e:
+                self.logger.error(
+                    "Job-specific failure handler raised exception",
+                    error=str(e),
+                    job_id=job_id,
+                    exc_info=True,
+                )
+
+        if self.global_on_failure:
+            try:
+                self.global_on_failure(job_id, error, job_info)
+            except Exception as e:
+                self.logger.error(
+                    "Global failure handler raised exception",
+                    error=str(e),
+                    job_id=job_id,
+                    exc_info=True,
+                )

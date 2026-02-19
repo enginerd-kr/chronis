@@ -5,7 +5,6 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from chronis.core.execution.callback_invoker import CallbackInvoker
 from chronis.core.execution.coordinator import ExecutionCoordinator
 
 
@@ -198,13 +197,7 @@ class TestCallbackExceptionHandling:
         }
 
         # Should not raise
-        CallbackInvoker(
-            coordinator.failure_handler_registry,
-            coordinator.success_handler_registry,
-            coordinator.global_on_failure,
-            coordinator.global_on_success,
-            coordinator.logger,
-        ).invoke_success_callback("test-1", job_data)
+        coordinator._invoke_success_callback("test-1", job_data)
 
         # Verify error was logged
         coordinator.logger.error.assert_called_once()
@@ -245,13 +238,7 @@ class TestCallbackExceptionHandling:
             "updated_at": datetime.now(UTC).isoformat(),
         }
 
-        CallbackInvoker(
-            coordinator.failure_handler_registry,
-            coordinator.success_handler_registry,
-            coordinator.global_on_failure,
-            coordinator.global_on_success,
-            coordinator.logger,
-        ).invoke_success_callback("test-1", job_data)
+        coordinator._invoke_success_callback("test-1", job_data)
 
         coordinator.logger.error.assert_called_once()
         assert "Global success handler raised exception" in coordinator.logger.error.call_args[0][0]
@@ -288,13 +275,7 @@ class TestCallbackExceptionHandling:
             "updated_at": datetime.now(UTC).isoformat(),
         }
 
-        CallbackInvoker(
-            coordinator.failure_handler_registry,
-            coordinator.success_handler_registry,
-            coordinator.global_on_failure,
-            coordinator.global_on_success,
-            coordinator.logger,
-        ).invoke_failure_callback("test-1", ValueError("Test"), job_data)
+        coordinator._invoke_failure_callback("test-1", ValueError("Test"), job_data)
 
         coordinator.logger.error.assert_called_once()
         assert (
@@ -334,13 +315,7 @@ class TestCallbackExceptionHandling:
             "updated_at": datetime.now(UTC).isoformat(),
         }
 
-        CallbackInvoker(
-            coordinator.failure_handler_registry,
-            coordinator.success_handler_registry,
-            coordinator.global_on_failure,
-            coordinator.global_on_success,
-            coordinator.logger,
-        ).invoke_failure_callback("test-1", ValueError("Test"), job_data)
+        coordinator._invoke_failure_callback("test-1", ValueError("Test"), job_data)
 
         coordinator.logger.error.assert_called_once()
         assert "Global failure handler raised exception" in coordinator.logger.error.call_args[0][0]

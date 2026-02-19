@@ -209,36 +209,8 @@ class MisfireHandler:
         return missed_runs
 
 
-# Aliases for backward compatibility
-MisfireClassifier = MisfireDetector
-SimpleMisfirePolicy = MisfirePolicy
-
-
-def get_default_policy(trigger_type):
-    """
-    Get default misfire policy for a trigger type.
-
-    Args:
-        trigger_type: Trigger type (TriggerType enum or string)
-
-    Returns:
-        MisfirePolicy enum
-    """
-    from chronis.core.state.enums import TriggerType
-
-    if isinstance(trigger_type, TriggerType):
-        trigger_type_str = trigger_type.value
-    else:
-        trigger_type_str = str(trigger_type)
-
-    return MisfirePolicy.get_default_for_trigger(trigger_type_str)
-
-
 __all__ = [
     "MisfirePolicy",
-    "SimpleMisfirePolicy",  # Backward compatibility
     "MisfireDetector",
-    "MisfireClassifier",  # Backward compatibility
     "MisfireHandler",
-    "get_default_policy",
 ]

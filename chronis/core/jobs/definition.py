@@ -34,6 +34,18 @@ class JobDefinition(BaseModel):
     status: JobStatus = JobStatus.PENDING
     next_run_time: datetime | None = None
     metadata: dict[str, Any] | None = None
+
+    @field_validator("args", mode="before")
+    @classmethod
+    def default_args(cls, v: Any) -> tuple:
+        """Convert None to empty tuple."""
+        return v if v is not None else ()
+
+    @field_validator("kwargs", "metadata", mode="before")
+    @classmethod
+    def default_dicts(cls, v: Any) -> dict:
+        """Convert None to empty dict."""
+        return v if v is not None else {}
     on_failure: "OnFailureCallback | None" = None
     on_success: "OnSuccessCallback | None" = None
     max_retries: int = 0
@@ -44,18 +56,11 @@ class JobDefinition(BaseModel):
     misfire_threshold_seconds: int = 60
 
     def model_post_init(self, __context: Any) -> None:
-        """Normalize None values to defaults after validation."""
-        if self.args is None:
-            object.__setattr__(self, "args", ())
-        if self.kwargs is None:
-            object.__setattr__(self, "kwargs", {})
-        if self.metadata is None:
-            object.__setattr__(self, "metadata", {})
-
+        """Set if_missed default based on trigger_type."""
         if self.if_missed is None:
-            from chronis.core.misfire import get_default_policy
+            from chronis.core.misfire import MisfirePolicy
 
-            default_policy = get_default_policy(self.trigger_type)
+            default_policy = MisfirePolicy.get_default_for_trigger(self.trigger_type.value)
             object.__setattr__(self, "if_missed", default_policy.value)
 
     @field_validator("timezone")

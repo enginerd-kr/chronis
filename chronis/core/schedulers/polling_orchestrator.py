@@ -2,13 +2,12 @@
 
 import hashlib
 import uuid
-from typing import Any, cast
+from typing import Any
 
 from chronis.adapters.base import JobStorageAdapter
 from chronis.core.base.orchestrator import BaseOrchestrator
 from chronis.core.execution.job_queue import JobQueue
-from chronis.core.misfire import MisfireClassifier
-from chronis.core.query import jobs_ready_before
+from chronis.core.misfire import MisfireDetector
 from chronis.utils.logging import ContextLogger
 from chronis.utils.time import utc_now
 
@@ -62,11 +61,11 @@ class PollingOrchestrator(BaseOrchestrator):
         # Fetch more than needed for re-sorting (priority + hash ordering)
         # Buffer: 3x to ensure we have enough after priority/hash re-sorting
         query_limit = (limit * 3) if limit else None
-        filters = jobs_ready_before(current_time)
-        jobs = self.storage.query_jobs(filters=cast(dict[str, Any], filters), limit=query_limit)
+        filters = {"status": "scheduled", "next_run_time_lte": current_time.isoformat()}
+        jobs = self.storage.query_jobs(filters=filters, limit=query_limit)
 
         # Classify into normal and misfired jobs
-        normal_jobs, misfired_jobs = MisfireClassifier.classify_due_jobs(
+        normal_jobs, misfired_jobs = MisfireDetector.classify_due_jobs(
             jobs, current_time.isoformat()
         )
 

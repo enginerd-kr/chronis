@@ -3,12 +3,12 @@
 from datetime import UTC, datetime
 
 from chronis.core.jobs.definition import JobDefinition
-from chronis.core.misfire import MisfireClassifier, MisfirePolicy, get_default_policy
+from chronis.core.misfire import MisfireDetector, MisfirePolicy
 from chronis.core.state.enums import TriggerType
 
 
-class TestMisfireClassifier:
-    """Test MisfireClassifier utility."""
+class TestMisfireDetector:
+    """Test MisfireDetector utility."""
 
     def test_is_misfired_true(self):
         """Test that job is detected as misfired when beyond threshold."""
@@ -20,7 +20,7 @@ class TestMisfireClassifier:
 
         # 2 minutes late = misfired
         current = datetime(2025, 1, 1, 9, 2, 0, tzinfo=UTC)
-        assert MisfireClassifier.is_misfired(job_data, current) is True
+        assert MisfireDetector.is_misfired(job_data, current) is True
 
     def test_is_misfired_false_within_threshold(self):
         """Test that job is not misfired when within threshold."""
@@ -32,7 +32,7 @@ class TestMisfireClassifier:
 
         # 30 seconds late = not misfired (within threshold)
         current = datetime(2025, 1, 1, 9, 0, 30, tzinfo=UTC)
-        assert MisfireClassifier.is_misfired(job_data, current) is False
+        assert MisfireDetector.is_misfired(job_data, current) is False
 
     def test_is_misfired_false_no_next_run_time(self):
         """Test that job without next_run_time is not misfired."""
@@ -43,7 +43,7 @@ class TestMisfireClassifier:
         }
 
         current = datetime(2025, 1, 1, 9, 2, 0, tzinfo=UTC)
-        assert MisfireClassifier.is_misfired(job_data, current) is False
+        assert MisfireDetector.is_misfired(job_data, current) is False
 
     def test_classify_due_jobs(self):
         """Test classify_due_jobs separates normal and misfired."""
@@ -61,7 +61,7 @@ class TestMisfireClassifier:
         ]
 
         current = "2025-01-01T09:00:30+00:00"
-        normal, misfired = MisfireClassifier.classify_due_jobs(jobs, current)
+        normal, misfired = MisfireDetector.classify_due_jobs(jobs, current)
 
         assert len(normal) == 1
         assert normal[0]["job_id"] == "normal"
@@ -78,7 +78,7 @@ class TestMisfireClassifier:
 
         # 2 minutes late
         current = datetime(2025, 1, 1, 9, 2, 0, tzinfo=UTC)
-        delay = MisfireClassifier.get_misfire_delay(job_data, current)
+        delay = MisfireDetector.get_misfire_delay(job_data, current)
 
         assert delay is not None
         assert delay.total_seconds() == 120  # 2 minutes
@@ -93,7 +93,7 @@ class TestMisfireClassifier:
 
         # 30 seconds late (within threshold)
         current = datetime(2025, 1, 1, 9, 0, 30, tzinfo=UTC)
-        delay = MisfireClassifier.get_misfire_delay(job_data, current)
+        delay = MisfireDetector.get_misfire_delay(job_data, current)
 
         assert delay is None
 
@@ -134,11 +134,11 @@ class TestDefaultPolicies:
         )
         assert interval_job.if_missed == "run_once"
 
-    def test_get_default_policy_function(self):
-        """Test get_default_policy helper function."""
-        assert get_default_policy(TriggerType.DATE) == MisfirePolicy.RUN_ONCE
-        assert get_default_policy(TriggerType.CRON) == MisfirePolicy.SKIP
-        assert get_default_policy(TriggerType.INTERVAL) == MisfirePolicy.RUN_ONCE
+    def test_get_default_for_trigger(self):
+        """Test MisfirePolicy.get_default_for_trigger."""
+        assert MisfirePolicy.get_default_for_trigger("date") == MisfirePolicy.RUN_ONCE
+        assert MisfirePolicy.get_default_for_trigger("cron") == MisfirePolicy.SKIP
+        assert MisfirePolicy.get_default_for_trigger("interval") == MisfirePolicy.RUN_ONCE
 
 
 class TestMisfirePolicyOverride:

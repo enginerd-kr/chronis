@@ -6,7 +6,7 @@ import pytest
 from conftest import register_dummy_job
 
 from chronis import InMemoryStorageAdapter
-from chronis.core.misfire import MisfireClassifier
+from chronis.core.misfire import MisfireDetector
 from chronis.utils.time import utc_now
 
 
@@ -107,7 +107,7 @@ class TestMisfireIntegration:
         )
 
         # Classify
-        normal, misfired = MisfireClassifier.classify_due_jobs(due_jobs, current_time.isoformat())
+        normal, misfired = MisfireDetector.classify_due_jobs(due_jobs, current_time.isoformat())
 
         # Should be misfired (5 minutes late, threshold 60s)
         assert len(misfired) == 1
@@ -244,7 +244,7 @@ class TestMisfirePolicyBehavior:
             filters={"status": "scheduled", "next_run_time_lte": utc_now().isoformat()}
         )
 
-        normal, misfired = MisfireClassifier.classify_due_jobs(due_jobs, utc_now().isoformat())
+        normal, misfired = MisfireDetector.classify_due_jobs(due_jobs, utc_now().isoformat())
 
         # Should be classified as misfired with skip policy
         assert len(misfired) == 1
@@ -274,7 +274,7 @@ class TestMisfirePolicyBehavior:
             filters={"status": "scheduled", "next_run_time_lte": utc_now().isoformat()}
         )
 
-        normal, misfired = MisfireClassifier.classify_due_jobs(due_jobs, utc_now().isoformat())
+        normal, misfired = MisfireDetector.classify_due_jobs(due_jobs, utc_now().isoformat())
 
         # Should be classified as misfired
         assert len(misfired) == 1
