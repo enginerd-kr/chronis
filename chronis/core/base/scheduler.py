@@ -298,24 +298,12 @@ class BaseScheduler(ABC):
             JobNotFoundError: Job not found
             InvalidJobStateError: Job not in pausable state
         """
-        job = self.get_job(job_id)
-        if not job:
-            raise JobNotFoundError(
-                f"Job '{job_id}' not found. It may have been deleted or never existed. Use scheduler.query_jobs() to see available jobs."
-            )
-
-        if job.status not in (JobStatus.SCHEDULED, JobStatus.PENDING):
-            raise InvalidJobStateError(
-                f"Cannot pause job '{job_id}' in {job.status.value} state. "
-                f"Only SCHEDULED or PENDING jobs can be paused."
-            )
-
-        self.storage.update_job(
-            job_id, {"status": JobStatus.PAUSED.value, "updated_at": utc_now().isoformat()}
+        return self._transition_job_state(
+            job_id,
+            allowed=(JobStatus.SCHEDULED, JobStatus.PENDING),
+            new_status=JobStatus.PAUSED,
+            action="paused",
         )
-        if self.verbose:
-            self.logger.info("Job paused", job_id=job_id)
-        return True
 
     def resume_job(self, job_id: str) -> bool:
         """
@@ -331,6 +319,21 @@ class BaseScheduler(ABC):
             JobNotFoundError: Job not found
             InvalidJobStateError: Job not paused
         """
+        return self._transition_job_state(
+            job_id,
+            allowed=(JobStatus.PAUSED,),
+            new_status=JobStatus.SCHEDULED,
+            action="resumed",
+        )
+
+    def _transition_job_state(
+        self,
+        job_id: str,
+        allowed: tuple[JobStatus, ...],
+        new_status: JobStatus,
+        action: str,
+    ) -> bool:
+        """Validate and apply a job state transition."""
         job = self.get_job(job_id)
         if not job:
             raise JobNotFoundError(
@@ -338,16 +341,17 @@ class BaseScheduler(ABC):
                 "Use scheduler.query_jobs() to see available jobs."
             )
 
-        if job.status != JobStatus.PAUSED:
+        if job.status not in allowed:
+            allowed_str = " or ".join(s.value.upper() for s in allowed)
             raise InvalidJobStateError(
-                f"Cannot resume job '{job_id}' in {job.status.value} state. "
-                f"Only PAUSED jobs can be resumed."
+                f"Cannot {action.rstrip('d')} job '{job_id}' in {job.status.value} state. "
+                f"Only {allowed_str} jobs can be {action}."
             )
 
         self.storage.update_job(
-            job_id, {"status": JobStatus.SCHEDULED.value, "updated_at": utc_now().isoformat()}
+            job_id, {"status": new_status.value, "updated_at": utc_now().isoformat()}
         )
         if self.verbose:
-            self.logger.info("Job resumed", job_id=job_id)
+            self.logger.info(f"Job {action}", job_id=job_id)
         return True
 

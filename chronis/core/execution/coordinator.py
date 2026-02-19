@@ -475,28 +475,8 @@ class ExecutionCoordinator:
             return
 
         job_info = JobInfo.from_dict(job_data)
-
-        if handler:
-            try:
-                handler(job_id, job_info)
-            except Exception as e:
-                self.logger.error(
-                    "Job-specific success handler raised exception",
-                    error=str(e),
-                    job_id=job_id,
-                    exc_info=True,
-                )
-
-        if self.global_on_success:
-            try:
-                self.global_on_success(job_id, job_info)
-            except Exception as e:
-                self.logger.error(
-                    "Global success handler raised exception",
-                    error=str(e),
-                    job_id=job_id,
-                    exc_info=True,
-                )
+        self._safe_invoke(handler, "Job-specific success", job_id, job_id, job_info)
+        self._safe_invoke(self.global_on_success, "Global success", job_id, job_id, job_info)
 
     def _invoke_failure_callback(
         self, job_id: str, error: Exception, job_data: dict[str, Any]
@@ -507,28 +487,26 @@ class ExecutionCoordinator:
             return
 
         job_info = JobInfo.from_dict(job_data)
+        self._safe_invoke(handler, "Job-specific failure", job_id, job_id, error, job_info)
+        self._safe_invoke(
+            self.global_on_failure, "Global failure", job_id, job_id, error, job_info
+        )
 
-        if handler:
-            try:
-                handler(job_id, error, job_info)
-            except Exception as e:
-                self.logger.error(
-                    "Job-specific failure handler raised exception",
-                    error=str(e),
-                    job_id=job_id,
-                    exc_info=True,
-                )
-
-        if self.global_on_failure:
-            try:
-                self.global_on_failure(job_id, error, job_info)
-            except Exception as e:
-                self.logger.error(
-                    "Global failure handler raised exception",
-                    error=str(e),
-                    job_id=job_id,
-                    exc_info=True,
-                )
+    def _safe_invoke(
+        self, handler: Any, label: str, job_id: str, *args: Any
+    ) -> None:
+        """Invoke a callback handler with error logging."""
+        if not handler:
+            return
+        try:
+            handler(*args)
+        except Exception as e:
+            self.logger.error(
+                f"{label} handler raised exception",
+                error=str(e),
+                job_id=job_id,
+                exc_info=True,
+            )
 
     def _schedule_retry(
         self, job_data: dict[str, Any], next_retry_count: int, job_logger: ContextLogger
