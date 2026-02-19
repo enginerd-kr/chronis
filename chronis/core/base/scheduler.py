@@ -43,7 +43,6 @@ class BaseScheduler(ABC):
         storage_adapter: JobStorageAdapter,
         lock_adapter: LockAdapter,
         max_workers: int | None = None,
-        lock_prefix: str = "scheduler:lock:",
         lock_ttl_seconds: int = 300,
         verbose: bool = False,
         logger: ContextLogger | None = None,
@@ -57,21 +56,15 @@ class BaseScheduler(ABC):
             storage_adapter: Job storage adapter (required)
             lock_adapter: Distributed lock adapter (required)
             max_workers: Maximum number of worker threads (default: 20)
-            lock_prefix: Lock key prefix
             lock_ttl_seconds: Lock TTL (seconds)
             verbose: Enable verbose logging (default: False)
             logger: Custom logger (uses default if None)
             on_failure: Global failure handler for all jobs (optional)
             on_success: Global success handler for all jobs (optional)
         """
-        # Validate parameters
-        if not lock_prefix:
-            raise ValueError("lock_prefix cannot be empty")
-
         self.storage = storage_adapter
         self.lock = lock_adapter
         self.max_workers = max_workers or self.DEFAULT_MAX_WORKERS
-        self.lock_prefix = lock_prefix
         self.lock_ttl_seconds = lock_ttl_seconds
         self.verbose = verbose
         self.on_failure = on_failure
@@ -114,7 +107,6 @@ class BaseScheduler(ABC):
             global_on_failure=self.on_failure,
             global_on_success=self.on_success,
             logger=self.logger,
-            lock_prefix=self.lock_prefix,
             lock_ttl_seconds=self.lock_ttl_seconds,
             verbose=self.verbose,
         )

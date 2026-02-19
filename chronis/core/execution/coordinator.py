@@ -38,7 +38,6 @@ class ExecutionCoordinator:
         global_on_failure: OnFailureCallback | None,
         global_on_success: OnSuccessCallback | None,
         logger: ContextLogger,
-        lock_prefix: str = "chronis:lock:",
         lock_ttl_seconds: int = 300,
         verbose: bool = False,
     ) -> None:
@@ -55,7 +54,6 @@ class ExecutionCoordinator:
             global_on_failure: Global failure handler for all jobs
             global_on_success: Global success handler for all jobs
             logger: Context logger
-            lock_prefix: Prefix for lock keys
             lock_ttl_seconds: Lock TTL in seconds
             verbose: Enable verbose logging
         """
@@ -68,7 +66,6 @@ class ExecutionCoordinator:
         self.global_on_failure = global_on_failure
         self.global_on_success = global_on_success
         self.logger = logger
-        self.lock_prefix = lock_prefix
         self.lock_ttl_seconds = lock_ttl_seconds
         self.verbose = verbose
 
@@ -86,7 +83,7 @@ class ExecutionCoordinator:
         """
         job_id = job_data["job_id"]
         job_name = job_data.get("name", job_id)
-        lock_key = job_id  # LockAdapter adds its own prefix
+        lock_key = job_id
 
         job_logger = self.logger.with_context(job_id=job_id, job_name=job_name)
 

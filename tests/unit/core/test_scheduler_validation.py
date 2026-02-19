@@ -47,18 +47,3 @@ class TestLockTTLValidation:
             )
 
         assert "at least 2x" in str(exc_info.value)
-
-
-class TestLockPrefixValidation:
-    """Test lock_prefix validation."""
-
-    def test_empty_lock_prefix_raises_error(self):
-        """Test that empty lock_prefix raises ValueError."""
-        with pytest.raises(ValueError) as exc_info:
-            PollingScheduler(
-                storage_adapter=InMemoryStorageAdapter(),
-                lock_adapter=InMemoryLockAdapter(),
-                lock_prefix="",  # Empty
-            )
-
-        assert "lock_prefix cannot be empty" in str(exc_info.value)

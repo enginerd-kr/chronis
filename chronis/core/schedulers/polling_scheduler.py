@@ -56,7 +56,6 @@ class PollingScheduler(BaseScheduler):
         lock_adapter: LockAdapter,
         polling_interval_seconds: int = 1,
         lock_ttl_seconds: int = 300,
-        lock_prefix: str = "scheduler:lock:",
         max_workers: int | None = None,
         max_queue_size: int | None = None,
         executor_interval_seconds: int | None = None,
@@ -73,7 +72,6 @@ class PollingScheduler(BaseScheduler):
             lock_adapter: Distributed lock adapter (required)
             polling_interval_seconds: Polling interval (seconds)
             lock_ttl_seconds: Lock TTL (seconds)
-            lock_prefix: Lock key prefix
             max_workers: Maximum number of worker threads (default: 20)
             max_queue_size: Maximum queue size for backpressure control (default: max_workers * 5)
             executor_interval_seconds: Executor check interval (default: min(1, polling_interval / 2))
@@ -103,7 +101,6 @@ class PollingScheduler(BaseScheduler):
             storage_adapter=storage_adapter,
             lock_adapter=lock_adapter,
             max_workers=max_workers,
-            lock_prefix=lock_prefix,
             lock_ttl_seconds=lock_ttl_seconds,
             verbose=verbose,
             logger=logger,
