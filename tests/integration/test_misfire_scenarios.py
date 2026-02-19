@@ -205,10 +205,10 @@ class TestMisfirePolicyBehavior:
         scheduler.storage.update_job(job.job_id, {"next_run_time": past_time.isoformat()})
 
         # Poll and execute
-        added = scheduler._orchestrator.enqueue_jobs()
+        added = scheduler._enqueue_jobs()
         assert added == 1
 
-        job_id = scheduler._orchestrator.get_next_job_from_queue()
+        job_id = scheduler._job_queue.get_next_job()
         if job_id:
             job_data = scheduler.storage.get_job(job_id)
             assert job_data is not None

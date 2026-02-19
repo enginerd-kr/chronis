@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from chronis.core.misfire import MisfirePolicy
+from chronis.core.schedulers.next_run_calculator import NextRunTimeCalculator
 from chronis.core.state import JobStatus
 from chronis.core.state.enums import TriggerType
 from chronis.utils.time import get_timezone, utc_now
@@ -58,8 +60,6 @@ class JobDefinition(BaseModel):
     def model_post_init(self, __context: Any) -> None:
         """Set if_missed default based on trigger_type."""
         if self.if_missed is None:
-            from chronis.core.misfire import MisfirePolicy
-
             default_policy = MisfirePolicy.get_default_for_trigger(self.trigger_type.value)
             object.__setattr__(self, "if_missed", default_policy.value)
 
@@ -130,8 +130,6 @@ class JobDefinition(BaseModel):
 
     def _calculate_initial_next_run_time(self) -> datetime | None:
         """Calculate initial next_run_time in UTC."""
-        from chronis.core.schedulers.next_run_calculator import NextRunTimeCalculator
-
         tz = get_timezone(self.timezone)
         current_time = datetime.now(tz)
 

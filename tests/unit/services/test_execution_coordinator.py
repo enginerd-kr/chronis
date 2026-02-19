@@ -117,7 +117,7 @@ class TestExecuteInBackgroundRetryLogic:
 
 
 class TestScheduleRetryErrorHandling:
-    """Test error handling in retry_handler.schedule_retry."""
+    """Test error handling in _schedule_retry."""
 
     @patch("chronis.utils.time.get_timezone")
     @patch("chronis.utils.time.utc_now")
@@ -154,7 +154,7 @@ class TestScheduleRetryErrorHandling:
         job_logger = Mock()
 
         # Should not raise
-        coordinator.retry_handler.schedule_retry(job_data, 1, job_logger)
+        coordinator._schedule_retry(job_data, 1, job_logger)
 
         # Verify error was logged
         job_logger.error.assert_called_once()

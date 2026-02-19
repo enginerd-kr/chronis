@@ -4,12 +4,17 @@ This module provides unified misfire detection and handling functionality.
 All misfire-related logic is consolidated here for simplicity.
 """
 
+from __future__ import annotations
+
 from datetime import datetime, timedelta
 from enum import Enum
+from typing import TYPE_CHECKING
 
-from chronis.core.jobs.definition import JobInfo
 from chronis.core.schedulers.next_run_calculator import NextRunTimeCalculator
-from chronis.type_defs import JobStorageData
+
+if TYPE_CHECKING:
+    from chronis.core.jobs.definition import JobInfo
+    from chronis.type_defs import JobStorageData
 
 
 class MisfirePolicy(str, Enum):
@@ -32,7 +37,7 @@ class MisfirePolicy(str, Enum):
     RUN_ALL = "run_all"
 
     @staticmethod
-    def get_default_for_trigger(trigger_type: str) -> "MisfirePolicy":
+    def get_default_for_trigger(trigger_type: str) -> MisfirePolicy:
         """
         Get default misfire policy for trigger type.
 

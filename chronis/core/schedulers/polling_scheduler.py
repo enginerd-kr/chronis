@@ -1,5 +1,7 @@
 """Polling-based scheduler implementation."""
 
+import hashlib
+import uuid
 from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
@@ -14,12 +16,14 @@ from apscheduler.triggers.interval import IntervalTrigger  # type: ignore[import
 
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
 from chronis.core.base.scheduler import BaseScheduler
+from chronis.core.common.exceptions import SchedulerError
 from chronis.core.execution.callbacks import OnFailureCallback, OnSuccessCallback
 from chronis.core.execution.job_queue import JobQueue
 from chronis.core.jobs.definition import JobInfo
+from chronis.core.misfire import MisfireDetector
 from chronis.core.schedulers import job_builders
-from chronis.core.schedulers.polling_orchestrator import PollingOrchestrator
 from chronis.utils.logging import ContextLogger
+from chronis.utils.time import utc_now
 
 
 class PollingScheduler(BaseScheduler):
@@ -104,13 +108,9 @@ class PollingScheduler(BaseScheduler):
         # Initialize job queue for backpressure control
         self._job_queue = JobQueue(max_queue_size=self.max_queue_size)
 
-        # Initialize polling orchestrator
-        self._orchestrator = PollingOrchestrator(
-            storage=self.storage,
-            job_queue=self._job_queue,
-            logger=self.logger,
-            verbose=self.verbose,
-        )
+        # Random node ID for distributed job ordering
+        # Each scheduler instance gets a unique ID to reduce lock contention
+        self._node_id = str(uuid.uuid4())
 
         # Initialize APScheduler (BackgroundScheduler - non-blocking)
         from apscheduler.executors.pool import (  # type: ignore[import-untyped]
@@ -148,8 +148,6 @@ class PollingScheduler(BaseScheduler):
         logging.getLogger("apscheduler.scheduler").setLevel(logging.WARNING)
 
         if self._running:
-            from chronis.core.common.exceptions import SchedulerError
-
             raise SchedulerError(
                 "Scheduler is already running. Call scheduler.stop() first to restart."
             )
@@ -232,7 +230,7 @@ class PollingScheduler(BaseScheduler):
             - utilization: Queue utilization ratio (0.0 to 1.0)
             - in_flight_job_ids: List of job IDs currently in-flight
         """
-        return self._orchestrator.get_queue_status()
+        return self._job_queue.get_status()
 
     # ------------------------------------------------------------------------
     # Internal Methods (APScheduler Polling Logic)
@@ -245,7 +243,98 @@ class PollingScheduler(BaseScheduler):
         Called periodically by APScheduler.
         This method runs in APScheduler's background thread.
         """
-        self._orchestrator.enqueue_jobs()
+        self._enqueue_jobs()
+
+    def _enqueue_jobs(self) -> int:
+        """
+        Get ready jobs and enqueue them.
+
+        Returns:
+            Number of jobs added to queue
+        """
+        try:
+            available_slots = self._job_queue.get_available_slots()
+
+            if available_slots <= 0:
+                self.logger.warning("Job queue full, skipping enqueue")
+                return 0
+
+            jobs = self._get_ready_jobs(limit=available_slots)
+
+            if jobs:
+                added_count = 0
+                for job_data in jobs:
+                    job_id = job_data.get("job_id")
+                    if not job_id:
+                        continue
+                    priority = job_data.get("priority", 5)
+                    if self._job_queue.add_job(job_id, priority):
+                        added_count += 1
+                    else:
+                        self.logger.warning("Failed to add job to queue", job_id=job_id)
+
+                return added_count
+
+            return 0
+
+        except Exception as e:
+            self.logger.error("Enqueue error", error=str(e))
+            return 0
+
+    def _get_ready_jobs(self, limit: int | None = None) -> list[Any]:
+        """
+        Query ready jobs from storage and classify them.
+
+        Args:
+            limit: Maximum number of jobs to return
+
+        Returns:
+            List of ready job data sorted by priority (high to low) then time (early to late)
+        """
+        current_time = utc_now()
+
+        # Query jobs that are ready (next_run_time <= current_time)
+        # Buffer: 3x to ensure we have enough after priority/hash re-sorting
+        query_limit = (limit * 3) if limit else None
+        filters = {"status": "scheduled", "next_run_time_lte": current_time.isoformat()}
+        jobs = self.storage.query_jobs(filters=filters, limit=query_limit)
+
+        # Classify into normal and misfired jobs
+        normal_jobs, misfired_jobs = MisfireDetector.classify_due_jobs(
+            jobs, current_time.isoformat()
+        )
+
+        if misfired_jobs:
+            self.logger.warning(
+                "Misfired jobs detected",
+                count=len(misfired_jobs),
+                job_ids=[j.get("job_id") for j in misfired_jobs],
+            )
+
+        # Combine all jobs
+        all_jobs = normal_jobs + misfired_jobs
+
+        # Sort by priority (descending), then by node-specific hash, then by next_run_time
+        # The hash ensures each scheduler instance processes jobs in a different order,
+        # reducing lock contention in distributed environments
+        def sort_key(job: Any) -> tuple[int, int, str]:
+            priority = job.get("priority", 5)
+            job_id = job.get("job_id", "")
+            next_run = job.get("next_run_time", "")
+
+            # Create node-specific hash to distribute jobs across schedulers
+            combined = f"{self._node_id}:{job_id}"
+            hash_val = int(hashlib.md5(combined.encode()).hexdigest()[:8], 16)
+
+            return (-int(priority), hash_val, str(next_run))
+
+        all_jobs.sort(key=sort_key)  # type: ignore[arg-type]
+
+        # Apply limit if specified
+        if limit is not None:
+            all_jobs = all_jobs[:limit]
+
+        return all_jobs
 
     def _execute_queued_jobs(self) -> None:
         """
@@ -261,13 +350,13 @@ class PollingScheduler(BaseScheduler):
             # Process jobs in batches for better concurrency
             batch_size = 100  # Process up to 100 jobs per iteration (increased for throughput)
 
-            while not self._orchestrator.is_queue_empty():
+            while not self._job_queue.is_empty():
                 # Get batch of job IDs from queue
                 job_ids = []
                 for _ in range(batch_size):
-                    if self._orchestrator.is_queue_empty():
+                    if self._job_queue.is_empty():
                         break
-                    job_id = self._orchestrator.get_next_job_from_queue()
+                    job_id = self._job_queue.get_next_job()
                     if job_id:
                         job_ids.append(job_id)
 
@@ -283,17 +372,17 @@ class PollingScheduler(BaseScheduler):
                     job_data = jobs_dict.get(job_id)
                     if job_data is None:
                         # Job was deleted - mark as completed and continue
-                        self._orchestrator.mark_job_completed(job_id)
+                        self._job_queue.mark_completed(job_id)
                         continue
 
                     # Try to execute with distributed lock (non-blocking)
                     executed = self._execution_coordinator.try_execute(
-                        dict(job_data), on_complete=self._orchestrator.mark_job_completed
+                        dict(job_data), on_complete=self._job_queue.mark_completed
                     )
 
                     # If not executed (lock failed or wrong status), mark as completed in queue
                     if not executed:
-                        self._orchestrator.mark_job_completed(job_id)
+                        self._job_queue.mark_completed(job_id)
 
         except Exception as e:
             self.logger.error("Executor error", error=str(e))

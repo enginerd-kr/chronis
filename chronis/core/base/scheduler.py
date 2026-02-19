@@ -3,18 +3,21 @@
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
+from chronis.core.common.exceptions import (
+    InvalidJobStateError,
+    JobAlreadyExistsError,
+    JobNotFoundError,
+)
 from chronis.core.execution.callbacks import OnFailureCallback, OnSuccessCallback
+from chronis.core.execution.coordinator import ExecutionCoordinator
 from chronis.core.jobs.definition import JobDefinition, JobInfo
 from chronis.core.state import JobStatus
 from chronis.core.state.enums import TriggerType
 from chronis.utils.logging import ContextLogger, _default_logger
 from chronis.utils.time import utc_now
-
-if TYPE_CHECKING:
-    pass
 
 
 class BaseScheduler(ABC):
@@ -101,9 +104,6 @@ class BaseScheduler(ABC):
             max_workers=self.max_workers, thread_name_prefix="chronis-worker-"
         )
 
-        # Initialize execution coordinator (lazy import to avoid circular dependency)
-        from chronis.core.execution.coordinator import ExecutionCoordinator
-
         self._execution_coordinator = ExecutionCoordinator(
             storage=self.storage,
             lock=self.lock,
@@ -172,8 +172,6 @@ class BaseScheduler(ABC):
         Raises:
             JobAlreadyExistsError: Job already exists
         """
-        from chronis.core.common.exceptions import JobAlreadyExistsError
-
         # Register on_failure handler if provided
         if job.on_failure:
             with self._registry_lock:
@@ -247,8 +245,6 @@ class BaseScheduler(ABC):
         Raises:
             JobNotFoundError: Job not found
         """
-        from chronis.core.common.exceptions import JobNotFoundError
-
         # Build updates dictionary
         updates_dict: dict[str, Any] = {
             k: v
@@ -302,8 +298,6 @@ class BaseScheduler(ABC):
             JobNotFoundError: Job not found
             InvalidJobStateError: Job not in pausable state
         """
-        from chronis.core.common.exceptions import InvalidJobStateError, JobNotFoundError
-
         job = self.get_job(job_id)
         if not job:
             raise JobNotFoundError(
@@ -337,8 +331,6 @@ class BaseScheduler(ABC):
             JobNotFoundError: Job not found
             InvalidJobStateError: Job not paused
         """
-        from chronis.core.common.exceptions import InvalidJobStateError, JobNotFoundError
-
         job = self.get_job(job_id)
         if not job:
             raise JobNotFoundError(

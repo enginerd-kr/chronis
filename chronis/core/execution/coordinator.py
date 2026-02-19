@@ -3,18 +3,21 @@
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
+from tenacity import RetryError, retry, stop_after_attempt, wait_random_exponential
+
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
+from chronis.core.common.exceptions import FunctionNotRegisteredError, JobTimeoutError
 from chronis.core.execution.callbacks import OnFailureCallback, OnSuccessCallback
-from chronis.core.execution.retry_handler import RetryHandler
 from chronis.core.jobs.definition import JobInfo
 from chronis.core.schedulers.next_run_calculator import NextRunTimeCalculator
 from chronis.core.state import JobStatus
 from chronis.core.state.enums import TriggerType
+from chronis.type_defs import JobUpdateData
 from chronis.utils.logging import ContextLogger
-from chronis.utils.time import utc_now
+from chronis.utils.time import get_timezone, utc_now
 
 
 class ExecutionCoordinator:
@@ -69,8 +72,6 @@ class ExecutionCoordinator:
         self.lock_ttl_seconds = lock_ttl_seconds
         self.verbose = verbose
 
-        # Initialize retry handler
-        self.retry_handler = RetryHandler(storage=storage, lock=lock, logger=logger)
 
     def try_execute(self, job_data: dict[str, Any], on_complete: Callable[[str], None]) -> bool:
         """
@@ -133,7 +134,7 @@ class ExecutionCoordinator:
             yield lock_acquired
         finally:
             if lock_acquired:
-                self.retry_handler.try_release_lock(lock_key)
+                self._try_release_lock(lock_key)
 
     def _trigger_execution(
         self,
@@ -222,7 +223,7 @@ class ExecutionCoordinator:
 
             if retry_count < max_retries:
                 # Schedule retry with exponential backoff
-                self.retry_handler.schedule_retry(job_data, retry_count + 1, job_logger)
+                self._schedule_retry(job_data, retry_count + 1, job_logger)
             else:
                 # No more retries - mark as FAILED
                 self._update_job_status(job_id, JobStatus.FAILED)
@@ -250,8 +251,6 @@ class ExecutionCoordinator:
         # Look up function from registry
         func = self.function_registry.get(func_name)
         if not func:
-            from chronis.core.common.exceptions import FunctionNotRegisteredError
-
             raise FunctionNotRegisteredError(
                 f"Function '{func_name}' is not registered. "
                 "Call scheduler.register_job_function(name, func) before creating jobs."
@@ -289,8 +288,6 @@ class ExecutionCoordinator:
 
                 # Check if thread completed
                 if thread.is_alive():
-                    from chronis.core.common.exceptions import JobTimeoutError
-
                     # Timeout occurred - thread is still running
                     timeout_msg = (
                         f"Job exceeded timeout of {timeout_seconds}s. "
@@ -355,8 +352,6 @@ class ExecutionCoordinator:
             expected_values["next_run_time"] = queue_next_run
 
         # Build updates - what to change if expectations match
-        from chronis.type_defs import JobUpdateData
-
         updates: JobUpdateData = {
             "status": JobStatus.RUNNING.value,
             "updated_at": current_time_str,
@@ -475,9 +470,12 @@ class ExecutionCoordinator:
 
     def _invoke_success_callback(self, job_id: str, job_data: dict[str, Any]) -> None:
         """Invoke job-specific and global success handlers."""
+        handler = self.success_handler_registry.get(job_id)
+        if not handler and not self.global_on_success:
+            return
+
         job_info = JobInfo.from_dict(job_data)
 
-        handler = self.success_handler_registry.get(job_id)
         if handler:
             try:
                 handler(job_id, job_info)
@@ -504,9 +502,12 @@ class ExecutionCoordinator:
         self, job_id: str, error: Exception, job_data: dict[str, Any]
     ) -> None:
         """Invoke job-specific and global failure handlers."""
+        handler = self.failure_handler_registry.get(job_id)
+        if not handler and not self.global_on_failure:
+            return
+
         job_info = JobInfo.from_dict(job_data)
 
-        handler = self.failure_handler_registry.get(job_id)
         if handler:
             try:
                 handler(job_id, error, job_info)
@@ -528,3 +529,65 @@ class ExecutionCoordinator:
                     job_id=job_id,
                     exc_info=True,
                 )
+
+    def _schedule_retry(
+        self, job_data: dict[str, Any], next_retry_count: int, job_logger: ContextLogger
+    ) -> None:
+        """
+        Schedule job retry with exponential backoff.
+
+        Backoff formula: delay = base_delay * (2 ^ (retry_count - 1)), capped at 3600s.
+
+        Args:
+            job_data: Job data from storage
+            next_retry_count: Next retry attempt number (1-indexed)
+            job_logger: Context logger for this job
+        """
+        job_id = job_data["job_id"]
+        base_delay = job_data.get("retry_delay_seconds", 60)
+        timezone = job_data.get("timezone", "UTC")
+
+        # Exponential backoff: 60s, 120s, 240s, 480s, 960s, 1800s, 3600s (cap)
+        delay_seconds = min(base_delay * (2 ** (next_retry_count - 1)), 3600)
+
+        next_run_time = utc_now() + timedelta(seconds=delay_seconds)
+        tz = get_timezone(timezone)
+        next_run_time_local = next_run_time.astimezone(tz)
+
+        try:
+            self.storage.update_job(
+                job_id,
+                {
+                    "retry_count": next_retry_count,
+                    "next_run_time": next_run_time.isoformat(),
+                    "next_run_time_local": next_run_time_local.isoformat(),
+                    "status": JobStatus.SCHEDULED.value,
+                    "updated_at": utc_now().isoformat(),
+                },
+            )
+
+            max_retries = job_data.get("max_retries", 0)
+            job_logger.warning(
+                "Retry scheduled",
+                attempt=next_retry_count,
+                max_retries=max_retries,
+                delay_seconds=delay_seconds,
+            )
+        except Exception as e:
+            job_logger.error("Failed to schedule retry", error=str(e))
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_random_exponential(multiplier=0.1, min=0.1, max=1),
+        reraise=True,
+    )
+    def _release_lock_with_retry(self, lock_key: str) -> None:
+        """Release lock with automatic retry and jitter."""
+        self.lock.release(lock_key)
+
+    def _try_release_lock(self, lock_key: str) -> None:
+        """Try to release lock, catching retry errors."""
+        try:
+            self._release_lock_with_retry(lock_key)
+        except RetryError:
+            pass  # Non-critical, lock will expire via TTL

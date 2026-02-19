@@ -224,7 +224,7 @@ class JobStorageAdapter(ABC):
         │                   IMPLEMENTATION CONTRACT                     │
         ├──────────────────────────────────────────────────────────────┤
         │ WHO IMPLEMENTS: Storage adapter developer                    │
-        │ WHO CALLS:      Chronis Core (SchedulingOrchestrator)        │
+        │ WHO CALLS:      Chronis Core (PollingScheduler)               │
         │ WHEN CALLED:    Every polling cycle to find due jobs         │
         ├──────────────────────────────────────────────────────────────┤
         │ CRITICAL: MUST return misfire fields for detection to work   │

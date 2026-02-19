@@ -164,9 +164,9 @@ feat(scheduler): add support for recurring jobs
 chronis/
 ├── chronis/              # Main package
 │   ├── core/            # Core scheduler logic
-│   │   ├── base/       # Abstract base classes (BaseScheduler, BaseOrchestrator)
-│   │   ├── schedulers/ # Scheduler implementations (PollingScheduler, PollingOrchestrator, job builders)
-│   │   ├── execution/  # Execution components (ExecutionCoordinator, RetryHandler)
+│   │   ├── base/       # Abstract base classes (BaseScheduler)
+│   │   ├── schedulers/ # Scheduler implementations (PollingScheduler, job builders)
+│   │   ├── execution/  # Execution components (ExecutionCoordinator)
 │   │   ├── jobs/       # Job definitions
 │   │   ├── state/      # State management (JobStatus, TriggerType enums)
 │   │   ├── triggers/   # Trigger strategies
