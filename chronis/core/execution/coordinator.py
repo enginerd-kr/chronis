@@ -422,51 +422,29 @@ class ExecutionCoordinator:
 
     def _update_next_run_time(self, job_data: dict[str, Any]) -> None:
         """
-        Update execution times for recurring jobs.
+        Update execution timestamps after job runs.
 
-        Note: next_run_time is already calculated in _try_claim_job_with_cas().
-        This method only updates last_scheduled_time and last_run_time.
-
-        Args:
-            job_data: Job data (with _original_scheduled_time from CAS)
+        next_run_time for recurring jobs is already set by _try_claim_job_with_cas().
+        This only records last_scheduled_time and last_run_time.
+        For DATE jobs, also clears next_run_time.
         """
-        job_id = job_data["job_id"]
-        trigger_type = job_data["trigger_type"]
-
-        # Use original scheduled time (before CAS update) for last_scheduled_time
         original_scheduled_time = job_data.get("_original_scheduled_time")
-        actual_time = utc_now().isoformat()
-
-        if trigger_type == TriggerType.DATE.value:
-            if original_scheduled_time:
-                try:
-                    self.storage.update_job(
-                        job_id,
-                        {
-                            "last_scheduled_time": original_scheduled_time,
-                            "last_run_time": actual_time,
-                            "next_run_time": None,
-                            "updated_at": utc_now().isoformat(),
-                        },
-                    )
-                except Exception:
-                    pass  # Non-critical
+        if not original_scheduled_time:
             return
 
-        # For recurring jobs, next_run_time was already updated in _try_claim_job_with_cas()
-        # Only update last_scheduled_time and last_run_time here
-        if original_scheduled_time:
-            try:
-                self.storage.update_job(
-                    job_id,
-                    {
-                        "last_scheduled_time": original_scheduled_time,
-                        "last_run_time": actual_time,
-                        "updated_at": utc_now().isoformat(),
-                    },
-                )
-            except Exception:
-                pass  # Non-critical
+        updates: JobUpdateData = {
+            "last_scheduled_time": original_scheduled_time,
+            "last_run_time": utc_now().isoformat(),
+            "updated_at": utc_now().isoformat(),
+        }
+
+        if job_data["trigger_type"] == TriggerType.DATE.value:
+            updates["next_run_time"] = None
+
+        try:
+            self.storage.update_job(job_data["job_id"], updates)
+        except Exception:
+            pass  # Non-critical
 
     def _invoke_success_callback(self, job_id: str, job_data: dict[str, Any]) -> None:
         """Invoke job-specific and global success handlers."""

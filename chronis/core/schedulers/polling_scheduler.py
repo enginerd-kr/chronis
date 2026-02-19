@@ -179,7 +179,7 @@ class PollingScheduler(BaseScheduler):
         # Register polling job to APScheduler
         polling_trigger = IntervalTrigger(seconds=self.polling_interval_seconds, timezone="UTC")
         self._apscheduler.add_job(
-            func=self._poll_and_enqueue,
+            func=self._enqueue_jobs,
             trigger=polling_trigger,
             id="polling_job",
             name="Job Polling",
@@ -248,15 +248,6 @@ class PollingScheduler(BaseScheduler):
     # ------------------------------------------------------------------------
     # Internal Methods (APScheduler Polling Logic)
     # ------------------------------------------------------------------------
-
-    def _poll_and_enqueue(self) -> None:
-        """
-        Poll ready jobs from storage and add to queue.
-
-        Called periodically by APScheduler.
-        This method runs in APScheduler's background thread.
-        """
-        self._enqueue_jobs()
 
     def _enqueue_jobs(self) -> int:
         """
