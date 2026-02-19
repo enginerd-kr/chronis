@@ -6,7 +6,6 @@ from chronis.core.common import (
     SchedulerError,
     TriggerType,
 )
-from chronis.core.execution import AsyncExecutor
 from chronis.core.execution.coordinator import ExecutionCoordinator
 from chronis.core.jobs import JobDefinition, JobInfo
 from chronis.core.query import (
@@ -47,8 +46,6 @@ __all__ = [
     "combine_filters",
     # Services
     "ExecutionCoordinator",
-    # Execution
-    "AsyncExecutor",
     # Scheduler
     "PollingScheduler",
 ]

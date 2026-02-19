@@ -18,7 +18,7 @@ class TestTriggerExecutionLogging:
             storage=Mock(),
             lock=Mock(),
             executor=Mock(),
-            async_executor=Mock(),
+
             function_registry={},
             failure_handler_registry={},
             success_handler_registry={},
@@ -46,7 +46,7 @@ class TestTriggerExecutionLogging:
             storage=Mock(),
             lock=Mock(),
             executor=executor_mock,
-            async_executor=Mock(),
+
             function_registry={},
             failure_handler_registry={},
             success_handler_registry={},
@@ -80,7 +80,7 @@ class TestExecuteInBackgroundRetryLogic:
             storage=storage_mock,
             lock=Mock(),
             executor=Mock(),
-            async_executor=Mock(),
+
             function_registry={"test_func": lambda: None},
             failure_handler_registry={},
             success_handler_registry={},
@@ -136,7 +136,7 @@ class TestScheduleRetryErrorHandling:
             storage=storage_mock,
             lock=Mock(),
             executor=Mock(),
-            async_executor=Mock(),
+
             function_registry={},
             failure_handler_registry={},
             success_handler_registry={},
@@ -175,7 +175,7 @@ class TestCallbackExceptionHandling:
             storage=Mock(),
             lock=Mock(),
             executor=Mock(),
-            async_executor=Mock(),
+
             function_registry={},
             failure_handler_registry={},
             success_handler_registry={"test-1": failing_callback},
@@ -223,7 +223,7 @@ class TestCallbackExceptionHandling:
             storage=Mock(),
             lock=Mock(),
             executor=Mock(),
-            async_executor=Mock(),
+
             function_registry={},
             failure_handler_registry={},
             success_handler_registry={},
@@ -266,7 +266,7 @@ class TestCallbackExceptionHandling:
             storage=Mock(),
             lock=Mock(),
             executor=Mock(),
-            async_executor=Mock(),
+
             function_registry={},
             failure_handler_registry={"test-1": failing_callback},
             success_handler_registry={},
@@ -312,7 +312,7 @@ class TestCallbackExceptionHandling:
             storage=Mock(),
             lock=Mock(),
             executor=Mock(),
-            async_executor=Mock(),
+
             function_registry={},
             failure_handler_registry={},
             success_handler_registry={},
@@ -362,7 +362,7 @@ class TestExecutorSubmitRollback:
             storage=storage_mock,
             lock=Mock(),
             executor=executor_mock,
-            async_executor=Mock(),
+
             function_registry={},
             failure_handler_registry={},
             success_handler_registry={},
@@ -410,7 +410,7 @@ class TestExecutorSubmitRollback:
             storage=storage_mock,
             lock=Mock(),
             executor=executor_mock,
-            async_executor=Mock(),
+
             function_registry={},
             failure_handler_registry={},
             success_handler_registry={},

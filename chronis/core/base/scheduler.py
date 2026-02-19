@@ -6,7 +6,6 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
-from chronis.core.execution.async_loop import AsyncExecutor
 from chronis.core.execution.callbacks import OnFailureCallback, OnSuccessCallback
 from chronis.core.jobs.definition import JobDefinition, JobInfo
 from chronis.core.state import JobStatus
@@ -90,9 +89,6 @@ class BaseScheduler(ABC):
         )
         self.logger = ContextLogger(base_logger, {"component": self.__class__.__name__})
 
-        # Initialize async executor (shared across all scheduler types)
-        self._async_executor = AsyncExecutor()
-
         # Initialize execution coordinator (shared across all scheduler types)
         self._init_execution_coordinator()
 
@@ -112,7 +108,6 @@ class BaseScheduler(ABC):
             storage=self.storage,
             lock=self.lock,
             executor=self._executor,
-            async_executor=self._async_executor,
             function_registry=self._job_registry,
             failure_handler_registry=self._failure_handler_registry,
             success_handler_registry=self._success_handler_registry,
@@ -136,12 +131,9 @@ class BaseScheduler(ABC):
         pass
 
     @abstractmethod
-    def stop(self, timeout: float = 30.0) -> dict[str, Any]:
+    def stop(self) -> dict[str, Any]:
         """
         Stop scheduler gracefully (implementation-specific).
-
-        Args:
-            timeout: Maximum seconds to wait for jobs to complete
 
         Returns:
             Dictionary with shutdown status
@@ -367,22 +359,3 @@ class BaseScheduler(ABC):
             self.logger.info("Job resumed", job_id=job_id)
         return True
 
-    # ========================================
-    # Helper Methods (Common)
-    # ========================================
-
-    def _start_async_loop(self) -> None:
-        """Start dedicated event loop for async jobs."""
-        self._async_executor.start()
-
-    def _stop_async_loop(self, timeout: float = 30.0) -> bool:
-        """
-        Stop dedicated event loop.
-
-        Args:
-            timeout: Maximum seconds to wait for async tasks
-
-        Returns:
-            True if all async tasks completed, False if timeout
-        """
-        return self._async_executor.stop(timeout=timeout)

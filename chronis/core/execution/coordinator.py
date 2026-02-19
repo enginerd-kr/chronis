@@ -7,7 +7,6 @@ from datetime import datetime
 from typing import Any
 
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
-from chronis.core.execution.async_loop import AsyncExecutor
 from chronis.core.execution.callback_invoker import CallbackInvoker
 from chronis.core.execution.callbacks import OnFailureCallback, OnSuccessCallback
 from chronis.core.execution.retry_handler import RetryHandler
@@ -31,7 +30,6 @@ class ExecutionCoordinator:
         storage: JobStorageAdapter,
         lock: LockAdapter,
         executor: ThreadPoolExecutor,
-        async_executor: AsyncExecutor,
         function_registry: dict[str, Callable],
         failure_handler_registry: dict[str, OnFailureCallback],
         success_handler_registry: dict[str, OnSuccessCallback],
@@ -49,7 +47,6 @@ class ExecutionCoordinator:
             storage: Storage adapter for job updates
             lock: Lock adapter for distributed locking
             executor: Thread pool executor for job execution
-            async_executor: Async executor for coroutines
             function_registry: Registry of job functions by name
             failure_handler_registry: Registry of job-specific failure handlers by job_id
             success_handler_registry: Registry of job-specific success handlers by job_id
@@ -63,7 +60,6 @@ class ExecutionCoordinator:
         self.storage = storage
         self.lock = lock
         self.executor = executor
-        self.async_executor = async_executor
         self.function_registry = function_registry
         self.failure_handler_registry = failure_handler_registry
         self.success_handler_registry = success_handler_registry
@@ -190,17 +186,10 @@ class ExecutionCoordinator:
             job_data: Job data
             job_logger: Context logger
         """
-        import inspect
-
         job_id = job_data["job_id"]
-        func_name = job_data["func_name"]
-        func = self.function_registry.get(func_name)
-
-        # Check if function is async (will be handled in callback)
-        is_async = func and inspect.iscoroutinefunction(func)
 
         try:
-            # Execute the actual job function
+            # Execute the actual job function (sync or async via asyncio.run)
             self._execute_job_function(job_data, job_logger)
 
             # Success - reset retry count if it was retried before
@@ -222,15 +211,14 @@ class ExecutionCoordinator:
                 self._update_next_run_time(job_data)
                 self._update_job_status(job_id, next_status)
 
-            # Invoke success handler (skip for async - handled in callback)
-            if not is_async:
-                CallbackInvoker(
-                    self.failure_handler_registry,
-                    self.success_handler_registry,
-                    self.global_on_failure,
-                    self.global_on_success,
-                    self.logger,
-                ).invoke_success_callback(job_id, job_data)
+            # Invoke success handler
+            CallbackInvoker(
+                self.failure_handler_registry,
+                self.success_handler_registry,
+                self.global_on_failure,
+                self.global_on_success,
+                self.logger,
+            ).invoke_success_callback(job_id, job_data)
 
         except Exception as e:
             job_logger.error("Execution failed", error=str(e), exc_info=True)
@@ -284,59 +272,14 @@ class ExecutionCoordinator:
 
         # Execute based on function type
         if inspect.iscoroutinefunction(func):
-            # Async function - execute with timeout
+            # Async function - execute via asyncio.run() in current worker thread
             coro = func(*args, **kwargs)
 
             if timeout_seconds:
                 # Wrap with timeout
                 coro = asyncio.wait_for(coro, timeout=timeout_seconds)
 
-            future = self.async_executor.execute_coroutine(coro)
-
-            # Add error callback to log async failures and update job status
-            job_id = job_data["job_id"]
-
-            def _handle_async_completion(fut):
-                try:
-                    fut.result()  # This will raise if the coroutine raised or timed out
-                    # Async job succeeded - invoke success handler
-                    CallbackInvoker(
-                        self.failure_handler_registry,
-                        self.success_handler_registry,
-                        self.global_on_failure,
-                        self.global_on_success,
-                        self.logger,
-                    ).invoke_success_callback(job_id, job_data)
-                except TimeoutError:
-                    from chronis.core.common.exceptions import JobTimeoutError
-
-                    timeout_msg = f"Job exceeded timeout of {timeout_seconds}s"
-                    job_logger.error(
-                        "Job timeout",
-                        timeout_seconds=timeout_seconds,
-                        job_type="async",
-                    )
-                    self._update_job_status(job_id, JobStatus.FAILED)
-                    CallbackInvoker(
-                        self.failure_handler_registry,
-                        self.success_handler_registry,
-                        self.global_on_failure,
-                        self.global_on_success,
-                        self.logger,
-                    ).invoke_failure_callback(job_id, JobTimeoutError(timeout_msg), job_data)
-                except Exception as e:
-                    job_logger.error("Async job execution failed", error=str(e), exc_info=True)
-                    # Update job status to FAILED if async execution fails
-                    self._update_job_status(job_id, JobStatus.FAILED)
-                    CallbackInvoker(
-                        self.failure_handler_registry,
-                        self.success_handler_registry,
-                        self.global_on_failure,
-                        self.global_on_success,
-                        self.logger,
-                    ).invoke_failure_callback(job_id, e, job_data)
-
-            future.add_done_callback(_handle_async_completion)
+            asyncio.run(coro)
         else:
             # Sync function - execute with timeout
             if timeout_seconds:

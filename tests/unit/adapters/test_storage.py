@@ -2,6 +2,7 @@
 
 import pytest
 
+from chronis.adapters.base import JobStorageAdapter
 from chronis.adapters.storage import InMemoryStorageAdapter
 from chronis.core.state import JobStatus
 
@@ -139,3 +140,34 @@ class TestInMemoryStorageDelete:
         """Test deleting non-existent job returns False."""
         result = storage.delete_job("nonexistent")
         assert result is False
+
+
+class TestStorageAdapterContract:
+    """Test that JobStorageAdapter enforces required method implementations."""
+
+    def test_compare_and_swap_job_is_abstract(self):
+        """compare_and_swap_job must be abstract - adapters must implement it."""
+        assert hasattr(JobStorageAdapter.compare_and_swap_job, "__isabstractmethod__")
+        assert JobStorageAdapter.compare_and_swap_job.__isabstractmethod__ is True
+
+    def test_cannot_instantiate_without_compare_and_swap(self):
+        """Adapter without compare_and_swap_job raises TypeError."""
+
+        class IncompleteAdapter(JobStorageAdapter):
+            def create_job(self, job_data):
+                pass
+
+            def get_job(self, job_id):
+                pass
+
+            def update_job(self, job_id, updates):
+                pass
+
+            def delete_job(self, job_id):
+                pass
+
+            def query_jobs(self, filters=None, limit=None, offset=None):
+                pass
+
+        with pytest.raises(TypeError, match="compare_and_swap_job"):
+            IncompleteAdapter()

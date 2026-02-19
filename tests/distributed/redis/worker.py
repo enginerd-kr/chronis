@@ -152,8 +152,8 @@ def main():
     finally:
         # Graceful shutdown
         print(f"\n[{POD_NAME}] Stopping scheduler...")
-        result = scheduler.stop(timeout=10)
-        print(f"[{POD_NAME}] ✓ Stopped (async jobs: {result['async_jobs_completed']})")
+        scheduler.stop()
+        print(f"[{POD_NAME}] ✓ Stopped")
 
         # Leader cleanup
         if IS_LEADER:

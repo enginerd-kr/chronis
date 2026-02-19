@@ -154,9 +154,6 @@ class PollingScheduler(BaseScheduler):
                 "Scheduler is already running. Call scheduler.stop() first to restart."
             )
 
-        # Start dedicated event loop for async jobs
-        self._start_async_loop()
-
         # Register executor job to APScheduler with configurable interval
         executor_trigger = IntervalTrigger(seconds=self.executor_interval_seconds, timezone="UTC")
         self._apscheduler.add_job(
@@ -183,25 +180,23 @@ class PollingScheduler(BaseScheduler):
         self._apscheduler.start()
         self._running = True
 
-    def stop(self, timeout: float = 30.0) -> dict[str, Any]:
+    def stop(self) -> dict[str, Any]:
         """
         Stop scheduler gracefully.
 
-        Waits for running jobs (both sync and async) to complete before shutting down.
-
-        Args:
-            timeout: Maximum seconds to wait for async jobs to complete (default: 30).
+        Waits for all running jobs to complete before shutting down.
+        Both sync and async jobs run in ThreadPoolExecutor, so shutdown
+        blocks until all workers finish.
 
         Returns:
             Dictionary with shutdown status:
-            - sync_jobs_completed: Always True (sync jobs always wait)
-            - async_jobs_completed: True if all async jobs finished, False if timeout
+            - sync_jobs_completed: Always True (ThreadPool waits for completion)
+            - async_jobs_completed: Always True (async jobs run in ThreadPool via asyncio.run)
             - was_running: Whether scheduler was running before stop
 
         Example:
-            >>> result = scheduler.stop(timeout=60.0)
-            >>> if not result['async_jobs_completed']:
-            ...     print("Warning: Some async jobs were interrupted")
+            >>> result = scheduler.stop()
+            >>> assert result['was_running'] is True
         """
         if not self._running:
             return {
@@ -213,17 +208,14 @@ class PollingScheduler(BaseScheduler):
         # Shutdown APScheduler (stops polling for new jobs)
         self._apscheduler.shutdown(wait=True)
 
-        # Stop dedicated event loop (wait for async jobs with timeout)
-        async_completed = self._stop_async_loop(timeout=timeout)
-
-        # Shutdown thread pool executor (wait for sync jobs - always waits)
+        # Shutdown thread pool executor (waits for all jobs - sync and async)
         self._executor.shutdown(wait=True, cancel_futures=False)
 
         self._running = False
 
         return {
             "sync_jobs_completed": True,
-            "async_jobs_completed": async_completed,
+            "async_jobs_completed": True,
             "was_running": True,
         }
 
