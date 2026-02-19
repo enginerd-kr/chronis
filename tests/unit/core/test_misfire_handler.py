@@ -2,10 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
-from chronis.core.jobs.definition import JobInfo
 from chronis.core.misfire import MisfireHandler, MisfirePolicy
-from chronis.core.state import JobStatus
-from chronis.core.state.enums import TriggerType
 
 
 class TestMisfireHandlerSkipPolicy:
@@ -15,24 +12,18 @@ class TestMisfireHandlerSkipPolicy:
         """SKIP policy should return empty list for any delay."""
         handler = MisfireHandler()
 
-        job = JobInfo(
-            job_id="test-1",
-            name="Test",
-            trigger_type=TriggerType.INTERVAL.value,
-            trigger_args={"seconds": 60},
-            timezone="UTC",
-            status=JobStatus.SCHEDULED,
-            next_run_time=None,
-            next_run_time_local=None,
-            metadata={"if_missed": MisfirePolicy.SKIP.value},
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-        )
+        job_data = {
+            "job_id": "test-1",
+            "trigger_type": "interval",
+            "trigger_args": {"seconds": 60},
+            "timezone": "UTC",
+            "if_missed": MisfirePolicy.SKIP.value,
+        }
 
         scheduled = datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
         current = datetime(2024, 1, 1, 12, 5, tzinfo=UTC)
 
-        result = handler.handle(job, scheduled, current)
+        result = handler.handle(job_data, scheduled, current)
         assert result == []
 
 
@@ -43,24 +34,18 @@ class TestMisfireHandlerRunOncePolicy:
         """RUN_ONCE should return list with current_time."""
         handler = MisfireHandler()
 
-        job = JobInfo(
-            job_id="test-1",
-            name="Test",
-            trigger_type=TriggerType.INTERVAL.value,
-            trigger_args={"seconds": 60},
-            timezone="UTC",
-            status=JobStatus.SCHEDULED,
-            next_run_time=None,
-            next_run_time_local=None,
-            metadata={"if_missed": MisfirePolicy.RUN_ONCE.value},
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-        )
+        job_data = {
+            "job_id": "test-1",
+            "trigger_type": "interval",
+            "trigger_args": {"seconds": 60},
+            "timezone": "UTC",
+            "if_missed": MisfirePolicy.RUN_ONCE.value,
+        }
 
         scheduled = datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
         current = datetime(2024, 1, 1, 12, 5, tzinfo=UTC)
 
-        result = handler.handle(job, scheduled, current)
+        result = handler.handle(job_data, scheduled, current)
 
         assert len(result) == 1
         assert result[0] == current
@@ -73,24 +58,18 @@ class TestMisfireHandlerRunAllPolicy:
         """RUN_ALL should return all missed interval executions."""
         handler = MisfireHandler()
 
-        job = JobInfo(
-            job_id="test-1",
-            name="Test",
-            trigger_type=TriggerType.INTERVAL.value,
-            trigger_args={"minutes": 1},
-            timezone="UTC",
-            status=JobStatus.SCHEDULED,
-            next_run_time=None,
-            next_run_time_local=None,
-            metadata={"if_missed": MisfirePolicy.RUN_ALL.value},
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-        )
+        job_data = {
+            "job_id": "test-1",
+            "trigger_type": "interval",
+            "trigger_args": {"minutes": 1},
+            "timezone": "UTC",
+            "if_missed": MisfirePolicy.RUN_ALL.value,
+        }
 
         scheduled = datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
         current = datetime(2024, 1, 1, 12, 5, tzinfo=UTC)
 
-        result = handler.handle(job, scheduled, current)
+        result = handler.handle(job_data, scheduled, current)
 
         assert len(result) == 5
 
@@ -98,23 +77,17 @@ class TestMisfireHandlerRunAllPolicy:
         """RUN_ALL should cap at MAX_MISSED_RUNS."""
         handler = MisfireHandler()
 
-        job = JobInfo(
-            job_id="test-1",
-            name="Test",
-            trigger_type=TriggerType.INTERVAL.value,
-            trigger_args={"seconds": 1},
-            timezone="UTC",
-            status=JobStatus.SCHEDULED,
-            next_run_time=None,
-            next_run_time_local=None,
-            metadata={"if_missed": MisfirePolicy.RUN_ALL.value},
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-        )
+        job_data = {
+            "job_id": "test-1",
+            "trigger_type": "interval",
+            "trigger_args": {"seconds": 1},
+            "timezone": "UTC",
+            "if_missed": MisfirePolicy.RUN_ALL.value,
+        }
 
         scheduled = datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
         current = scheduled + timedelta(seconds=200)
 
-        result = handler.handle(job, scheduled, current)
+        result = handler.handle(job_data, scheduled, current)
 
         assert len(result) == MisfireHandler.MAX_MISSED_RUNS

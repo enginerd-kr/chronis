@@ -370,7 +370,8 @@ class ExecutionCoordinator:
             )
 
             # Handle misfire: if next_run_time is in the past, recalculate from now
-            if utc_time and utc_time <= utc_now():
+            # Exception: run_all policy keeps incremental time for catch-up execution
+            if utc_time and utc_time <= utc_now() and job_data.get("if_missed") != "run_all":
                 utc_time, local_time = NextRunTimeCalculator.calculate_with_local_time(
                     trigger_type, trigger_args, timezone
                 )

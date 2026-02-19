@@ -221,8 +221,8 @@ class TestMisfirePolicyBehavior:
         # Should execute only once despite missing 3 intervals
         assert execution_tracker.count() == 1
 
-    def test_skip_policy_classification(self, basic_scheduler):
-        """Test that skip policy jobs are properly classified when misfired."""
+    def test_skip_policy_advances_next_run_time(self, basic_scheduler):
+        """Test that skip policy advances next_run_time without executing."""
         scheduler = basic_scheduler
         register_dummy_job(scheduler, "test_func")
 
@@ -239,24 +239,25 @@ class TestMisfirePolicyBehavior:
         # Set to past time (misfired)
         scheduler.storage.update_job(job.job_id, {"next_run_time": past_time.isoformat()})
 
-        # Query and classify
-        due_jobs = scheduler.storage.query_jobs(
-            filters={"status": "scheduled", "next_run_time_lte": utc_now().isoformat()}
+        # Poll - skip policy should NOT enqueue the job
+        added = scheduler._enqueue_jobs()
+        assert added == 0
+
+        # next_run_time should be advanced to the future
+        updated = scheduler.storage.get_job("skip-job")
+        assert updated is not None
+        assert updated["next_run_time"] is not None
+        assert updated["next_run_time"] > utc_now().isoformat()
+        assert updated["status"] == "scheduled"
+
+    def test_run_all_policy_keeps_incremental_next_run(self, basic_scheduler, execution_tracker):
+        """Test that run_all policy advances next_run_time incrementally, not to future."""
+        scheduler = basic_scheduler
+        scheduler.register_job_function(
+            "test_func", lambda: execution_tracker.record("test_func")
         )
 
-        normal, misfired = MisfireDetector.classify_due_jobs(due_jobs, utc_now().isoformat())
-
-        # Should be classified as misfired with skip policy
-        assert len(misfired) == 1
-        assert misfired[0]["if_missed"] == "skip"
-        assert len(normal) == 0
-
-    def test_run_all_policy_would_execute_multiple_times(self, basic_scheduler):
-        """Test run_all policy behavior (note: actual impl may vary)."""
-        scheduler = basic_scheduler
-        register_dummy_job(scheduler, "test_func")
-
-        # Create job with run_all policy
+        # Create job with run_all policy, 5-minute interval, 15 minutes late (3 missed)
         past_time = utc_now() - timedelta(minutes=15)
         job = scheduler.create_interval_job(
             func="test_func",
@@ -269,13 +270,22 @@ class TestMisfirePolicyBehavior:
         # Set to past (3 intervals missed)
         scheduler.storage.update_job(job.job_id, {"next_run_time": past_time.isoformat()})
 
-        # Poll and check classification
-        due_jobs = scheduler.storage.query_jobs(
-            filters={"status": "scheduled", "next_run_time_lte": utc_now().isoformat()}
-        )
+        # First poll + execute
+        added = scheduler._enqueue_jobs()
+        assert added == 1
 
-        normal, misfired = MisfireDetector.classify_due_jobs(due_jobs, utc_now().isoformat())
+        job_id = scheduler._job_queue.get_next_job()
+        assert job_id is not None
+        job_data = scheduler.storage.get_job(job_id)
+        assert job_data is not None
+        scheduler._execution_coordinator.try_execute(dict(job_data), lambda jid: None)
 
-        # Should be classified as misfired
-        assert len(misfired) == 1
-        assert misfired[0]["if_missed"] == "run_all"
+        import time
+        time.sleep(0.5)
+
+        # After first execution, next_run_time should still be in the past (incremental)
+        updated = scheduler.storage.get_job("run-all-job")
+        assert updated is not None
+        assert updated["status"] == "scheduled"
+        assert updated["next_run_time"] is not None
+        assert updated["next_run_time"] < utc_now().isoformat()

@@ -20,6 +20,7 @@ from chronis.core.execution.callbacks import OnFailureCallback, OnSuccessCallbac
 from chronis.core.execution.job_queue import JobQueue
 from chronis.core.jobs.definition import JobDefinition, JobInfo
 from chronis.core.misfire import MisfireDetector
+from chronis.core.schedulers.next_run_calculator import NextRunTimeCalculator
 from chronis.core.state.enums import TriggerType
 from chronis.utils.logging import ContextLogger
 from chronis.utils.time import get_timezone, utc_now
@@ -312,8 +313,18 @@ class PollingScheduler(BaseScheduler):
                 job_ids=[j.get("job_id") for j in misfired_jobs],
             )
 
+        # Apply misfire policy
+        ready_misfired = []
+        for job in misfired_jobs:
+            policy = job.get("if_missed", "run_once")
+            if policy == "skip":
+                self._skip_misfired_job(job)
+            else:
+                # run_once / run_all: include in ready jobs
+                ready_misfired.append(job)
+
         # Combine all jobs
-        all_jobs = normal_jobs + misfired_jobs
+        all_jobs = normal_jobs + ready_misfired
 
         # Sort by priority (descending), then by node-specific hash, then by next_run_time
         # The hash ensures each scheduler instance processes jobs in a different order,
@@ -336,6 +347,35 @@ class PollingScheduler(BaseScheduler):
             all_jobs = all_jobs[:limit]
 
         return all_jobs
+
+    def _skip_misfired_job(self, job_data: dict[str, Any]) -> None:
+        """Skip misfired job by advancing next_run_time to next future time."""
+        job_id = job_data.get("job_id", "")
+        trigger_type = job_data.get("trigger_type")
+
+        if trigger_type == "date":
+            self.storage.delete_job(job_id)
+            self.logger.info("Skipped misfired one-time job (deleted)", job_id=job_id)
+            return
+
+        utc_time, local_time = NextRunTimeCalculator.calculate_with_local_time(
+            trigger_type, job_data.get("trigger_args", {}), job_data.get("timezone", "UTC")
+        )
+
+        if utc_time:
+            self.storage.update_job(
+                job_id,
+                {
+                    "next_run_time": utc_time.isoformat(),
+                    "next_run_time_local": local_time.isoformat() if local_time else None,
+                    "updated_at": utc_now().isoformat(),
+                },
+            )
+            self.logger.info(
+                "Skipped misfired job, advanced to next run",
+                job_id=job_id,
+                next_run_time=utc_time.isoformat(),
+            )
 
     def _execute_queued_jobs(self) -> None:
         """
