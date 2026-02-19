@@ -25,17 +25,30 @@ class JobDefinition(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    # Required fields
     job_id: str
     name: str
     trigger_type: TriggerType
     trigger_args: dict[str, Any]
     func: Callable | str
+
+    # Scheduling options
     timezone: str = "UTC"
     args: tuple | None = None
     kwargs: dict[str, Any] | None = None
     status: JobStatus = JobStatus.PENDING
     next_run_time: datetime | None = None
     metadata: dict[str, Any] | None = None
+
+    # Execution options
+    on_failure: "OnFailureCallback | None" = None
+    on_success: "OnSuccessCallback | None" = None
+    max_retries: int = 0
+    retry_delay_seconds: int = 60
+    timeout_seconds: int | None = None
+    priority: int = 5
+    if_missed: Literal["skip", "run_once", "run_all"] | None = None
+    misfire_threshold_seconds: int = 60
 
     @field_validator("args", mode="before")
     @classmethod
@@ -48,14 +61,6 @@ class JobDefinition(BaseModel):
     def default_dicts(cls, v: Any) -> dict:
         """Convert None to empty dict."""
         return v if v is not None else {}
-    on_failure: "OnFailureCallback | None" = None
-    on_success: "OnSuccessCallback | None" = None
-    max_retries: int = 0
-    retry_delay_seconds: int = 60
-    timeout_seconds: int | None = None
-    priority: int = 5
-    if_missed: Literal["skip", "run_once", "run_all"] | None = None
-    misfire_threshold_seconds: int = 60
 
     def model_post_init(self, __context: Any) -> None:
         """Set if_missed default based on trigger_type."""

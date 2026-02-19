@@ -6,7 +6,7 @@ from typing import Any
 
 from apscheduler.triggers.cron import CronTrigger as APSCronTrigger  # type: ignore[import-untyped]
 
-from chronis.utils.time import ZoneInfo, get_timezone
+from chronis.utils.time import ZoneInfo, get_timezone, parse_iso_datetime
 
 
 class TriggerStrategy(ABC):
@@ -102,7 +102,7 @@ class DateTrigger(TriggerStrategy):
         if not run_date_str:
             return None
 
-        next_time = datetime.fromisoformat(run_date_str.replace("Z", "+00:00"))
+        next_time = parse_iso_datetime(run_date_str)
         next_time_utc = next_time.astimezone(ZoneInfo("UTC"))
 
         if current_time and next_time_utc <= current_time.astimezone(ZoneInfo("UTC")):

@@ -3,7 +3,7 @@
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 from tenacity import RetryError, retry, stop_after_attempt, wait_random_exponential
@@ -17,7 +17,7 @@ from chronis.core.state import JobStatus
 from chronis.core.state.enums import TriggerType
 from chronis.type_defs import JobUpdateData
 from chronis.utils.logging import ContextLogger
-from chronis.utils.time import get_timezone, utc_now
+from chronis.utils.time import get_timezone, parse_iso_datetime, utc_now
 
 
 class ExecutionCoordinator:
@@ -363,7 +363,7 @@ class ExecutionCoordinator:
             scheduled_time = job_data.get("next_run_time")
             base_time = None
             if scheduled_time:
-                base_time = datetime.fromisoformat(scheduled_time.replace("Z", "+00:00"))
+                base_time = parse_iso_datetime(scheduled_time)
 
             utc_time, local_time = NextRunTimeCalculator.calculate_with_local_time(
                 trigger_type, trigger_args, timezone, current_time=base_time
@@ -440,8 +440,12 @@ class ExecutionCoordinator:
 
         try:
             self.storage.update_job(job_data["job_id"], updates)
-        except Exception:
-            pass  # Non-critical
+        except Exception as e:
+            self.logger.warning(
+                "Failed to update execution timestamps",
+                job_id=job_data["job_id"],
+                error=str(e),
+            )
 
     def _invoke_success_callback(self, job_id: str, job_data: dict[str, Any]) -> None:
         """Invoke job-specific and global success handlers."""
