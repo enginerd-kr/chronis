@@ -489,10 +489,10 @@ def test_storage_adapter():
 ### Storage Adapters
 
 - **In-Memory**: [`chronis/adapters/storage/memory.py`](../chronis/adapters/storage/memory.py)
-- **PostgreSQL**: [`chronis/contrib/storage/postgres/adapter.py`](../chronis/contrib/storage/postgres/adapter.py)
-- **Redis**: [`chronis/contrib/storage/redis.py`](../chronis/contrib/storage/redis.py)
+- **PostgreSQL**: [`chronis/contrib/adapters/storage/postgres/adapter.py`](../chronis/contrib/adapters/storage/postgres/adapter.py)
+- **Redis**: [`chronis/contrib/adapters/storage/redis.py`](../chronis/contrib/adapters/storage/redis.py)
 
 ### Lock Adapters
 
 - **In-Memory**: [`chronis/adapters/lock/memory.py`](../chronis/adapters/lock/memory.py)
-- **Redis**: [`chronis/contrib/lock/redis.py`](../chronis/contrib/lock/redis.py)
+- **Redis**: [`chronis/contrib/adapters/lock/redis.py`](../chronis/contrib/adapters/lock/redis.py)
