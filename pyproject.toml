@@ -10,7 +10,6 @@ keywords = [
     "scheduler",
     "distributed",
     "cron",
-    "apscheduler",
     "job-scheduler",
     "distributed-locking",
     "multi-container",
@@ -39,8 +38,6 @@ classifiers = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "apscheduler>=3.10.4,<4.0.0",
-    "python-dateutil>=2.8.2,<3.0.0",
     "pydantic>=2.0.0,<3.0.0",
     "tenacity>=8.0.0,<9.0.0",
     "tzdata>=2024.1",

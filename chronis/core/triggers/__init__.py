@@ -4,8 +4,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 from typing import Any
 
-from apscheduler.triggers.cron import CronTrigger as APSCronTrigger  # type: ignore[import-untyped]
-
+from chronis.core.triggers.cron_calc import calculate_next_cron_time
 from chronis.utils.time import ZoneInfo, get_timezone, parse_iso_datetime
 
 
@@ -78,7 +77,10 @@ class CronTrigger(TriggerStrategy):
         if current.tzinfo is None:
             current = current.replace(tzinfo=tz)
 
-        trigger = APSCronTrigger(
+        current = current.astimezone(tz)
+
+        next_time = calculate_next_cron_time(
+            current,
             year=trigger_args.get("year"),
             month=trigger_args.get("month"),
             day=trigger_args.get("day"),
@@ -86,9 +88,7 @@ class CronTrigger(TriggerStrategy):
             day_of_week=trigger_args.get("day_of_week"),
             hour=trigger_args.get("hour"),
             minute=trigger_args.get("minute"),
-            timezone=tz,
         )
-        next_time = trigger.get_next_fire_time(None, current)
 
         if next_time is None:
             return None
