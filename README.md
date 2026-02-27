@@ -186,9 +186,11 @@ Jobs can fail due to network issues, external service outages, or long-running o
 scheduler.every(minutes=5).config(
     timeout=60,           # Kill job if it exceeds 60 seconds
     retry=3,              # Retry up to 3 times on failure
-    retry_delay=60,       # Wait 60 seconds between retries
+    retry_delay=60,       # Base delay in seconds (exponential backoff)
 ).run("sync_external_api")
 ```
+
+Retries use **exponential backoff**: `delay = retry_delay × 2^(attempt-1)`, capped at 3600s. With `retry_delay=60` and `retry=3`, the delays are 60s → 120s → 240s. On success, the retry count resets to 0. The `on_failure` callback fires only after all retries are exhausted.
 
 ### Multi-Tenancy & Metadata
 
