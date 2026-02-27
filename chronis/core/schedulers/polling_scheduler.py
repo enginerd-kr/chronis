@@ -20,6 +20,7 @@ from chronis.core.jobs.definition import JobDefinition, JobInfo
 from chronis.core.misfire import MisfireDetector
 from chronis.core.schedulers.next_run_calculator import NextRunTimeCalculator
 from chronis.core.state.enums import TriggerType
+from chronis.type_defs import JobStorageData
 from chronis.utils.logging import ContextLogger
 from chronis.utils.time import get_timezone, utc_now
 
@@ -391,10 +392,10 @@ class PollingScheduler(BaseScheduler):
 
         return all_jobs
 
-    def _skip_misfired_job(self, job_data: dict[str, Any]) -> None:
+    def _skip_misfired_job(self, job_data: JobStorageData) -> None:
         """Skip misfired job by advancing next_run_time to next future time."""
         job_id = job_data.get("job_id", "")
-        trigger_type = job_data.get("trigger_type")
+        trigger_type: str = job_data.get("trigger_type", "")
 
         if trigger_type == "date":
             self.storage.delete_job(job_id)

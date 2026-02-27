@@ -322,7 +322,7 @@ class RedisStorageAdapter(JobStorageAdapter):
                 if raw_data is None:
                     pipe.unwatch()
                     raise ValueError(f"Job {job_id} not found")
-                job_data = self._deserialize(raw_data)
+                job_data = self._deserialize(raw_data)  # type: ignore[assignment]
 
                 # Check if expected values match
                 for field, expected_value in expected_values.items():
