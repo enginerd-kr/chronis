@@ -1,0 +1,99 @@
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    name: Build & Verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: "pyproject.toml"
+
+      - name: Verify tag matches package version
+        run: |
+          PACKAGE_VERSION=$(grep '^version = ' pyproject.toml | cut -d'"' -f2)
+          TAG_VERSION=${GITHUB_REF_NAME#v}
+          if [ "$PACKAGE_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Tag version ($TAG_VERSION) != package version ($PACKAGE_VERSION)"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run linter
+        run: uv run ruff check .
+
+      - name: Run type checker
+        run: uv run mypy chronis/
+
+      - name: Run tests
+        run: |
+          uv run pytest tests/unit/ tests/integration/ -v --cov=chronis --cov-report=term-missing
+          uv run pytest tests/e2e/ -v --no-cov -m e2e
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-distributions
+          path: dist/
+
+  publish-testpypi:
+    name: Publish to TestPyPI
+    needs: build
+    if: >-
+      contains(github.ref_name, 'rc') ||
+      contains(github.ref_name, 'a') ||
+      contains(github.ref_name, 'b')
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/chronis
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: package-distributions
+          path: dist/
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: build
+    if: >-
+      !contains(github.ref_name, 'rc') &&
+      !contains(github.ref_name, 'a') &&
+      !contains(github.ref_name, 'b')
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/chronis
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: package-distributions
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
