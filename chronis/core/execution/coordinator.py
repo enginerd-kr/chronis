@@ -1,6 +1,7 @@
 """Job execution coordination service."""
 
 import asyncio
+import threading
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -10,6 +11,7 @@ from typing import Any
 from tenacity import RetryError, retry, stop_after_attempt, wait_random_exponential
 
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
+from chronis.core.common.exceptions import JobTimeoutError
 from chronis.core.execution.callbacks import OnFailureCallback, OnSuccessCallback
 from chronis.core.execution.job_executor import JobExecutor
 from chronis.core.jobs.definition import JobInfo
@@ -115,10 +117,13 @@ class ExecutionCoordinator:
         Trigger job execution with automatic rollback on failure.
 
         Routes async functions to the shared event loop and sync functions
-        to the thread pool executor.
+        to the thread pool executor. For sync jobs with timeout_seconds,
+        a threading.Timer marks the job as failed on timeout without creating
+        zombie threads.
         """
         job_id = job_data["job_id"]
         func_name = job_data.get("func_name", "")
+        timeout_seconds = job_data.get("timeout_seconds")
 
         try:
             if self._job_executor.is_async(func_name):
@@ -128,10 +133,35 @@ class ExecutionCoordinator:
                 )
                 future.add_done_callback(lambda f: on_complete(job_id))
             else:
+                # For sync jobs with timeout, use threading.Event to coordinate
+                # between the worker thread and the Timer thread.
+                timed_out = threading.Event() if timeout_seconds else None
+
                 future = self.executor.submit(
-                    self._execute_in_background, job_data, job_logger
+                    self._execute_in_background, job_data, job_logger, timed_out
                 )
                 future.add_done_callback(lambda f: on_complete(job_id))
+
+                if timeout_seconds and timed_out is not None:
+
+                    def _on_timeout() -> None:
+                        timed_out.set()
+                        job_logger.error(
+                            "Job timed out",
+                            timeout_seconds=timeout_seconds,
+                        )
+                        self._handle_job_failure(
+                            job_data,
+                            JobTimeoutError(f"Job '{job_id}' timed out after {timeout_seconds}s"),
+                            job_logger,
+                        )
+
+                    timer = threading.Timer(timeout_seconds, _on_timeout)
+                    timer.daemon = True
+                    timer.start()
+
+                    # Cancel timer when the future completes normally
+                    future.add_done_callback(lambda f: timer.cancel())
 
         except Exception as submit_error:
             job_logger.warning(
@@ -152,29 +182,37 @@ class ExecutionCoordinator:
     # Execution dispatch (delegates to JobExecutor)
     # ------------------------------------------------------------------
 
-    def _execute_in_background(self, job_data: dict[str, Any], job_logger: ContextLogger) -> None:
-        """Execute sync job in background thread."""
+    def _execute_in_background(
+        self,
+        job_data: dict[str, Any],
+        job_logger: ContextLogger,
+        timed_out: threading.Event | None = None,
+    ) -> None:
+        """Execute sync job in background thread.
+
+        Args:
+            timed_out: If set, the Timer already fired and marked the job as failed.
+                       This prevents double success/failure handling.
+        """
         try:
             self._job_executor.execute_sync(job_data, job_logger)
+            if timed_out and timed_out.is_set():
+                return  # Timer already handled failure
             self._handle_job_success(job_data, job_logger)
         except Exception as e:
+            if timed_out and timed_out.is_set():
+                return  # Timer already handled failure
             self._handle_job_failure(job_data, e, job_logger)
 
-    async def _execute_async(
-        self, job_data: dict[str, Any], job_logger: ContextLogger
-    ) -> None:
+    async def _execute_async(self, job_data: dict[str, Any], job_logger: ContextLogger) -> None:
         """Execute async job on the shared event loop."""
         loop = asyncio.get_running_loop()
         try:
             await self._job_executor.execute_async(job_data, job_logger)
             # Run sync I/O (storage updates, callbacks) off the event loop
-            await loop.run_in_executor(
-                None, self._handle_job_success, job_data, job_logger
-            )
+            await loop.run_in_executor(None, self._handle_job_success, job_data, job_logger)
         except Exception as e:
-            await loop.run_in_executor(
-                None, self._handle_job_failure, job_data, e, job_logger
-            )
+            await loop.run_in_executor(None, self._handle_job_failure, job_data, e, job_logger)
 
     def shutdown_async(self, wait: bool = True) -> None:
         """Shut down the shared async event loop."""
@@ -370,13 +408,9 @@ class ExecutionCoordinator:
 
         job_info = JobInfo.from_dict(job_data)
         self._safe_invoke(handler, "Job-specific failure", job_id, job_id, error, job_info)
-        self._safe_invoke(
-            self.global_on_failure, "Global failure", job_id, job_id, error, job_info
-        )
+        self._safe_invoke(self.global_on_failure, "Global failure", job_id, job_id, error, job_info)
 
-    def _safe_invoke(
-        self, handler: Any, label: str, job_id: str, *args: Any
-    ) -> None:
+    def _safe_invoke(self, handler: Any, label: str, job_id: str, *args: Any) -> None:
         """Invoke a callback handler with error logging."""
         if not handler:
             return

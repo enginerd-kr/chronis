@@ -1,18 +1,17 @@
-"""Unit tests for JobExecutor sync/async execution and timeout handling."""
+"""Unit tests for JobExecutor sync/async execution."""
 
 import asyncio
-import time
 from unittest.mock import MagicMock
 
 import pytest
 
-from chronis.core.common.exceptions import FunctionNotRegisteredError, JobTimeoutError
+from chronis.core.common.exceptions import FunctionNotRegisteredError
 from chronis.core.execution.job_executor import JobExecutor
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_job_data(
     func_name: str = "my_func",
@@ -70,31 +69,17 @@ class TestJobExecutorSync:
         with pytest.raises(FunctionNotRegisteredError):
             executor.execute_sync(job_data, job_logger=MagicMock())
 
-    def test_execute_sync_timeout(self):
-        """A slow function exceeding timeout_seconds should raise JobTimeoutError."""
-
-        def slow_func():
-            time.sleep(2)
-
-        registry = {"slow": slow_func}
-        executor = JobExecutor(function_registry=registry, logger=MagicMock())
-
-        job_data = _make_job_data(func_name="slow", timeout_seconds=0.5)
-
-        with pytest.raises(JobTimeoutError):
-            executor.execute_sync(job_data, job_logger=MagicMock())
-
-    def test_execute_sync_within_timeout(self):
-        """A fast function should complete normally even with a timeout set."""
+    def test_execute_sync_ignores_timeout_field(self):
+        """execute_sync does not handle timeout (coordinator does). Just runs the function."""
         call_record = []
 
-        def fast_func():
+        def func():
             call_record.append(True)
 
-        registry = {"fast": fast_func}
+        registry = {"my_func": func}
         executor = JobExecutor(function_registry=registry, logger=MagicMock())
 
-        job_data = _make_job_data(func_name="fast", timeout_seconds=5.0)
+        job_data = _make_job_data(func_name="my_func", timeout_seconds=5.0)
         executor.execute_sync(job_data, job_logger=MagicMock())
 
         assert len(call_record) == 1

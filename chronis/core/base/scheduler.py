@@ -351,7 +351,7 @@ class BaseScheduler(ABC):
                 raise JobNotFoundError(
                     f"Job '{job_id}' not found. It may have been deleted or never existed. "
                     "Use scheduler.query_jobs() to see available jobs."
-                )
+                ) from None
 
         # CAS failed for all allowed statuses - re-read for error message
         current_job = self.get_job(job_id)
@@ -361,4 +361,3 @@ class BaseScheduler(ABC):
             f"Cannot {action.rstrip('d')} job '{job_id}' in {current_status} state. "
             f"Only {allowed_str} jobs can be {action}."
         )
-

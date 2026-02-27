@@ -1,4 +1,4 @@
-"""Job function execution with sync/async dispatch and timeout."""
+"""Job function execution with sync/async dispatch."""
 
 import asyncio
 import inspect
@@ -6,7 +6,7 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
-from chronis.core.common.exceptions import FunctionNotRegisteredError, JobTimeoutError
+from chronis.core.common.exceptions import FunctionNotRegisteredError
 from chronis.utils.logging import ContextLogger
 
 
@@ -38,16 +38,17 @@ class JobExecutor:
 
     def execute_sync(self, job_data: dict[str, Any], job_logger: ContextLogger) -> None:
         """
-        Execute sync job function with optional timeout.
+        Execute sync job function.
+
+        Timeout is handled at the coordinator level via threading.Timer,
+        not here. This avoids creating zombie threads that can never be killed.
 
         Raises:
             FunctionNotRegisteredError: If function not found
-            JobTimeoutError: If execution exceeds timeout
         """
         func_name = job_data["func_name"]
         args = tuple(job_data.get("args", []))
         kwargs = job_data.get("kwargs", {})
-        timeout_seconds = job_data.get("timeout_seconds")
 
         func = self.function_registry.get(func_name)
         if not func:
@@ -56,45 +57,7 @@ class JobExecutor:
                 "Call scheduler.register_job_function(name, func) before creating jobs."
             )
 
-        if timeout_seconds:
-            result: dict[str, Any] = {"completed": False, "error": None}
-
-            def _run_with_result():
-                try:
-                    func(*args, **kwargs)
-                    result["completed"] = True
-                except Exception as e:
-                    result["error"] = e
-
-            thread = threading.Thread(
-                target=_run_with_result,
-                daemon=True,
-                name=f"chronis-timeout-{job_data['job_id']}",
-            )
-            thread.start()
-            thread.join(timeout=timeout_seconds)
-
-            if thread.is_alive():
-                timeout_msg = (
-                    f"Job exceeded timeout of {timeout_seconds}s. "
-                    "The worker thread cannot be forcefully stopped and may continue running."
-                )
-                job_logger.warning(
-                    "Job timeout - zombie thread detected",
-                    timeout_seconds=timeout_seconds,
-                    job_type="sync",
-                    thread_name=thread.name,
-                )
-                raise JobTimeoutError(timeout_msg)
-
-            error = result["error"]
-            if error:
-                raise error  # type: ignore[misc]
-
-            if not result["completed"]:
-                raise RuntimeError("Job did not complete")
-        else:
-            func(*args, **kwargs)
+        func(*args, **kwargs)
 
     async def execute_async(self, job_data: dict[str, Any], job_logger: ContextLogger) -> None:
         """
@@ -148,9 +111,11 @@ class JobExecutor:
             return
 
         if wait:
+
             async def _drain() -> None:
                 tasks = [
-                    t for t in asyncio.all_tasks(self._async_loop)
+                    t
+                    for t in asyncio.all_tasks(self._async_loop)
                     if t is not asyncio.current_task()
                 ]
                 if tasks:
@@ -160,9 +125,7 @@ class JobExecutor:
                 future = asyncio.run_coroutine_threadsafe(_drain(), self._async_loop)
                 future.result(timeout=60)
             except Exception as e:
-                self.logger.warning(
-                    "Async drain failed during shutdown", error=str(e)
-                )
+                self.logger.warning("Async drain failed during shutdown", error=str(e))
 
         self._async_loop.call_soon_threadsafe(self._async_loop.stop)
         if self._async_thread:
