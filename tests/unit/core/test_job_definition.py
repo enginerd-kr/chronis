@@ -52,12 +52,20 @@ class TestJobDefinitionValidators:
     def test_priority_boundary_values_accepted(self):
         """priority 0과 10은 허용."""
         job0 = JobDefinition(
-            job_id="t0", name="t", trigger_type=TriggerType.INTERVAL,
-            trigger_args={"seconds": 30}, func=lambda: None, priority=0,
+            job_id="t0",
+            name="t",
+            trigger_type=TriggerType.INTERVAL,
+            trigger_args={"seconds": 30},
+            func=lambda: None,
+            priority=0,
         )
         job10 = JobDefinition(
-            job_id="t10", name="t", trigger_type=TriggerType.INTERVAL,
-            trigger_args={"seconds": 30}, func=lambda: None, priority=10,
+            job_id="t10",
+            name="t",
+            trigger_type=TriggerType.INTERVAL,
+            trigger_args={"seconds": 30},
+            func=lambda: None,
+            priority=10,
         )
         assert job0.priority == 0
         assert job10.priority == 10
@@ -65,17 +73,25 @@ class TestJobDefinitionValidators:
     def test_default_args_converts_none_to_tuple(self):
         """None args → 빈 tuple."""
         job = JobDefinition(
-            job_id="test", name="test", trigger_type=TriggerType.INTERVAL,
-            trigger_args={"seconds": 30}, func=lambda: None, args=None,
+            job_id="test",
+            name="test",
+            trigger_type=TriggerType.INTERVAL,
+            trigger_args={"seconds": 30},
+            func=lambda: None,
+            args=None,
         )
         assert job.args == ()
 
     def test_default_dicts_converts_none_to_dict(self):
         """None kwargs/metadata → 빈 dict."""
         job = JobDefinition(
-            job_id="test", name="test", trigger_type=TriggerType.INTERVAL,
-            trigger_args={"seconds": 30}, func=lambda: None,
-            kwargs=None, metadata=None,
+            job_id="test",
+            name="test",
+            trigger_type=TriggerType.INTERVAL,
+            trigger_args={"seconds": 30},
+            func=lambda: None,
+            kwargs=None,
+            metadata=None,
         )
         assert job.kwargs == {}
         assert job.metadata == {}
@@ -87,32 +103,44 @@ class TestModelPostInit:
     def test_date_defaults_to_run_once(self):
         """DATE trigger → if_missed='run_once'."""
         job = JobDefinition(
-            job_id="t", name="t", trigger_type=TriggerType.DATE,
-            trigger_args={"run_date": "2025-01-01 09:00:00"}, func=lambda: None,
+            job_id="t",
+            name="t",
+            trigger_type=TriggerType.DATE,
+            trigger_args={"run_date": "2025-01-01 09:00:00"},
+            func=lambda: None,
         )
         assert job.if_missed == "run_once"
 
     def test_cron_defaults_to_skip(self):
         """CRON trigger → if_missed='skip'."""
         job = JobDefinition(
-            job_id="t", name="t", trigger_type=TriggerType.CRON,
-            trigger_args={"hour": 9}, func=lambda: None,
+            job_id="t",
+            name="t",
+            trigger_type=TriggerType.CRON,
+            trigger_args={"hour": 9},
+            func=lambda: None,
         )
         assert job.if_missed == "skip"
 
     def test_interval_defaults_to_run_once(self):
         """INTERVAL trigger → if_missed='run_once'."""
         job = JobDefinition(
-            job_id="t", name="t", trigger_type=TriggerType.INTERVAL,
-            trigger_args={"seconds": 30}, func=lambda: None,
+            job_id="t",
+            name="t",
+            trigger_type=TriggerType.INTERVAL,
+            trigger_args={"seconds": 30},
+            func=lambda: None,
         )
         assert job.if_missed == "run_once"
 
     def test_explicit_override_preserved(self):
         """명시적 if_missed 지정 시 기본값 무시."""
         job = JobDefinition(
-            job_id="t", name="t", trigger_type=TriggerType.CRON,
-            trigger_args={"hour": 9}, func=lambda: None,
+            job_id="t",
+            name="t",
+            trigger_type=TriggerType.CRON,
+            trigger_args={"hour": 9},
+            func=lambda: None,
             if_missed="run_all",
         )
         assert job.if_missed == "run_all"
@@ -123,12 +151,16 @@ class TestToDict:
 
     def test_callable_func_converted_to_qualified_name(self):
         """callable func → module.name 변환."""
+
         def my_function():
             pass
 
         job = JobDefinition(
-            job_id="t", name="t", trigger_type=TriggerType.INTERVAL,
-            trigger_args={"seconds": 30}, func=my_function,
+            job_id="t",
+            name="t",
+            trigger_type=TriggerType.INTERVAL,
+            trigger_args={"seconds": 30},
+            func=my_function,
         )
         d = job.to_dict()
         assert "my_function" in d["func_name"]
@@ -137,8 +169,11 @@ class TestToDict:
     def test_string_func_preserved(self):
         """string func → 그대로 유지."""
         job = JobDefinition(
-            job_id="t", name="t", trigger_type=TriggerType.INTERVAL,
-            trigger_args={"seconds": 30}, func="my_module.my_func",
+            job_id="t",
+            name="t",
+            trigger_type=TriggerType.INTERVAL,
+            trigger_args={"seconds": 30},
+            func="my_module.my_func",
         )
         d = job.to_dict()
         assert d["func_name"] == "my_module.my_func"
@@ -146,8 +181,11 @@ class TestToDict:
     def test_next_run_time_auto_calculated_when_none(self):
         """next_run_time None → 자동 계산."""
         job = JobDefinition(
-            job_id="t", name="t", trigger_type=TriggerType.INTERVAL,
-            trigger_args={"seconds": 30}, func=lambda: None,
+            job_id="t",
+            name="t",
+            trigger_type=TriggerType.INTERVAL,
+            trigger_args={"seconds": 30},
+            func=lambda: None,
         )
         d = job.to_dict()
         assert d["next_run_time"] is not None
@@ -156,17 +194,37 @@ class TestToDict:
     def test_to_dict_includes_all_fields(self):
         """to_dict에 필수 필드가 모두 포함."""
         job = JobDefinition(
-            job_id="t", name="t", trigger_type=TriggerType.INTERVAL,
-            trigger_args={"seconds": 30}, func=lambda: None,
+            job_id="t",
+            name="t",
+            trigger_type=TriggerType.INTERVAL,
+            trigger_args={"seconds": 30},
+            func=lambda: None,
         )
         d = job.to_dict()
         required_keys = {
-            "job_id", "name", "trigger_type", "trigger_args", "timezone",
-            "func_name", "args", "kwargs", "status", "next_run_time",
-            "next_run_time_local", "metadata", "max_retries",
-            "retry_delay_seconds", "retry_count", "timeout_seconds",
-            "priority", "if_missed", "misfire_threshold_seconds",
-            "last_run_time", "last_scheduled_time", "created_at", "updated_at",
+            "job_id",
+            "name",
+            "trigger_type",
+            "trigger_args",
+            "timezone",
+            "func_name",
+            "args",
+            "kwargs",
+            "status",
+            "next_run_time",
+            "next_run_time_local",
+            "metadata",
+            "max_retries",
+            "retry_delay_seconds",
+            "retry_count",
+            "timeout_seconds",
+            "priority",
+            "if_missed",
+            "misfire_threshold_seconds",
+            "last_run_time",
+            "last_scheduled_time",
+            "created_at",
+            "updated_at",
         }
         assert required_keys.issubset(d.keys())
 
@@ -204,18 +262,22 @@ class TestCanExecute:
     def test_scheduled_with_past_time_can_execute(self):
         """SCHEDULED + 과거 next_run_time → can_execute() True."""
         from datetime import timedelta
+
         past = datetime.now(UTC) - timedelta(minutes=5)
         info = self._make_job_info(
-            status=JobStatus.SCHEDULED, next_run_time=past,
+            status=JobStatus.SCHEDULED,
+            next_run_time=past,
         )
         assert info.can_execute() is True
 
     def test_scheduled_with_future_time_cannot_execute(self):
         """SCHEDULED + 미래 next_run_time → can_execute() False."""
         from datetime import timedelta
+
         future = datetime.now(UTC) + timedelta(hours=1)
         info = self._make_job_info(
-            status=JobStatus.SCHEDULED, next_run_time=future,
+            status=JobStatus.SCHEDULED,
+            next_run_time=future,
         )
         assert info.can_execute() is False
 

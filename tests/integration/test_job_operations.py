@@ -224,9 +224,7 @@ class TestSchedulerCRUDErrorHandling:
         def on_fail(job_id, error, job_info):
             failures.append(job_id)
 
-        job = scheduler.create_interval_job(
-            func="dummy", seconds=30, on_failure=on_fail
-        )
+        job = scheduler.create_interval_job(func="dummy", seconds=30, on_failure=on_fail)
 
         assert job.job_id in scheduler._failure_handler_registry
 
@@ -239,8 +237,6 @@ class TestSchedulerCRUDErrorHandling:
         def on_success(job_id, job_info):
             successes.append(job_id)
 
-        job = scheduler.create_interval_job(
-            func="dummy", seconds=30, on_success=on_success
-        )
+        job = scheduler.create_interval_job(func="dummy", seconds=30, on_success=on_success)
 
         assert job.job_id in scheduler._success_handler_registry

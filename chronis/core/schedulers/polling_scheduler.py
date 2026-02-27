@@ -193,12 +193,8 @@ class PollingScheduler(BaseScheduler):
 
         # Register periodic tasks
         self._runner = _PeriodicRunner()
-        self._runner.add_task(
-            self._execute_queued_jobs, self.executor_interval_seconds, "executor"
-        )
-        self._runner.add_task(
-            self._enqueue_jobs, self.polling_interval_seconds, "polling"
-        )
+        self._runner.add_task(self._execute_queued_jobs, self.executor_interval_seconds, "executor")
+        self._runner.add_task(self._enqueue_jobs, self.polling_interval_seconds, "polling")
 
         # Start periodic runner (non-blocking, daemon threads)
         self._runner.start()
@@ -287,9 +283,7 @@ class PollingScheduler(BaseScheduler):
                         },
                     )
                 except Exception as e:
-                    self.logger.warning(
-                        "Failed to recover stuck job", job_id=job_id, error=str(e)
-                    )
+                    self.logger.warning("Failed to recover stuck job", job_id=job_id, error=str(e))
         except Exception as e:
             self.logger.debug("Stuck job detection skipped", error=str(e))
 
@@ -516,25 +510,38 @@ class PollingScheduler(BaseScheduler):
         trigger_args = {
             k: v
             for k, v in {
-                "seconds": seconds, "minutes": minutes, "hours": hours,
-                "days": days, "weeks": weeks,
+                "seconds": seconds,
+                "minutes": minutes,
+                "hours": hours,
+                "days": days,
+                "weeks": weeks,
             }.items()
             if v is not None
         }
         if not trigger_args:
             raise ValueError("At least one interval parameter must be specified")
 
-        return self.create_job(JobDefinition(
-            job_id=job_id or _generate_job_id(func),
-            name=name or _generate_job_name(func),
-            trigger_type=TriggerType.INTERVAL,
-            trigger_args=trigger_args,
-            func=func, timezone=timezone, args=args, kwargs=kwargs, metadata=metadata,
-            on_failure=on_failure, on_success=on_success,
-            max_retries=max_retries, retry_delay_seconds=retry_delay_seconds,
-            timeout_seconds=timeout_seconds, priority=priority,
-            if_missed=if_missed, misfire_threshold_seconds=misfire_threshold_seconds,
-        ))
+        return self.create_job(
+            JobDefinition(
+                job_id=job_id or _generate_job_id(func),
+                name=name or _generate_job_name(func),
+                trigger_type=TriggerType.INTERVAL,
+                trigger_args=trigger_args,
+                func=func,
+                timezone=timezone,
+                args=args,
+                kwargs=kwargs,
+                metadata=metadata,
+                on_failure=on_failure,
+                on_success=on_success,
+                max_retries=max_retries,
+                retry_delay_seconds=retry_delay_seconds,
+                timeout_seconds=timeout_seconds,
+                priority=priority,
+                if_missed=if_missed,
+                misfire_threshold_seconds=misfire_threshold_seconds,
+            )
+        )
 
     def create_cron_job(
         self,
@@ -565,25 +572,40 @@ class PollingScheduler(BaseScheduler):
         trigger_args = {
             k: v
             for k, v in {
-                "year": year, "month": month, "day": day, "week": week,
-                "day_of_week": day_of_week, "hour": hour, "minute": minute,
+                "year": year,
+                "month": month,
+                "day": day,
+                "week": week,
+                "day_of_week": day_of_week,
+                "hour": hour,
+                "minute": minute,
             }.items()
             if v is not None
         }
         if not trigger_args:
             raise ValueError("At least one cron parameter must be specified")
 
-        return self.create_job(JobDefinition(
-            job_id=job_id or _generate_job_id(func),
-            name=name or _generate_job_name(func),
-            trigger_type=TriggerType.CRON,
-            trigger_args=trigger_args,
-            func=func, timezone=timezone, args=args, kwargs=kwargs, metadata=metadata,
-            on_failure=on_failure, on_success=on_success,
-            max_retries=max_retries, retry_delay_seconds=retry_delay_seconds,
-            timeout_seconds=timeout_seconds, priority=priority,
-            if_missed=if_missed, misfire_threshold_seconds=misfire_threshold_seconds,
-        ))
+        return self.create_job(
+            JobDefinition(
+                job_id=job_id or _generate_job_id(func),
+                name=name or _generate_job_name(func),
+                trigger_type=TriggerType.CRON,
+                trigger_args=trigger_args,
+                func=func,
+                timezone=timezone,
+                args=args,
+                kwargs=kwargs,
+                metadata=metadata,
+                on_failure=on_failure,
+                on_success=on_success,
+                max_retries=max_retries,
+                retry_delay_seconds=retry_delay_seconds,
+                timeout_seconds=timeout_seconds,
+                priority=priority,
+                if_missed=if_missed,
+                misfire_threshold_seconds=misfire_threshold_seconds,
+            )
+        )
 
     def create_date_job(
         self,
@@ -610,17 +632,27 @@ class PollingScheduler(BaseScheduler):
                 run_date = run_date.astimezone(get_timezone("UTC"))
             run_date = run_date.isoformat()
 
-        return self.create_job(JobDefinition(
-            job_id=job_id or _generate_job_id(func),
-            name=name or _generate_job_name(func),
-            trigger_type=TriggerType.DATE,
-            trigger_args={"run_date": run_date},
-            func=func, timezone=timezone, args=args, kwargs=kwargs, metadata=metadata,
-            on_failure=on_failure, on_success=on_success,
-            max_retries=max_retries, retry_delay_seconds=retry_delay_seconds,
-            timeout_seconds=timeout_seconds, priority=priority,
-            if_missed=if_missed, misfire_threshold_seconds=misfire_threshold_seconds,
-        ))
+        return self.create_job(
+            JobDefinition(
+                job_id=job_id or _generate_job_id(func),
+                name=name or _generate_job_name(func),
+                trigger_type=TriggerType.DATE,
+                trigger_args={"run_date": run_date},
+                func=func,
+                timezone=timezone,
+                args=args,
+                kwargs=kwargs,
+                metadata=metadata,
+                on_failure=on_failure,
+                on_success=on_success,
+                max_retries=max_retries,
+                retry_delay_seconds=retry_delay_seconds,
+                timeout_seconds=timeout_seconds,
+                priority=priority,
+                if_missed=if_missed,
+                misfire_threshold_seconds=misfire_threshold_seconds,
+            )
+        )
 
     # ========================================
     # Fluent Builder API (Simplified Interface)

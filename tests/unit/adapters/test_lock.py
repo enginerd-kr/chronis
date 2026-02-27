@@ -304,9 +304,7 @@ class TestBlockingModeTTLExpiry:
 
         def blocking_acquire():
             start = time.time()
-            result = lock_adapter.acquire(
-                "test-lock", ttl_seconds=60, blocking=True, timeout=3
-            )
+            result = lock_adapter.acquire("test-lock", ttl_seconds=60, blocking=True, timeout=3)
             elapsed_time[0] = time.time() - start
             acquired[0] = result
 

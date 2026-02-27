@@ -21,7 +21,6 @@ class TestTriggerExecutionLogging:
             storage=Mock(),
             lock=Mock(),
             executor=Mock(),
-
             function_registry={},
             failure_handler_registry={},
             success_handler_registry={},
@@ -49,7 +48,6 @@ class TestTriggerExecutionLogging:
             storage=Mock(),
             lock=Mock(),
             executor=executor_mock,
-
             function_registry={},
             failure_handler_registry={},
             success_handler_registry={},
@@ -83,7 +81,6 @@ class TestExecuteInBackgroundRetryLogic:
             storage=storage_mock,
             lock=Mock(),
             executor=Mock(),
-
             function_registry={"test_func": lambda: None},
             failure_handler_registry={},
             success_handler_registry={},
@@ -144,7 +141,6 @@ class TestScheduleRetryErrorHandling:
             storage=storage_mock,
             lock=Mock(),
             executor=Mock(),
-
             function_registry={},
             failure_handler_registry={},
             success_handler_registry={},
@@ -183,7 +179,6 @@ class TestCallbackExceptionHandling:
             storage=Mock(),
             lock=Mock(),
             executor=Mock(),
-
             function_registry={},
             failure_handler_registry={},
             success_handler_registry={"test-1": failing_callback},
@@ -225,7 +220,6 @@ class TestCallbackExceptionHandling:
             storage=Mock(),
             lock=Mock(),
             executor=Mock(),
-
             function_registry={},
             failure_handler_registry={},
             success_handler_registry={},
@@ -262,7 +256,6 @@ class TestCallbackExceptionHandling:
             storage=Mock(),
             lock=Mock(),
             executor=Mock(),
-
             function_registry={},
             failure_handler_registry={"test-1": failing_callback},
             success_handler_registry={},
@@ -302,7 +295,6 @@ class TestCallbackExceptionHandling:
             storage=Mock(),
             lock=Mock(),
             executor=Mock(),
-
             function_registry={},
             failure_handler_registry={},
             success_handler_registry={},
@@ -346,7 +338,6 @@ class TestExecutorSubmitRollback:
             storage=storage_mock,
             lock=Mock(),
             executor=executor_mock,
-
             function_registry={},
             failure_handler_registry={},
             success_handler_registry={},
@@ -394,7 +385,6 @@ class TestExecutorSubmitRollback:
             storage=storage_mock,
             lock=Mock(),
             executor=executor_mock,
-
             function_registry={},
             failure_handler_registry={},
             success_handler_registry={},
@@ -428,6 +418,7 @@ class TestAsyncJobDispatch:
 
     def test_async_job_dispatches_to_event_loop(self):
         """Async function should be routed to the shared event loop, not the thread pool."""
+
         async def async_func():
             pass
 
@@ -463,6 +454,7 @@ class TestAsyncJobDispatch:
 
     def test_sync_job_dispatches_to_thread_pool(self):
         """Sync function should be routed to the thread pool, not the event loop."""
+
         def sync_func():
             pass
 
@@ -590,23 +582,24 @@ class TestTryClaimJobWithCas:
     """Test _try_claim_job_with_cas() branching logic."""
 
     def _make_coordinator(self, **overrides):
-        defaults = dict(
-            storage=Mock(),
-            lock=Mock(),
-            executor=Mock(),
-            function_registry={},
-            failure_handler_registry={},
-            success_handler_registry={},
-            global_on_failure=None,
-            global_on_success=None,
-            logger=Mock(),
-        )
+        defaults = {
+            "storage": Mock(),
+            "lock": Mock(),
+            "executor": Mock(),
+            "function_registry": {},
+            "failure_handler_registry": {},
+            "success_handler_registry": {},
+            "global_on_failure": None,
+            "global_on_success": None,
+            "logger": Mock(),
+        }
         defaults.update(overrides)
         return ExecutionCoordinator(**defaults)
 
     def _make_job_data(self, **overrides):
-        from chronis.utils.time import utc_now
         from datetime import timedelta
+
+        from chronis.utils.time import utc_now
 
         past = (utc_now() - timedelta(seconds=10)).isoformat()
         defaults = {
@@ -624,6 +617,7 @@ class TestTryClaimJobWithCas:
     def test_future_next_run_time_returns_false(self):
         """next_run_time이 미래이면 즉시 (False, None) 반환."""
         from datetime import timedelta
+
         from chronis.utils.time import utc_now
 
         coordinator = self._make_coordinator()
@@ -690,6 +684,7 @@ class TestTryClaimJobWithCas:
     def test_run_all_keeps_incremental_next_run_time(self):
         """run_all 정책일 때 next_run_time을 현재 시간 기준이 아닌 증분으로 유지."""
         from datetime import timedelta
+
         from chronis.utils.time import utc_now
 
         coordinator = self._make_coordinator()
@@ -936,6 +931,7 @@ class TestRetryExponentialBackoff:
         assert updates["status"] == "scheduled"
         # next_run_time should be ~60s in future
         from datetime import datetime as dt
+
         nrt = dt.fromisoformat(updates["next_run_time"])
         delay = (nrt - datetime.now(UTC)).total_seconds()
         assert 55 <= delay <= 65

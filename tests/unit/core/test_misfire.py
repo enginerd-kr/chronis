@@ -231,9 +231,10 @@ class TestMisfireSkipPolicy:
 
     def test_skip_advances_next_run_time(self):
         """skip 정책: misfired interval job의 next_run_time을 미래로 이동."""
+        from datetime import timedelta
+
         from chronis import InMemoryLockAdapter, InMemoryStorageAdapter, PollingScheduler
         from chronis.utils.time import utc_now
-        from datetime import timedelta
 
         storage = InMemoryStorageAdapter()
         scheduler = PollingScheduler(
@@ -246,21 +247,23 @@ class TestMisfireSkipPolicy:
         now = utc_now()
         past = (now - timedelta(minutes=5)).isoformat()
 
-        storage.create_job({
-            "job_id": "skip-job",
-            "name": "Skip Job",
-            "trigger_type": "interval",
-            "trigger_args": {"seconds": 30},
-            "timezone": "UTC",
-            "status": "scheduled",
-            "next_run_time": past,
-            "next_run_time_local": past,
-            "metadata": {},
-            "if_missed": "skip",
-            "misfire_threshold_seconds": 60,
-            "created_at": past,
-            "updated_at": past,
-        })
+        storage.create_job(
+            {
+                "job_id": "skip-job",
+                "name": "Skip Job",
+                "trigger_type": "interval",
+                "trigger_args": {"seconds": 30},
+                "timezone": "UTC",
+                "status": "scheduled",
+                "next_run_time": past,
+                "next_run_time_local": past,
+                "metadata": {},
+                "if_missed": "skip",
+                "misfire_threshold_seconds": 60,
+                "created_at": past,
+                "updated_at": past,
+            }
+        )
 
         scheduler._skip_misfired_job(storage.get_job("skip-job"))
 
@@ -270,9 +273,10 @@ class TestMisfireSkipPolicy:
 
     def test_skip_deletes_date_job(self):
         """skip 정책: misfired date job은 삭제."""
+        from datetime import timedelta
+
         from chronis import InMemoryLockAdapter, InMemoryStorageAdapter, PollingScheduler
         from chronis.utils.time import utc_now
-        from datetime import timedelta
 
         storage = InMemoryStorageAdapter()
         scheduler = PollingScheduler(
@@ -283,21 +287,23 @@ class TestMisfireSkipPolicy:
         )
 
         past = (utc_now() - timedelta(hours=1)).isoformat()
-        storage.create_job({
-            "job_id": "date-job",
-            "name": "Date Job",
-            "trigger_type": "date",
-            "trigger_args": {"run_date": past},
-            "timezone": "UTC",
-            "status": "scheduled",
-            "next_run_time": past,
-            "next_run_time_local": past,
-            "metadata": {},
-            "if_missed": "skip",
-            "misfire_threshold_seconds": 60,
-            "created_at": past,
-            "updated_at": past,
-        })
+        storage.create_job(
+            {
+                "job_id": "date-job",
+                "name": "Date Job",
+                "trigger_type": "date",
+                "trigger_args": {"run_date": past},
+                "timezone": "UTC",
+                "status": "scheduled",
+                "next_run_time": past,
+                "next_run_time_local": past,
+                "metadata": {},
+                "if_missed": "skip",
+                "misfire_threshold_seconds": 60,
+                "created_at": past,
+                "updated_at": past,
+            }
+        )
 
         scheduler._skip_misfired_job(storage.get_job("date-job"))
         assert storage.get_job("date-job") is None

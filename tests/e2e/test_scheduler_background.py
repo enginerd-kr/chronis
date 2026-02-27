@@ -1,6 +1,6 @@
 """E2E tests for scheduler background execution (real timing)."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from conftest import wait_for
@@ -71,7 +71,7 @@ class TestBackgroundPolling:
 
         # Schedule for next minute (use UTC to match timezone="UTC" in job creation)
         # Example: if now is 10:30:45 UTC, schedule for 10:31:00 UTC
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         next_minute = now + timedelta(minutes=1)
         target_minute = next_minute.minute
 

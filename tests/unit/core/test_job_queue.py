@@ -221,7 +221,5 @@ class TestJobQueueThreadSafety:
             thread.join()
 
         # Verify: no duplicates, no loss
-        assert len(got_jobs) == total_jobs, (
-            f"Expected {total_jobs} jobs, got {len(got_jobs)}"
-        )
+        assert len(got_jobs) == total_jobs, f"Expected {total_jobs} jobs, got {len(got_jobs)}"
         assert len(set(got_jobs)) == total_jobs, "No duplicate job_ids should be returned"

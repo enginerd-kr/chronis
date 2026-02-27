@@ -253,9 +253,7 @@ class TestMisfirePolicyBehavior:
     def test_run_all_policy_keeps_incremental_next_run(self, basic_scheduler, execution_tracker):
         """Test that run_all policy advances next_run_time incrementally, not to future."""
         scheduler = basic_scheduler
-        scheduler.register_job_function(
-            "test_func", lambda: execution_tracker.record("test_func")
-        )
+        scheduler.register_job_function("test_func", lambda: execution_tracker.record("test_func"))
 
         # Create job with run_all policy, 5-minute interval, 15 minutes late (3 missed)
         past_time = utc_now() - timedelta(minutes=15)
@@ -281,6 +279,7 @@ class TestMisfirePolicyBehavior:
         scheduler._execution_coordinator.try_execute(dict(job_data), lambda jid: None)
 
         import time
+
         time.sleep(0.5)
 
         # After first execution, next_run_time should still be in the past (incremental)

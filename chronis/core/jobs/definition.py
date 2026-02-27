@@ -202,9 +202,7 @@ class JobInfo:
             if_missed=data.get("if_missed"),
             misfire_threshold_seconds=data.get("misfire_threshold_seconds", 60),
             last_run_time=(
-                datetime.fromisoformat(data["last_run_time"])
-                if data.get("last_run_time")
-                else None
+                datetime.fromisoformat(data["last_run_time"]) if data.get("last_run_time") else None
             ),
             last_scheduled_time=(
                 datetime.fromisoformat(data["last_scheduled_time"])

@@ -454,9 +454,9 @@ class RedisStorageAdapter(JobStorageAdapter):
             if "updated_at_lte" in filters:
                 cutoff = filters["updated_at_lte"]
                 jobs = [
-                    j for j in jobs
-                    if j.get("updated_at") is not None
-                    and j.get("updated_at") <= cutoff
+                    j
+                    for j in jobs
+                    if j.get("updated_at") is not None and j.get("updated_at") <= cutoff
                 ]
 
             for key, value in filters.items():

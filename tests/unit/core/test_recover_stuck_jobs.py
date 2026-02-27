@@ -8,12 +8,12 @@ from chronis.utils.time import utc_now
 
 
 def _make_scheduler(**overrides):
-    defaults = dict(
-        storage_adapter=InMemoryStorageAdapter(),
-        lock_adapter=InMemoryLockAdapter(),
-        polling_interval_seconds=1,
-        verbose=False,
-    )
+    defaults = {
+        "storage_adapter": InMemoryStorageAdapter(),
+        "lock_adapter": InMemoryLockAdapter(),
+        "polling_interval_seconds": 1,
+        "verbose": False,
+    }
     defaults.update(overrides)
     return PollingScheduler(**defaults)
 
@@ -21,19 +21,21 @@ def _make_scheduler(**overrides):
 def _make_stuck_job(storage, job_id="stuck-1", stuck_seconds=600, lock_ttl=300):
     """Create a job in RUNNING state with updated_at far in the past."""
     stuck_time = (utc_now() - timedelta(seconds=stuck_seconds)).isoformat()
-    storage.create_job({
-        "job_id": job_id,
-        "name": "Stuck Job",
-        "trigger_type": "interval",
-        "trigger_args": {"seconds": 30},
-        "timezone": "UTC",
-        "status": "running",
-        "next_run_time": utc_now().isoformat(),
-        "next_run_time_local": utc_now().isoformat(),
-        "metadata": {},
-        "created_at": stuck_time,
-        "updated_at": stuck_time,
-    })
+    storage.create_job(
+        {
+            "job_id": job_id,
+            "name": "Stuck Job",
+            "trigger_type": "interval",
+            "trigger_args": {"seconds": 30},
+            "timezone": "UTC",
+            "status": "running",
+            "next_run_time": utc_now().isoformat(),
+            "next_run_time_local": utc_now().isoformat(),
+            "metadata": {},
+            "created_at": stuck_time,
+            "updated_at": stuck_time,
+        }
+    )
 
 
 class TestRecoverStuckJobs:
@@ -57,19 +59,21 @@ class TestRecoverStuckJobs:
 
         # updated_at이 최근 (1초 전)
         recent_time = (utc_now() - timedelta(seconds=1)).isoformat()
-        storage.create_job({
-            "job_id": "recent-1",
-            "name": "Recent Running Job",
-            "trigger_type": "interval",
-            "trigger_args": {"seconds": 30},
-            "timezone": "UTC",
-            "status": "running",
-            "next_run_time": utc_now().isoformat(),
-            "next_run_time_local": utc_now().isoformat(),
-            "metadata": {},
-            "created_at": recent_time,
-            "updated_at": recent_time,
-        })
+        storage.create_job(
+            {
+                "job_id": "recent-1",
+                "name": "Recent Running Job",
+                "trigger_type": "interval",
+                "trigger_args": {"seconds": 30},
+                "timezone": "UTC",
+                "status": "running",
+                "next_run_time": utc_now().isoformat(),
+                "next_run_time_local": utc_now().isoformat(),
+                "metadata": {},
+                "created_at": recent_time,
+                "updated_at": recent_time,
+            }
+        )
 
         scheduler._recover_stuck_jobs()
 
@@ -82,19 +86,21 @@ class TestRecoverStuckJobs:
         storage = scheduler.storage
 
         old_time = (utc_now() - timedelta(seconds=700)).isoformat()
-        storage.create_job({
-            "job_id": "sched-1",
-            "name": "Old Scheduled Job",
-            "trigger_type": "interval",
-            "trigger_args": {"seconds": 30},
-            "timezone": "UTC",
-            "status": "scheduled",
-            "next_run_time": utc_now().isoformat(),
-            "next_run_time_local": utc_now().isoformat(),
-            "metadata": {},
-            "created_at": old_time,
-            "updated_at": old_time,
-        })
+        storage.create_job(
+            {
+                "job_id": "sched-1",
+                "name": "Old Scheduled Job",
+                "trigger_type": "interval",
+                "trigger_args": {"seconds": 30},
+                "timezone": "UTC",
+                "status": "scheduled",
+                "next_run_time": utc_now().isoformat(),
+                "next_run_time_local": utc_now().isoformat(),
+                "metadata": {},
+                "created_at": old_time,
+                "updated_at": old_time,
+            }
+        )
 
         scheduler._recover_stuck_jobs()
 

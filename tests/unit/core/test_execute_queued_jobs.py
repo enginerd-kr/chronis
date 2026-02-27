@@ -1,18 +1,18 @@
 """Unit tests for _execute_queued_jobs() error paths."""
 
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock
 
 from chronis import InMemoryLockAdapter, InMemoryStorageAdapter, PollingScheduler
 from chronis.utils.time import utc_now
 
 
 def _make_scheduler(**overrides):
-    defaults = dict(
-        storage_adapter=InMemoryStorageAdapter(),
-        lock_adapter=InMemoryLockAdapter(),
-        polling_interval_seconds=1,
-        verbose=False,
-    )
+    defaults = {
+        "storage_adapter": InMemoryStorageAdapter(),
+        "lock_adapter": InMemoryLockAdapter(),
+        "polling_interval_seconds": 1,
+        "verbose": False,
+    }
     defaults.update(overrides)
     return PollingScheduler(**defaults)
 
@@ -41,19 +41,21 @@ class TestExecuteQueuedJobsErrorPaths:
         storage = scheduler.storage
 
         now = utc_now()
-        storage.create_job({
-            "job_id": "lock-fail",
-            "name": "Lock Fail Job",
-            "trigger_type": "interval",
-            "trigger_args": {"seconds": 30},
-            "timezone": "UTC",
-            "status": "scheduled",
-            "next_run_time": now.isoformat(),
-            "next_run_time_local": now.isoformat(),
-            "metadata": {},
-            "created_at": now.isoformat(),
-            "updated_at": now.isoformat(),
-        })
+        storage.create_job(
+            {
+                "job_id": "lock-fail",
+                "name": "Lock Fail Job",
+                "trigger_type": "interval",
+                "trigger_args": {"seconds": 30},
+                "timezone": "UTC",
+                "status": "scheduled",
+                "next_run_time": now.isoformat(),
+                "next_run_time_local": now.isoformat(),
+                "metadata": {},
+                "created_at": now.isoformat(),
+                "updated_at": now.isoformat(),
+            }
+        )
 
         scheduler._job_queue.add_job("lock-fail")
 

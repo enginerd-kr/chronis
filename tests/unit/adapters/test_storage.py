@@ -199,6 +199,7 @@ class TestQueryJobsFilters:
     def test_next_run_time_lte_filter(self, storage):
         """next_run_time_lte filters jobs with next_run_time <= cutoff."""
         from datetime import timedelta
+
         from chronis.utils.time import utc_now
 
         now = utc_now()
@@ -216,6 +217,7 @@ class TestQueryJobsFilters:
     def test_updated_at_lte_filter(self, storage):
         """updated_at_lte filters jobs with updated_at <= cutoff."""
         from datetime import timedelta
+
         from chronis.utils.time import utc_now
 
         now = utc_now()
@@ -244,6 +246,7 @@ class TestQueryJobsFilters:
     def test_offset_pagination(self, storage):
         """offset skips the first N results."""
         from datetime import timedelta
+
         from chronis.utils.time import utc_now
 
         now = utc_now()
@@ -264,6 +267,7 @@ class TestQueryJobsFilters:
     def test_sorting_by_next_run_time(self, storage):
         """Results are sorted by next_run_time ascending."""
         from datetime import timedelta
+
         from chronis.utils.time import utc_now
 
         now = utc_now()
@@ -302,6 +306,7 @@ class TestQueryJobsFilters:
     def test_combined_status_and_next_run_time_lte(self, storage):
         """Combining status + next_run_time_lte filters (core polling query)."""
         from datetime import timedelta
+
         from chronis.utils.time import utc_now
 
         now = utc_now()
@@ -310,7 +315,9 @@ class TestQueryJobsFilters:
         self._make_job(storage, "ready", status="scheduled", next_run_time=past)
         self._make_job(storage, "paused", status="paused", next_run_time=past)
         self._make_job(
-            storage, "future", status="scheduled",
+            storage,
+            "future",
+            status="scheduled",
             next_run_time=(now + timedelta(hours=1)).isoformat(),
         )
 
@@ -328,19 +335,21 @@ class TestGetJobsBatch:
         from chronis.core.state.enums import TriggerType
         from chronis.utils.time import utc_now
 
-        return storage.create_job({
-            "job_id": job_id,
-            "name": f"Job {job_id}",
-            "trigger_type": TriggerType.INTERVAL.value,
-            "trigger_args": {"seconds": 30},
-            "timezone": "UTC",
-            "status": JobStatus.SCHEDULED.value,
-            "next_run_time": utc_now().isoformat(),
-            "next_run_time_local": utc_now().isoformat(),
-            "metadata": {},
-            "created_at": utc_now().isoformat(),
-            "updated_at": utc_now().isoformat(),
-        })
+        return storage.create_job(
+            {
+                "job_id": job_id,
+                "name": f"Job {job_id}",
+                "trigger_type": TriggerType.INTERVAL.value,
+                "trigger_args": {"seconds": 30},
+                "timezone": "UTC",
+                "status": JobStatus.SCHEDULED.value,
+                "next_run_time": utc_now().isoformat(),
+                "next_run_time_local": utc_now().isoformat(),
+                "metadata": {},
+                "created_at": utc_now().isoformat(),
+                "updated_at": utc_now().isoformat(),
+            }
+        )
 
     def test_batch_returns_existing_jobs(self, storage):
         """get_jobs_batch returns only existing jobs."""

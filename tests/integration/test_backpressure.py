@@ -8,15 +8,15 @@ from chronis.utils.time import utc_now
 
 
 def _create_scheduler(max_queue_size=3, max_workers=2, **overrides):
-    defaults = dict(
-        storage_adapter=InMemoryStorageAdapter(),
-        lock_adapter=InMemoryLockAdapter(),
-        polling_interval_seconds=1,
-        executor_interval_seconds=1,
-        max_workers=max_workers,
-        max_queue_size=max_queue_size,
-        verbose=False,
-    )
+    defaults = {
+        "storage_adapter": InMemoryStorageAdapter(),
+        "lock_adapter": InMemoryLockAdapter(),
+        "polling_interval_seconds": 1,
+        "executor_interval_seconds": 1,
+        "max_workers": max_workers,
+        "max_queue_size": max_queue_size,
+        "verbose": False,
+    }
     defaults.update(overrides)
     return PollingScheduler(**defaults)
 
@@ -25,31 +25,33 @@ def _insert_ready_job(storage, job_id, priority=5):
     """Insert a SCHEDULED job with next_run_time in the past (ready)."""
     past = (utc_now() - timedelta(seconds=5)).isoformat()
     now = utc_now().isoformat()
-    storage.create_job({
-        "job_id": job_id,
-        "name": f"Job {job_id}",
-        "trigger_type": "interval",
-        "trigger_args": {"seconds": 300},
-        "timezone": "UTC",
-        "func_name": "test_func",
-        "args": (),
-        "kwargs": {},
-        "status": "scheduled",
-        "next_run_time": past,
-        "next_run_time_local": past,
-        "metadata": {},
-        "created_at": now,
-        "updated_at": now,
-        "max_retries": 0,
-        "retry_delay_seconds": 60,
-        "retry_count": 0,
-        "timeout_seconds": None,
-        "priority": priority,
-        "if_missed": "run_once",
-        "misfire_threshold_seconds": 60,
-        "last_run_time": None,
-        "last_scheduled_time": None,
-    })
+    storage.create_job(
+        {
+            "job_id": job_id,
+            "name": f"Job {job_id}",
+            "trigger_type": "interval",
+            "trigger_args": {"seconds": 300},
+            "timezone": "UTC",
+            "func_name": "test_func",
+            "args": (),
+            "kwargs": {},
+            "status": "scheduled",
+            "next_run_time": past,
+            "next_run_time_local": past,
+            "metadata": {},
+            "created_at": now,
+            "updated_at": now,
+            "max_retries": 0,
+            "retry_delay_seconds": 60,
+            "retry_count": 0,
+            "timeout_seconds": None,
+            "priority": priority,
+            "if_missed": "run_once",
+            "misfire_threshold_seconds": 60,
+            "last_run_time": None,
+            "last_scheduled_time": None,
+        }
+    )
 
 
 class TestBackpressureIntegration:

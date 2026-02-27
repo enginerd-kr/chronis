@@ -3,21 +3,19 @@
 import time
 from datetime import timedelta
 
-import pytest
-
 from chronis import InMemoryLockAdapter, InMemoryStorageAdapter, PollingScheduler
 from chronis.utils.time import utc_now
 
 
 def _create_scheduler(**overrides):
-    defaults = dict(
-        storage_adapter=InMemoryStorageAdapter(),
-        lock_adapter=InMemoryLockAdapter(),
-        polling_interval_seconds=1,
-        executor_interval_seconds=1,
-        lock_ttl_seconds=300,
-        verbose=False,
-    )
+    defaults = {
+        "storage_adapter": InMemoryStorageAdapter(),
+        "lock_adapter": InMemoryLockAdapter(),
+        "polling_interval_seconds": 1,
+        "executor_interval_seconds": 1,
+        "lock_ttl_seconds": 300,
+        "verbose": False,
+    }
     defaults.update(overrides)
     return PollingScheduler(**defaults)
 
@@ -26,31 +24,33 @@ def _insert_stuck_job(storage, job_id="stuck-job", stuck_seconds=700):
     """Insert a job in RUNNING state with updated_at far in the past."""
     stuck_time = (utc_now() - timedelta(seconds=stuck_seconds)).isoformat()
     now = utc_now()
-    storage.create_job({
-        "job_id": job_id,
-        "name": "Stuck Job",
-        "trigger_type": "interval",
-        "trigger_args": {"seconds": 30},
-        "timezone": "UTC",
-        "func_name": "test_func",
-        "args": (),
-        "kwargs": {},
-        "status": "running",
-        "next_run_time": now.isoformat(),
-        "next_run_time_local": now.isoformat(),
-        "metadata": {},
-        "created_at": stuck_time,
-        "updated_at": stuck_time,
-        "max_retries": 0,
-        "retry_delay_seconds": 60,
-        "retry_count": 0,
-        "timeout_seconds": None,
-        "priority": 5,
-        "if_missed": "run_once",
-        "misfire_threshold_seconds": 60,
-        "last_run_time": None,
-        "last_scheduled_time": None,
-    })
+    storage.create_job(
+        {
+            "job_id": job_id,
+            "name": "Stuck Job",
+            "trigger_type": "interval",
+            "trigger_args": {"seconds": 30},
+            "timezone": "UTC",
+            "func_name": "test_func",
+            "args": (),
+            "kwargs": {},
+            "status": "running",
+            "next_run_time": now.isoformat(),
+            "next_run_time_local": now.isoformat(),
+            "metadata": {},
+            "created_at": stuck_time,
+            "updated_at": stuck_time,
+            "max_retries": 0,
+            "retry_delay_seconds": 60,
+            "retry_count": 0,
+            "timeout_seconds": None,
+            "priority": 5,
+            "if_missed": "run_once",
+            "misfire_threshold_seconds": 60,
+            "last_run_time": None,
+            "last_scheduled_time": None,
+        }
+    )
 
 
 class TestStuckJobRecoveryIntegration:
@@ -98,31 +98,33 @@ class TestStuckJobRecoveryIntegration:
 
         # Insert a recently updated RUNNING job (not stuck)
         now = utc_now()
-        storage.create_job({
-            "job_id": "healthy-running",
-            "name": "Healthy Running Job",
-            "trigger_type": "interval",
-            "trigger_args": {"seconds": 30},
-            "timezone": "UTC",
-            "func_name": "test_func",
-            "args": (),
-            "kwargs": {},
-            "status": "running",
-            "next_run_time": now.isoformat(),
-            "next_run_time_local": now.isoformat(),
-            "metadata": {},
-            "created_at": now.isoformat(),
-            "updated_at": now.isoformat(),
-            "max_retries": 0,
-            "retry_delay_seconds": 60,
-            "retry_count": 0,
-            "timeout_seconds": None,
-            "priority": 5,
-            "if_missed": "run_once",
-            "misfire_threshold_seconds": 60,
-            "last_run_time": None,
-            "last_scheduled_time": None,
-        })
+        storage.create_job(
+            {
+                "job_id": "healthy-running",
+                "name": "Healthy Running Job",
+                "trigger_type": "interval",
+                "trigger_args": {"seconds": 30},
+                "timezone": "UTC",
+                "func_name": "test_func",
+                "args": (),
+                "kwargs": {},
+                "status": "running",
+                "next_run_time": now.isoformat(),
+                "next_run_time_local": now.isoformat(),
+                "metadata": {},
+                "created_at": now.isoformat(),
+                "updated_at": now.isoformat(),
+                "max_retries": 0,
+                "retry_delay_seconds": 60,
+                "retry_count": 0,
+                "timeout_seconds": None,
+                "priority": 5,
+                "if_missed": "run_once",
+                "misfire_threshold_seconds": 60,
+                "last_run_time": None,
+                "last_scheduled_time": None,
+            }
+        )
 
         scheduler.register_job_function("test_func", lambda: None)
 
