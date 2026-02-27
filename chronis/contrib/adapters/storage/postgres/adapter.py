@@ -354,6 +354,10 @@ class PostgreSQLStorageAdapter(JobStorageAdapter):
                 conditions.append("next_run_time <= %s")
                 params.append(filters["next_run_time_lte"])
 
+            if "updated_at_lte" in filters:
+                conditions.append("updated_at <= %s")
+                params.append(filters["updated_at_lte"])
+
             # Metadata filters (JSONB containment)
             for key, value in filters.items():
                 if key.startswith("metadata."):

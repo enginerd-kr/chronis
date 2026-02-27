@@ -584,3 +584,413 @@ class TestShutdownAsync:
         executor = JobExecutor(function_registry={}, logger=Mock())
         # Should not raise
         executor.shutdown_async(wait=True)
+
+
+class TestTryClaimJobWithCas:
+    """Test _try_claim_job_with_cas() branching logic."""
+
+    def _make_coordinator(self, **overrides):
+        defaults = dict(
+            storage=Mock(),
+            lock=Mock(),
+            executor=Mock(),
+            function_registry={},
+            failure_handler_registry={},
+            success_handler_registry={},
+            global_on_failure=None,
+            global_on_success=None,
+            logger=Mock(),
+        )
+        defaults.update(overrides)
+        return ExecutionCoordinator(**defaults)
+
+    def _make_job_data(self, **overrides):
+        from chronis.utils.time import utc_now
+        from datetime import timedelta
+
+        past = (utc_now() - timedelta(seconds=10)).isoformat()
+        defaults = {
+            "job_id": "test-1",
+            "trigger_type": "interval",
+            "trigger_args": {"seconds": 30},
+            "timezone": "UTC",
+            "status": "scheduled",
+            "next_run_time": past,
+            "if_missed": "run_once",
+        }
+        defaults.update(overrides)
+        return defaults
+
+    def test_future_next_run_time_returns_false(self):
+        """next_run_time이 미래이면 즉시 (False, None) 반환."""
+        from datetime import timedelta
+        from chronis.utils.time import utc_now
+
+        coordinator = self._make_coordinator()
+        future = (utc_now() + timedelta(hours=1)).isoformat()
+        job_data = self._make_job_data(next_run_time=future)
+
+        success, result = coordinator._try_claim_job_with_cas("test-1", job_data)
+
+        assert success is False
+        assert result is None
+        # CAS should NOT have been called
+        coordinator.storage.compare_and_swap_job.assert_not_called()
+
+    def test_cas_success_returns_updated_data(self):
+        """CAS 성공 시 (True, updated_data) 반환."""
+        coordinator = self._make_coordinator()
+        updated_job = {"job_id": "test-1", "status": "running"}
+        coordinator.storage.compare_and_swap_job.return_value = (True, updated_job)
+
+        job_data = self._make_job_data()
+        success, result = coordinator._try_claim_job_with_cas("test-1", job_data)
+
+        assert success is True
+        assert result is not None
+        assert result["status"] == "running"
+        assert "_original_scheduled_time" in result
+
+    def test_cas_failure_returns_false(self):
+        """CAS 실패 시 (False, None) 반환."""
+        coordinator = self._make_coordinator()
+        coordinator.storage.compare_and_swap_job.return_value = (False, None)
+
+        job_data = self._make_job_data()
+        success, result = coordinator._try_claim_job_with_cas("test-1", job_data)
+
+        assert success is False
+        assert result is None
+
+    def test_cas_job_not_found_returns_false(self):
+        """Job 미존재(ValueError) 시 (False, None) 반환."""
+        coordinator = self._make_coordinator()
+        coordinator.storage.compare_and_swap_job.side_effect = ValueError("not found")
+
+        job_data = self._make_job_data()
+        success, result = coordinator._try_claim_job_with_cas("test-1", job_data)
+
+        assert success is False
+        assert result is None
+
+    def test_date_trigger_skips_next_run_time_update(self):
+        """DATE 트리거는 next_run_time을 업데이트하지 않는다."""
+        coordinator = self._make_coordinator()
+        updated_job = {"job_id": "test-1", "status": "running"}
+        coordinator.storage.compare_and_swap_job.return_value = (True, updated_job)
+
+        job_data = self._make_job_data(trigger_type="date", trigger_args={})
+        coordinator._try_claim_job_with_cas("test-1", job_data)
+
+        # Check that updates don't include next_run_time
+        call_args = coordinator.storage.compare_and_swap_job.call_args
+        updates = call_args[0][2]  # third positional arg
+        assert "next_run_time" not in updates
+
+    def test_run_all_keeps_incremental_next_run_time(self):
+        """run_all 정책일 때 next_run_time을 현재 시간 기준이 아닌 증분으로 유지."""
+        from datetime import timedelta
+        from chronis.utils.time import utc_now
+
+        coordinator = self._make_coordinator()
+        updated_job = {"job_id": "test-1", "status": "running"}
+        coordinator.storage.compare_and_swap_job.return_value = (True, updated_job)
+
+        # next_run_time이 과거이고 if_missed=run_all
+        past = (utc_now() - timedelta(minutes=10)).isoformat()
+        job_data = self._make_job_data(
+            next_run_time=past,
+            trigger_args={"seconds": 30},
+            if_missed="run_all",
+        )
+
+        coordinator._try_claim_job_with_cas("test-1", job_data)
+
+        call_args = coordinator.storage.compare_and_swap_job.call_args
+        updates = call_args[0][2]
+        # next_run_time should be base_time + 30s (incremental), not recalculated from now
+        # It should still be in the past since base was 10min ago + 30s
+        assert "next_run_time" in updates
+        next_run = updates["next_run_time"]
+        # Incremental: past + 30s is still past (< now)
+        assert next_run < utc_now().isoformat()
+
+    def test_no_next_run_time_skips_staleness_check(self):
+        """next_run_time이 없으면 staleness 체크를 건너뛴다."""
+        coordinator = self._make_coordinator()
+        updated_job = {"job_id": "test-1", "status": "running"}
+        coordinator.storage.compare_and_swap_job.return_value = (True, updated_job)
+
+        job_data = self._make_job_data(next_run_time=None)
+        success, result = coordinator._try_claim_job_with_cas("test-1", job_data)
+
+        assert success is True
+        # expected_values should only contain status, not next_run_time
+        call_args = coordinator.storage.compare_and_swap_job.call_args
+        expected_values = call_args[0][1]
+        assert "next_run_time" not in expected_values
+
+
+class TestCallbackBothJobAndGlobal:
+    """Test job-specific + global callback simultaneous invocation."""
+
+    def test_success_invokes_both_job_specific_and_global(self):
+        """성공 시 job-specific과 global 콜백 모두 호출."""
+        invocations = []
+
+        def job_callback(job_id, job_info):
+            invocations.append(("job", job_id))
+
+        def global_callback(job_id, job_info):
+            invocations.append(("global", job_id))
+
+        coordinator = ExecutionCoordinator(
+            storage=Mock(),
+            lock=Mock(),
+            executor=Mock(),
+            function_registry={},
+            failure_handler_registry={},
+            success_handler_registry={"test-1": job_callback},
+            global_on_failure=None,
+            global_on_success=global_callback,
+            logger=Mock(),
+        )
+
+        job_data = {
+            "job_id": "test-1",
+            "name": "Test",
+            "status": "running",
+            "func_name": "test",
+            "trigger_type": "date",
+            "trigger_args": {},
+            "timezone": "UTC",
+            "metadata": {},
+            "created_at": datetime.now(UTC).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+
+        coordinator._invoke_success_callback("test-1", job_data)
+
+        assert ("job", "test-1") in invocations
+        assert ("global", "test-1") in invocations
+        assert len(invocations) == 2
+
+    def test_failure_invokes_both_job_specific_and_global(self):
+        """실패 시 job-specific과 global 콜백 모두 호출."""
+        invocations = []
+
+        def job_callback(job_id, error, job_info):
+            invocations.append(("job", job_id, str(error)))
+
+        def global_callback(job_id, error, job_info):
+            invocations.append(("global", job_id, str(error)))
+
+        coordinator = ExecutionCoordinator(
+            storage=Mock(),
+            lock=Mock(),
+            executor=Mock(),
+            function_registry={},
+            failure_handler_registry={"test-1": job_callback},
+            success_handler_registry={},
+            global_on_failure=global_callback,
+            global_on_success=None,
+            logger=Mock(),
+        )
+
+        job_data = {
+            "job_id": "test-1",
+            "name": "Test",
+            "status": "failed",
+            "func_name": "test",
+            "trigger_type": "date",
+            "trigger_args": {},
+            "timezone": "UTC",
+            "metadata": {},
+            "created_at": datetime.now(UTC).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+
+        test_error = ValueError("test error")
+        coordinator._invoke_failure_callback("test-1", test_error, job_data)
+
+        assert ("job", "test-1", "test error") in invocations
+        assert ("global", "test-1", "test error") in invocations
+
+    def test_success_callback_receives_valid_job_info(self):
+        """콜백에 전달되는 JobInfo 인자 내용 검증."""
+        from chronis.core.jobs.definition import JobInfo
+
+        received_info = []
+
+        def callback(job_id, job_info):
+            received_info.append(job_info)
+
+        coordinator = ExecutionCoordinator(
+            storage=Mock(),
+            lock=Mock(),
+            executor=Mock(),
+            function_registry={},
+            failure_handler_registry={},
+            success_handler_registry={"test-1": callback},
+            global_on_failure=None,
+            global_on_success=None,
+            logger=Mock(),
+        )
+
+        job_data = {
+            "job_id": "test-1",
+            "name": "My Job",
+            "status": "running",
+            "func_name": "test",
+            "trigger_type": "interval",
+            "trigger_args": {"seconds": 30},
+            "timezone": "UTC",
+            "metadata": {"key": "value"},
+            "created_at": datetime.now(UTC).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+
+        coordinator._invoke_success_callback("test-1", job_data)
+
+        assert len(received_info) == 1
+        info = received_info[0]
+        assert isinstance(info, JobInfo)
+        assert info.job_id == "test-1"
+        assert info.name == "My Job"
+        assert info.trigger_type == "interval"
+        assert info.metadata == {"key": "value"}
+
+    def test_failure_callback_not_invoked_during_retry(self):
+        """재시도 중에는 failure 콜백이 호출되지 않음."""
+        failures = []
+
+        def on_fail(job_id, error, job_info):
+            failures.append(job_id)
+
+        coordinator = ExecutionCoordinator(
+            storage=Mock(),
+            lock=Mock(),
+            executor=Mock(),
+            function_registry={"test_func": lambda: None},
+            failure_handler_registry={"test-1": on_fail},
+            success_handler_registry={},
+            global_on_failure=None,
+            global_on_success=None,
+            logger=Mock(),
+        )
+
+        job_data = {
+            "job_id": "test-1",
+            "name": "Test",
+            "func_name": "test_func",
+            "trigger_type": "interval",
+            "trigger_args": {"seconds": 30},
+            "timezone": "UTC",
+            "status": "running",
+            "metadata": {},
+            "retry_count": 0,
+            "max_retries": 3,
+            "retry_delay_seconds": 60,
+            "created_at": datetime.now(UTC).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+
+        # Simulate failure with retries remaining
+        coordinator._handle_job_failure(job_data, ValueError("fail"), Mock())
+
+        # Callback should NOT be invoked (retry_count 0 < max_retries 3)
+        assert len(failures) == 0
+
+
+class TestRetryExponentialBackoff:
+    """Test _schedule_retry exponential backoff calculation."""
+
+    def _make_coordinator(self):
+        return ExecutionCoordinator(
+            storage=Mock(),
+            lock=Mock(),
+            executor=Mock(),
+            function_registry={},
+            failure_handler_registry={},
+            success_handler_registry={},
+            global_on_failure=None,
+            global_on_success=None,
+            logger=Mock(),
+        )
+
+    def test_first_retry_is_base_delay(self):
+        """1차 재시도: base_delay * 2^0 = 60초."""
+        coordinator = self._make_coordinator()
+        job_data = {
+            "job_id": "test-1",
+            "retry_delay_seconds": 60,
+            "max_retries": 5,
+            "timezone": "UTC",
+        }
+
+        coordinator._schedule_retry(job_data, 1, Mock())
+
+        call_args = coordinator.storage.update_job.call_args
+        updates = call_args[0][1]
+        assert updates["retry_count"] == 1
+        assert updates["status"] == "scheduled"
+        # next_run_time should be ~60s in future
+        from datetime import datetime as dt
+        nrt = dt.fromisoformat(updates["next_run_time"])
+        delay = (nrt - datetime.now(UTC)).total_seconds()
+        assert 55 <= delay <= 65
+
+    def test_second_retry_doubles_delay(self):
+        """2차 재시도: base_delay * 2^1 = 120초."""
+        coordinator = self._make_coordinator()
+        job_data = {
+            "job_id": "test-1",
+            "retry_delay_seconds": 60,
+            "max_retries": 5,
+            "timezone": "UTC",
+        }
+
+        coordinator._schedule_retry(job_data, 2, Mock())
+
+        call_args = coordinator.storage.update_job.call_args
+        updates = call_args[0][1]
+        nrt = datetime.fromisoformat(updates["next_run_time"])
+        delay = (nrt - datetime.now(UTC)).total_seconds()
+        assert 115 <= delay <= 125
+
+    def test_third_retry_quadruples_delay(self):
+        """3차 재시도: base_delay * 2^2 = 240초."""
+        coordinator = self._make_coordinator()
+        job_data = {
+            "job_id": "test-1",
+            "retry_delay_seconds": 60,
+            "max_retries": 5,
+            "timezone": "UTC",
+        }
+
+        coordinator._schedule_retry(job_data, 3, Mock())
+
+        call_args = coordinator.storage.update_job.call_args
+        updates = call_args[0][1]
+        nrt = datetime.fromisoformat(updates["next_run_time"])
+        delay = (nrt - datetime.now(UTC)).total_seconds()
+        assert 235 <= delay <= 245
+
+    def test_cap_at_3600_seconds(self):
+        """최대 3600초(1시간) 캡 확인."""
+        coordinator = self._make_coordinator()
+        job_data = {
+            "job_id": "test-1",
+            "retry_delay_seconds": 60,
+            "max_retries": 10,
+            "timezone": "UTC",
+        }
+
+        # retry_count=7: 60 * 2^6 = 3840 → capped to 3600
+        coordinator._schedule_retry(job_data, 7, Mock())
+
+        call_args = coordinator.storage.update_job.call_args
+        updates = call_args[0][1]
+        nrt = datetime.fromisoformat(updates["next_run_time"])
+        delay = (nrt - datetime.now(UTC)).total_seconds()
+        assert 3595 <= delay <= 3605

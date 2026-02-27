@@ -45,7 +45,7 @@ class IntervalTrigger(TriggerStrategy):
         tz = get_timezone(timezone)
         current = current_time if current_time else datetime.now(tz)
 
-        next_time = current + timedelta(
+        interval = timedelta(
             seconds=trigger_args.get("seconds", 0),
             minutes=trigger_args.get("minutes", 0),
             hours=trigger_args.get("hours", 0),
@@ -53,6 +53,13 @@ class IntervalTrigger(TriggerStrategy):
             weeks=trigger_args.get("weeks", 0),
         )
 
+        if interval <= timedelta(0):
+            raise ValueError(
+                "Interval must be positive. "
+                "Provide at least one of: seconds, minutes, hours, days, weeks with a value > 0."
+            )
+
+        next_time = current + interval
         return next_time.astimezone(ZoneInfo("UTC"))
 
 

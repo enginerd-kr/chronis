@@ -181,6 +181,128 @@ class TestMisfirePolicyOverride:
         assert job.misfire_threshold_seconds == 300
 
 
+class TestMisfireBoundaryValues:
+    """Test misfire detection boundary conditions."""
+
+    def test_exactly_at_threshold_not_misfired(self):
+        """next_run_time + threshold == current_time → NOT misfired (exclusive <)."""
+        job_data = {
+            "job_id": "test",
+            "next_run_time": "2025-01-01T09:00:00+00:00",
+            "misfire_threshold_seconds": 60,
+        }
+        # Exactly 60 seconds late = threshold boundary
+        current = datetime(2025, 1, 1, 9, 1, 0, tzinfo=UTC)
+        assert MisfireDetector.is_misfired(job_data, current) is False
+
+    def test_one_second_past_threshold_is_misfired(self):
+        """next_run_time + threshold + 1s → misfired."""
+        job_data = {
+            "job_id": "test",
+            "next_run_time": "2025-01-01T09:00:00+00:00",
+            "misfire_threshold_seconds": 60,
+        }
+        # 61 seconds late = past threshold
+        current = datetime(2025, 1, 1, 9, 1, 1, tzinfo=UTC)
+        assert MisfireDetector.is_misfired(job_data, current) is True
+
+    def test_default_threshold_is_60_when_key_missing(self):
+        """Missing misfire_threshold_seconds defaults to 60."""
+        job_data = {
+            "job_id": "test",
+            "next_run_time": "2025-01-01T09:00:00+00:00",
+            # No misfire_threshold_seconds key
+        }
+        # 59 seconds → not misfired with default 60
+        current_59 = datetime(2025, 1, 1, 9, 0, 59, tzinfo=UTC)
+        assert MisfireDetector.is_misfired(job_data, current_59) is False
+
+        # 61 seconds → misfired with default 60
+        current_61 = datetime(2025, 1, 1, 9, 1, 1, tzinfo=UTC)
+        assert MisfireDetector.is_misfired(job_data, current_61) is True
+
+    def test_unknown_trigger_type_fallback_to_run_once(self):
+        """Unknown trigger type defaults to RUN_ONCE policy."""
+        assert MisfirePolicy.get_default_for_trigger("unknown") == MisfirePolicy.RUN_ONCE
+
+
+class TestMisfireSkipPolicy:
+    """Test _skip_misfired_job integration with polling scheduler."""
+
+    def test_skip_advances_next_run_time(self):
+        """skip 정책: misfired interval job의 next_run_time을 미래로 이동."""
+        from chronis import InMemoryLockAdapter, InMemoryStorageAdapter, PollingScheduler
+        from chronis.utils.time import utc_now
+        from datetime import timedelta
+
+        storage = InMemoryStorageAdapter()
+        scheduler = PollingScheduler(
+            storage_adapter=storage,
+            lock_adapter=InMemoryLockAdapter(),
+            polling_interval_seconds=1,
+            verbose=False,
+        )
+
+        now = utc_now()
+        past = (now - timedelta(minutes=5)).isoformat()
+
+        storage.create_job({
+            "job_id": "skip-job",
+            "name": "Skip Job",
+            "trigger_type": "interval",
+            "trigger_args": {"seconds": 30},
+            "timezone": "UTC",
+            "status": "scheduled",
+            "next_run_time": past,
+            "next_run_time_local": past,
+            "metadata": {},
+            "if_missed": "skip",
+            "misfire_threshold_seconds": 60,
+            "created_at": past,
+            "updated_at": past,
+        })
+
+        scheduler._skip_misfired_job(storage.get_job("skip-job"))
+
+        updated = storage.get_job("skip-job")
+        # next_run_time should now be in the future
+        assert updated["next_run_time"] > now.isoformat()
+
+    def test_skip_deletes_date_job(self):
+        """skip 정책: misfired date job은 삭제."""
+        from chronis import InMemoryLockAdapter, InMemoryStorageAdapter, PollingScheduler
+        from chronis.utils.time import utc_now
+        from datetime import timedelta
+
+        storage = InMemoryStorageAdapter()
+        scheduler = PollingScheduler(
+            storage_adapter=storage,
+            lock_adapter=InMemoryLockAdapter(),
+            polling_interval_seconds=1,
+            verbose=False,
+        )
+
+        past = (utc_now() - timedelta(hours=1)).isoformat()
+        storage.create_job({
+            "job_id": "date-job",
+            "name": "Date Job",
+            "trigger_type": "date",
+            "trigger_args": {"run_date": past},
+            "timezone": "UTC",
+            "status": "scheduled",
+            "next_run_time": past,
+            "next_run_time_local": past,
+            "metadata": {},
+            "if_missed": "skip",
+            "misfire_threshold_seconds": 60,
+            "created_at": past,
+            "updated_at": past,
+        })
+
+        scheduler._skip_misfired_job(storage.get_job("date-job"))
+        assert storage.get_job("date-job") is None
+
+
 class TestJobDefinitionToDict:
     """Test that JobDefinition.to_dict() includes misfire fields."""
 

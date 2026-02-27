@@ -292,6 +292,49 @@ class TestLockReset:
         assert acquired[0] is True
 
 
+class TestBlockingModeTTLExpiry:
+    """Tests for blocking mode behavior when lock expires via TTL."""
+
+    def test_blocking_acquires_after_ttl_expiry(self, lock_adapter):
+        """TTL 만료 시 블로킹 대기 중인 스레드가 lock을 획득할 수 있다."""
+        lock_adapter.acquire("test-lock", ttl_seconds=1)
+
+        acquired = [False]
+        elapsed_time = [0.0]
+
+        def blocking_acquire():
+            start = time.time()
+            result = lock_adapter.acquire(
+                "test-lock", ttl_seconds=60, blocking=True, timeout=3
+            )
+            elapsed_time[0] = time.time() - start
+            acquired[0] = result
+
+        thread = threading.Thread(target=blocking_acquire)
+        thread.start()
+        thread.join(timeout=5)
+
+        assert acquired[0] is True
+        assert elapsed_time[0] >= 0.8
+
+    def test_expired_lock_extend_fails(self, lock_adapter):
+        """만료된 lock에 대한 extend → False."""
+        lock_adapter.acquire("test-lock", ttl_seconds=1)
+        time.sleep(1.2)
+
+        result = lock_adapter.extend("test-lock", ttl_seconds=60)
+        assert result is False
+
+    def test_expired_lock_release_fails(self, lock_adapter):
+        """만료된 lock release 시도 → extend에서 cleanup 후 False."""
+        lock_adapter.acquire("test-lock", ttl_seconds=1)
+        time.sleep(1.2)
+
+        # extend triggers cleanup of expired lock first
+        result = lock_adapter.extend("test-lock", ttl_seconds=60)
+        assert result is False
+
+
 class TestRaceConditions:
     """Tests for race conditions in concurrent scenarios."""
 

@@ -2,16 +2,14 @@
 
 import hashlib
 import secrets
+import threading
 import uuid
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from chronis.core.schedulers.fluent_builders import FluentJobBuilder
-
-from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore[import-untyped]
-from apscheduler.triggers.interval import IntervalTrigger  # type: ignore[import-untyped]
 
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
 from chronis.core.base.scheduler import BaseScheduler
@@ -24,6 +22,54 @@ from chronis.core.schedulers.next_run_calculator import NextRunTimeCalculator
 from chronis.core.state.enums import TriggerType
 from chronis.utils.logging import ContextLogger
 from chronis.utils.time import get_timezone, utc_now
+
+
+class _PeriodicRunner:
+    """Lightweight periodic task runner using daemon threads.
+
+    Replaces APScheduler BackgroundScheduler for simple interval-based
+    periodic tasks. Each task runs in its own daemon thread with
+    non-overlapping execution (waits for completion before next interval).
+    """
+
+    def __init__(self) -> None:
+        self._tasks: list[tuple[Callable[[], Any], float, str]] = []
+        self._threads: list[threading.Thread] = []
+        self._stop_event = threading.Event()
+
+    def add_task(self, func: Callable[[], Any], interval: float, name: str) -> None:
+        """Register a periodic task (must be called before start)."""
+        self._tasks.append((func, interval, name))
+
+    def start(self) -> None:
+        """Start all registered periodic tasks in daemon threads."""
+        self._stop_event.clear()
+        for func, interval, name in self._tasks:
+            thread = threading.Thread(
+                target=self._run_loop,
+                args=(func, interval),
+                daemon=True,
+                name=f"chronis-{name}",
+            )
+            thread.start()
+            self._threads.append(thread)
+
+    def _run_loop(self, func: Callable[[], Any], interval: float) -> None:
+        """Execute func periodically until stop is signaled."""
+        while not self._stop_event.wait(timeout=interval):
+            try:
+                func()
+            except Exception:
+                pass  # Errors handled by func itself
+
+    def shutdown(self, wait: bool = True) -> None:
+        """Stop all periodic tasks."""
+        self._stop_event.set()
+        if wait:
+            for thread in self._threads:
+                thread.join(timeout=5)
+        self._threads.clear()
+        self._tasks.clear()
 
 
 def _generate_job_name(func: Callable | str) -> str:
@@ -42,7 +88,7 @@ def _generate_job_id(func: Callable | str) -> str:
 
 class PollingScheduler(BaseScheduler):
     """
-    Polling-based scheduler with non-blocking APScheduler backend.
+    Polling-based scheduler with lightweight periodic runner.
 
     Supports various storage and lock systems through adapter pattern.
     Uses periodic polling to discover and execute scheduled jobs.
@@ -123,27 +169,15 @@ class PollingScheduler(BaseScheduler):
         # Each scheduler instance gets a unique ID to reduce lock contention
         self._node_id = str(uuid.uuid4())
 
-        # Initialize APScheduler (BackgroundScheduler - non-blocking)
-        from apscheduler.executors.pool import (  # type: ignore[import-untyped]
-            ThreadPoolExecutor as APSThreadPoolExecutor,
-        )
-
-        executors = {
-            "default": APSThreadPoolExecutor(max_workers=1)  # Single thread for internal jobs
-        }
-
-        self._apscheduler = BackgroundScheduler(
-            timezone="UTC",
-            daemon=True,
-            executors=executors,
-        )
+        # Initialize periodic runner for polling and execution tasks
+        self._runner = _PeriodicRunner()
 
     def start(self) -> None:
         """
         Start scheduler (non-blocking).
 
-        Uses APScheduler BackgroundScheduler to perform
-        polling tasks in the background. This method returns immediately.
+        Launches daemon threads for periodic polling and job execution.
+        This method returns immediately.
 
         Example:
             >>> scheduler.start()
@@ -152,41 +186,22 @@ class PollingScheduler(BaseScheduler):
             >>> time.sleep(60)
             >>> scheduler.stop()
         """
-        import logging
-
-        # Suppress APScheduler's verbose INFO logs (Running job, executed successfully)
-        logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
-        logging.getLogger("apscheduler.scheduler").setLevel(logging.WARNING)
-
         if self._running:
             raise SchedulerError(
                 "Scheduler is already running. Call scheduler.stop() first to restart."
             )
 
-        # Register executor job to APScheduler with configurable interval
-        executor_trigger = IntervalTrigger(seconds=self.executor_interval_seconds, timezone="UTC")
-        self._apscheduler.add_job(
-            func=self._execute_queued_jobs,
-            trigger=executor_trigger,
-            id="executor_job",
-            name="Job Executor",
-            replace_existing=True,
-            max_instances=1,
+        # Register periodic tasks
+        self._runner = _PeriodicRunner()
+        self._runner.add_task(
+            self._execute_queued_jobs, self.executor_interval_seconds, "executor"
+        )
+        self._runner.add_task(
+            self._enqueue_jobs, self.polling_interval_seconds, "polling"
         )
 
-        # Register polling job to APScheduler
-        polling_trigger = IntervalTrigger(seconds=self.polling_interval_seconds, timezone="UTC")
-        self._apscheduler.add_job(
-            func=self._enqueue_jobs,
-            trigger=polling_trigger,
-            id="polling_job",
-            name="Job Polling",
-            replace_existing=True,
-            max_instances=1,
-        )
-
-        # Start APScheduler (non-blocking)
-        self._apscheduler.start()
+        # Start periodic runner (non-blocking, daemon threads)
+        self._runner.start()
         self._running = True
 
     def stop(self) -> dict[str, Any]:
@@ -214,8 +229,8 @@ class PollingScheduler(BaseScheduler):
                 "was_running": False,
             }
 
-        # Shutdown APScheduler (stops polling for new jobs)
-        self._apscheduler.shutdown(wait=True)
+        # Shutdown periodic runner (stops polling for new jobs)
+        self._runner.shutdown(wait=True)
 
         # Wait for async jobs on shared event loop
         self._execution_coordinator.shutdown_async(wait=True)
@@ -247,8 +262,36 @@ class PollingScheduler(BaseScheduler):
         return self._job_queue.get_status()
 
     # ------------------------------------------------------------------------
-    # Internal Methods (APScheduler Polling Logic)
+    # Internal Methods (Polling Logic)
     # ------------------------------------------------------------------------
+
+    def _recover_stuck_jobs(self) -> None:
+        """Detect and recover jobs stuck in RUNNING state after process crash."""
+        try:
+            cutoff = (utc_now() - timedelta(seconds=self.lock_ttl_seconds * 2)).isoformat()
+            stuck_jobs = self.storage.query_jobs(
+                filters={"status": "running", "updated_at_lte": cutoff},
+                limit=10,
+            )
+
+            for job in stuck_jobs:
+                job_id = job.get("job_id", "")
+                self.logger.warning("Recovering stuck job", job_id=job_id)
+                try:
+                    self.storage.compare_and_swap_job(
+                        job_id,
+                        expected_values={"status": "running"},
+                        updates={
+                            "status": "scheduled",
+                            "updated_at": utc_now().isoformat(),
+                        },
+                    )
+                except Exception as e:
+                    self.logger.warning(
+                        "Failed to recover stuck job", job_id=job_id, error=str(e)
+                    )
+        except Exception as e:
+            self.logger.debug("Stuck job detection skipped", error=str(e))
 
     def _enqueue_jobs(self) -> int:
         """
@@ -258,6 +301,8 @@ class PollingScheduler(BaseScheduler):
             Number of jobs added to queue
         """
         try:
+            self._recover_stuck_jobs()
+
             available_slots = self._job_queue.get_available_slots()
 
             if available_slots <= 0:
@@ -299,8 +344,9 @@ class PollingScheduler(BaseScheduler):
         current_time = utc_now()
 
         # Query jobs that are ready (next_run_time <= current_time)
-        # Buffer: 3x to ensure we have enough after priority/hash re-sorting
-        query_limit = (limit * 3) if limit else None
+        # Over-fetch by 1.5x to account for node-specific hash reordering
+        # which may push some jobs beyond the limit boundary after re-sorting
+        query_limit = int(limit * 1.5 + 1) if limit else None
         filters = {"status": "scheduled", "next_run_time_lte": current_time.isoformat()}
         jobs = self.storage.query_jobs(filters=filters, limit=query_limit)
 
@@ -379,16 +425,24 @@ class PollingScheduler(BaseScheduler):
                 job_id=job_id,
                 next_run_time=utc_time.isoformat(),
             )
+        else:
+            self.storage.update_job(
+                job_id,
+                {"status": "failed", "updated_at": utc_now().isoformat()},
+            )
+            self.logger.warning(
+                "Cannot calculate next run time for misfired job, marking as failed",
+                job_id=job_id,
+                trigger_type=trigger_type,
+            )
 
     def _execute_queued_jobs(self) -> None:
         """
         Execute jobs from queue in batches.
 
-        Called periodically by APScheduler.
+        Called periodically by the periodic runner.
         Fetches job data from storage and submits jobs to thread pool in batches
         for concurrent execution, improving throughput in distributed environments.
-
-        This method runs in APScheduler's background thread.
         """
         try:
             # Process jobs in batches for better concurrency

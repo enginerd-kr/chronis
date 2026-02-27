@@ -166,6 +166,12 @@ class JobInfo:
     timeout_seconds: int | None = None
     # Priority information
     priority: int = 5
+    # Misfire information
+    if_missed: str | None = None
+    misfire_threshold_seconds: int = 60
+    # Execution history
+    last_run_time: datetime | None = None
+    last_scheduled_time: datetime | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "JobInfo":
@@ -193,6 +199,18 @@ class JobInfo:
             retry_count=data.get("retry_count", 0),
             timeout_seconds=data.get("timeout_seconds"),
             priority=data.get("priority", 5),
+            if_missed=data.get("if_missed"),
+            misfire_threshold_seconds=data.get("misfire_threshold_seconds", 60),
+            last_run_time=(
+                datetime.fromisoformat(data["last_run_time"])
+                if data.get("last_run_time")
+                else None
+            ),
+            last_scheduled_time=(
+                datetime.fromisoformat(data["last_scheduled_time"])
+                if data.get("last_scheduled_time")
+                else None
+            ),
         )
 
     def can_execute(self, current_time: datetime | None = None) -> bool:

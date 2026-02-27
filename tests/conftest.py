@@ -115,7 +115,7 @@ def execute_job_immediately(
     """
     Execute a job immediately by directly calling scheduler methods.
 
-    This bypasses APScheduler background threads for deterministic testing.
+    This bypasses background polling threads for deterministic testing.
 
     Args:
         scheduler: PollingScheduler instance

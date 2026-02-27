@@ -449,8 +449,16 @@ class RedisStorageAdapter(JobStorageAdapter):
         jobs_dict = self.get_jobs_batch(job_ids_list)
         jobs = list(jobs_dict.values())
 
-        # Apply metadata filters (client-side on filtered results)
+        # Apply client-side filters on fetched results
         if filters:
+            if "updated_at_lte" in filters:
+                cutoff = filters["updated_at_lte"]
+                jobs = [
+                    j for j in jobs
+                    if j.get("updated_at") is not None
+                    and j.get("updated_at") <= cutoff
+                ]
+
             for key, value in filters.items():
                 if key.startswith("metadata."):
                     metadata_key = key.replace("metadata.", "")

@@ -168,6 +168,9 @@ class FluentJobBuilder:
             if v is not None
         }
 
+        if not self._trigger_params:
+            raise ValueError("At least one cron parameter must be specified")
+
         return self
 
     def once(self, when: str | datetime) -> FluentJobBuilder:

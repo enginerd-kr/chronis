@@ -57,7 +57,6 @@ class JobExecutor:
             )
 
         if timeout_seconds:
-            cancel_event = threading.Event()
             result: dict[str, Any] = {"completed": False, "error": None}
 
             def _run_with_result():
@@ -76,7 +75,6 @@ class JobExecutor:
             thread.join(timeout=timeout_seconds)
 
             if thread.is_alive():
-                cancel_event.set()
                 timeout_msg = (
                     f"Job exceeded timeout of {timeout_seconds}s. "
                     "The worker thread cannot be forcefully stopped and may continue running."

@@ -325,7 +325,8 @@ class BaseScheduler(ABC):
         new_status: JobStatus,
         action: str,
     ) -> bool:
-        """Validate and apply a job state transition."""
+        """Validate and apply a job state transition using CAS for atomicity."""
+        # Check job exists first
         job = self.get_job(job_id)
         if not job:
             raise JobNotFoundError(
@@ -333,17 +334,31 @@ class BaseScheduler(ABC):
                 "Use scheduler.query_jobs() to see available jobs."
             )
 
-        if job.status not in allowed:
-            allowed_str = " or ".join(s.value.upper() for s in allowed)
-            raise InvalidJobStateError(
-                f"Cannot {action.rstrip('d')} job '{job_id}' in {job.status.value} state. "
-                f"Only {allowed_str} jobs can be {action}."
-            )
+        # Try CAS for each allowed status
+        now_str = utc_now().isoformat()
+        for expected_status in allowed:
+            try:
+                success, _ = self.storage.compare_and_swap_job(
+                    job_id,
+                    expected_values={"status": expected_status.value},
+                    updates={"status": new_status.value, "updated_at": now_str},
+                )
+                if success:
+                    if self.verbose:
+                        self.logger.info(f"Job {action}", job_id=job_id)
+                    return True
+            except ValueError:
+                raise JobNotFoundError(
+                    f"Job '{job_id}' not found. It may have been deleted or never existed. "
+                    "Use scheduler.query_jobs() to see available jobs."
+                )
 
-        self.storage.update_job(
-            job_id, {"status": new_status.value, "updated_at": utc_now().isoformat()}
+        # CAS failed for all allowed statuses - re-read for error message
+        current_job = self.get_job(job_id)
+        current_status = current_job.status.value if current_job else "unknown"
+        allowed_str = " or ".join(s.value.upper() for s in allowed)
+        raise InvalidJobStateError(
+            f"Cannot {action.rstrip('d')} job '{job_id}' in {current_status} state. "
+            f"Only {allowed_str} jobs can be {action}."
         )
-        if self.verbose:
-            self.logger.info(f"Job {action}", job_id=job_id)
-        return True
 
