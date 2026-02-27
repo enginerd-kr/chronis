@@ -5,7 +5,7 @@ from typing import Any
 
 from chronis.adapters.base import JobStorageAdapter
 from chronis.type_defs import JobStorageData, JobUpdateData
-from chronis.utils.time import utc_now
+from chronis.utils.time import parse_iso_datetime, utc_now
 
 
 class RedisStorageAdapter(JobStorageAdapter):
@@ -101,11 +101,8 @@ class RedisStorageAdapter(JobStorageAdapter):
         if timestamp is None:
             return float("inf")  # Jobs without time go to end
 
-        # Parse ISO format to timestamp
-        from datetime import datetime
-
         try:
-            dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            dt = parse_iso_datetime(timestamp)
             return dt.timestamp()
         except (ValueError, AttributeError):
             return float("inf")
@@ -182,20 +179,14 @@ class RedisStorageAdapter(JobStorageAdapter):
         job_id = job_data["job_id"]
         key = self._make_job_key(job_id)
 
-        # Check if job already exists
-        if self.redis.exists(key):
+        # Atomic check-and-set using HSETNX (returns 1 if created, 0 if exists)
+        created = self.redis.hsetnx(key, "data", self._serialize(dict(job_data)))
+        if not created:
             raise ValueError(f"Job {job_id} already exists")
 
-        # Use pipeline for atomic index updates
+        # Update indexes (job data is already stored)
         pipe = self.redis.pipeline()
-
-        # Store job data
-        pipe.hset(key, "data", self._serialize(dict(job_data)))
-
-        # Update indexes
         self._update_indexes(job_data, pipeline=pipe)
-
-        # Execute atomically
         pipe.execute()
 
         return job_data
@@ -315,17 +306,23 @@ class RedisStorageAdapter(JobStorageAdapter):
         """
         key = self._make_job_key(job_id)
 
+        # Check if job exists first (before WATCH)
+        job_data = self.get_job(job_id)
+        if job_data is None:
+            raise ValueError(f"Job {job_id} not found")
+
         # Use Redis WATCH for optimistic locking
         with self.redis.pipeline() as pipe:
             try:
                 # Watch the key for changes
                 pipe.watch(key)
 
-                # Get current job data
-                job_data = self.get_job(job_id)
-                if job_data is None:
+                # Re-read under WATCH for consistency
+                raw_data = pipe.hget(key, "data")
+                if raw_data is None:
                     pipe.unwatch()
                     raise ValueError(f"Job {job_id} not found")
+                job_data = self._deserialize(raw_data)  # type: ignore[assignment]
 
                 # Check if expected values match
                 for field, expected_value in expected_values.items():
@@ -362,8 +359,10 @@ class RedisStorageAdapter(JobStorageAdapter):
 
                 return (True, updated_job_data)
 
+            except ValueError:
+                raise
             except Exception:
-                # Transaction failed (key was modified) or other error
+                # Transaction failed (key was modified by another instance)
                 return (False, None)
 
     def delete_job(self, job_id: str) -> bool:
@@ -423,12 +422,10 @@ class RedisStorageAdapter(JobStorageAdapter):
                 max_time = filters["next_run_time_lte"]
                 max_score = self._timestamp_to_score(max_time)
 
-                # Get job IDs with next_run_time <= max_time
-                # Apply limit early for performance (avoid fetching all jobs)
-                start = offset or 0
-                num = (limit + start) if limit else -1
+                # Get all matching job IDs from time index
+                # (offset/limit applied later after intersection and sorting)
                 time_filtered_ids = self.redis.zrangebyscore(
-                    self._make_time_index_key(), min=0, max=max_score, start=start, num=num
+                    self._make_time_index_key(), min=0, max=max_score
                 )
                 job_ids = set(time_filtered_ids) if time_filtered_ids else set()
 
@@ -452,8 +449,16 @@ class RedisStorageAdapter(JobStorageAdapter):
         jobs_dict = self.get_jobs_batch(job_ids_list)
         jobs = list(jobs_dict.values())
 
-        # Apply metadata filters (client-side on filtered results)
+        # Apply client-side filters on fetched results
         if filters:
+            if "updated_at_lte" in filters:
+                cutoff = filters["updated_at_lte"]
+                jobs = [
+                    j
+                    for j in jobs
+                    if j.get("updated_at") is not None and j.get("updated_at") <= cutoff
+                ]
+
             for key, value in filters.items():
                 if key.startswith("metadata."):
                     metadata_key = key.replace("metadata.", "")
@@ -462,7 +467,7 @@ class RedisStorageAdapter(JobStorageAdapter):
         # Sort by next_run_time
         jobs.sort(key=lambda j: j.get("next_run_time") or "")
 
-        # Apply offset and limit
+        # Apply offset and limit (single place, after all filtering and sorting)
         if offset:
             jobs = jobs[offset:]
         if limit:

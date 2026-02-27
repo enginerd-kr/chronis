@@ -3,19 +3,21 @@
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
-from chronis.core.execution.async_loop import AsyncExecutor
+from chronis.core.common.exceptions import (
+    InvalidJobStateError,
+    JobAlreadyExistsError,
+    JobNotFoundError,
+)
 from chronis.core.execution.callbacks import OnFailureCallback, OnSuccessCallback
+from chronis.core.execution.coordinator import ExecutionCoordinator
 from chronis.core.jobs.definition import JobDefinition, JobInfo
 from chronis.core.state import JobStatus
 from chronis.core.state.enums import TriggerType
 from chronis.utils.logging import ContextLogger, _default_logger
 from chronis.utils.time import utc_now
-
-if TYPE_CHECKING:
-    pass
 
 
 class BaseScheduler(ABC):
@@ -41,7 +43,6 @@ class BaseScheduler(ABC):
         storage_adapter: JobStorageAdapter,
         lock_adapter: LockAdapter,
         max_workers: int | None = None,
-        lock_prefix: str = "scheduler:lock:",
         lock_ttl_seconds: int = 300,
         verbose: bool = False,
         logger: ContextLogger | None = None,
@@ -55,21 +56,15 @@ class BaseScheduler(ABC):
             storage_adapter: Job storage adapter (required)
             lock_adapter: Distributed lock adapter (required)
             max_workers: Maximum number of worker threads (default: 20)
-            lock_prefix: Lock key prefix
             lock_ttl_seconds: Lock TTL (seconds)
             verbose: Enable verbose logging (default: False)
             logger: Custom logger (uses default if None)
             on_failure: Global failure handler for all jobs (optional)
             on_success: Global success handler for all jobs (optional)
         """
-        # Validate parameters
-        if not lock_prefix:
-            raise ValueError("lock_prefix cannot be empty")
-
         self.storage = storage_adapter
         self.lock = lock_adapter
         self.max_workers = max_workers or self.DEFAULT_MAX_WORKERS
-        self.lock_prefix = lock_prefix
         self.lock_ttl_seconds = lock_ttl_seconds
         self.verbose = verbose
         self.on_failure = on_failure
@@ -90,9 +85,6 @@ class BaseScheduler(ABC):
         )
         self.logger = ContextLogger(base_logger, {"component": self.__class__.__name__})
 
-        # Initialize async executor (shared across all scheduler types)
-        self._async_executor = AsyncExecutor()
-
         # Initialize execution coordinator (shared across all scheduler types)
         self._init_execution_coordinator()
 
@@ -105,21 +97,16 @@ class BaseScheduler(ABC):
             max_workers=self.max_workers, thread_name_prefix="chronis-worker-"
         )
 
-        # Initialize execution coordinator (lazy import to avoid circular dependency)
-        from chronis.core.execution.coordinator import ExecutionCoordinator
-
         self._execution_coordinator = ExecutionCoordinator(
             storage=self.storage,
             lock=self.lock,
             executor=self._executor,
-            async_executor=self._async_executor,
             function_registry=self._job_registry,
             failure_handler_registry=self._failure_handler_registry,
             success_handler_registry=self._success_handler_registry,
             global_on_failure=self.on_failure,
             global_on_success=self.on_success,
             logger=self.logger,
-            lock_prefix=self.lock_prefix,
             lock_ttl_seconds=self.lock_ttl_seconds,
             verbose=self.verbose,
         )
@@ -136,12 +123,9 @@ class BaseScheduler(ABC):
         pass
 
     @abstractmethod
-    def stop(self, timeout: float = 30.0) -> dict[str, Any]:
+    def stop(self) -> dict[str, Any]:
         """
         Stop scheduler gracefully (implementation-specific).
-
-        Args:
-            timeout: Maximum seconds to wait for jobs to complete
 
         Returns:
             Dictionary with shutdown status
@@ -180,8 +164,6 @@ class BaseScheduler(ABC):
         Raises:
             JobAlreadyExistsError: Job already exists
         """
-        from chronis.core.common.exceptions import JobAlreadyExistsError
-
         # Register on_failure handler if provided
         if job.on_failure:
             with self._registry_lock:
@@ -255,8 +237,6 @@ class BaseScheduler(ABC):
         Raises:
             JobNotFoundError: Job not found
         """
-        from chronis.core.common.exceptions import JobNotFoundError
-
         # Build updates dictionary
         updates_dict: dict[str, Any] = {
             k: v
@@ -310,26 +290,12 @@ class BaseScheduler(ABC):
             JobNotFoundError: Job not found
             InvalidJobStateError: Job not in pausable state
         """
-        from chronis.core.common.exceptions import InvalidJobStateError, JobNotFoundError
-
-        job = self.get_job(job_id)
-        if not job:
-            raise JobNotFoundError(
-                f"Job '{job_id}' not found. It may have been deleted or never existed. Use scheduler.query_jobs() to see available jobs."
-            )
-
-        if job.status not in (JobStatus.SCHEDULED, JobStatus.PENDING):
-            raise InvalidJobStateError(
-                f"Cannot pause job '{job_id}' in {job.status.value} state. "
-                f"Only SCHEDULED or PENDING jobs can be paused."
-            )
-
-        self.storage.update_job(
-            job_id, {"status": JobStatus.PAUSED.value, "updated_at": utc_now().isoformat()}
+        return self._transition_job_state(
+            job_id,
+            allowed=(JobStatus.SCHEDULED, JobStatus.PENDING),
+            new_status=JobStatus.PAUSED,
+            action="paused",
         )
-        if self.verbose:
-            self.logger.info("Job paused", job_id=job_id)
-        return True
 
     def resume_job(self, job_id: str) -> bool:
         """
@@ -345,8 +311,22 @@ class BaseScheduler(ABC):
             JobNotFoundError: Job not found
             InvalidJobStateError: Job not paused
         """
-        from chronis.core.common.exceptions import InvalidJobStateError, JobNotFoundError
+        return self._transition_job_state(
+            job_id,
+            allowed=(JobStatus.PAUSED,),
+            new_status=JobStatus.SCHEDULED,
+            action="resumed",
+        )
 
+    def _transition_job_state(
+        self,
+        job_id: str,
+        allowed: tuple[JobStatus, ...],
+        new_status: JobStatus,
+        action: str,
+    ) -> bool:
+        """Validate and apply a job state transition using CAS for atomicity."""
+        # Check job exists first
         job = self.get_job(job_id)
         if not job:
             raise JobNotFoundError(
@@ -354,35 +334,30 @@ class BaseScheduler(ABC):
                 "Use scheduler.query_jobs() to see available jobs."
             )
 
-        if job.status != JobStatus.PAUSED:
-            raise InvalidJobStateError(
-                f"Cannot resume job '{job_id}' in {job.status.value} state. "
-                f"Only PAUSED jobs can be resumed."
-            )
+        # Try CAS for each allowed status
+        now_str = utc_now().isoformat()
+        for expected_status in allowed:
+            try:
+                success, _ = self.storage.compare_and_swap_job(
+                    job_id,
+                    expected_values={"status": expected_status.value},
+                    updates={"status": new_status.value, "updated_at": now_str},
+                )
+                if success:
+                    if self.verbose:
+                        self.logger.info(f"Job {action}", job_id=job_id)
+                    return True
+            except ValueError:
+                raise JobNotFoundError(
+                    f"Job '{job_id}' not found. It may have been deleted or never existed. "
+                    "Use scheduler.query_jobs() to see available jobs."
+                ) from None
 
-        self.storage.update_job(
-            job_id, {"status": JobStatus.SCHEDULED.value, "updated_at": utc_now().isoformat()}
+        # CAS failed for all allowed statuses - re-read for error message
+        current_job = self.get_job(job_id)
+        current_status = current_job.status.value if current_job else "unknown"
+        allowed_str = " or ".join(s.value.upper() for s in allowed)
+        raise InvalidJobStateError(
+            f"Cannot {action.rstrip('d')} job '{job_id}' in {current_status} state. "
+            f"Only {allowed_str} jobs can be {action}."
         )
-        if self.verbose:
-            self.logger.info("Job resumed", job_id=job_id)
-        return True
-
-    # ========================================
-    # Helper Methods (Common)
-    # ========================================
-
-    def _start_async_loop(self) -> None:
-        """Start dedicated event loop for async jobs."""
-        self._async_executor.start()
-
-    def _stop_async_loop(self, timeout: float = 30.0) -> bool:
-        """
-        Stop dedicated event loop.
-
-        Args:
-            timeout: Maximum seconds to wait for async tasks
-
-        Returns:
-            True if all async tasks completed, False if timeout
-        """
-        return self._async_executor.stop(timeout=timeout)

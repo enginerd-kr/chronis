@@ -115,7 +115,7 @@ def execute_job_immediately(
     """
     Execute a job immediately by directly calling scheduler methods.
 
-    This bypasses APScheduler background threads for deterministic testing.
+    This bypasses background polling threads for deterministic testing.
 
     Args:
         scheduler: PollingScheduler instance
@@ -137,7 +137,7 @@ def execute_job_immediately(
     )
 
     # Poll and enqueue
-    added = scheduler._orchestrator.enqueue_jobs()
+    added = scheduler._enqueue_jobs()
 
     if added == 0:
         raise AssertionError(
@@ -147,7 +147,7 @@ def execute_job_immediately(
 
     # Get from queue and execute
     # OPTIMIZED: Queue now returns only job_id, fetch data from storage
-    queued_job_id = scheduler._orchestrator.get_next_job_from_queue()
+    queued_job_id = scheduler._job_queue.get_next_job()
 
     if queued_job_id is None:
         raise AssertionError("No job in queue")

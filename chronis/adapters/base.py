@@ -132,6 +132,7 @@ class JobStorageAdapter(ABC):
         """
         pass
 
+    @abstractmethod
     def compare_and_swap_job(
         self,
         job_id: str,
@@ -148,34 +149,18 @@ class JobStorageAdapter(ABC):
         ┌──────────────────────────────────────────────────────────────┐
         │                   IMPLEMENTATION CONTRACT                     │
         ├──────────────────────────────────────────────────────────────┤
-        │ WHO IMPLEMENTS: Storage adapter developer (RECOMMENDED)      │
+        │ WHO IMPLEMENTS: Storage adapter developer (REQUIRED)         │
         │ WHO CALLS:      Chronis Core (ExecutionCoordinator)          │
         │ WHEN CALLED:    Job execution with optimistic locking        │
         │ ATOMICITY:      MUST be atomic (single transaction/operation)│
-        │                                                              │
-        │ DEFAULT IMPLEMENTATION: Non-atomic fallback provided         │
-        │ ⚠️  Override for production multi-instance deployments      │
         └──────────────────────────────────────────────────────────────┘
 
-        DEFAULT IMPLEMENTATION:
-            This base implementation uses get → check → update pattern which is
-            NOT atomic. For production use with multiple instances, override this
-            method with an atomic implementation using your storage backend's
-            native CAS/optimistic locking.
-
-            Examples of atomic implementations:
+        Implementation examples:
             - Redis: Use WATCH/MULTI/EXEC transaction
             - PostgreSQL: Use WHERE conditions in UPDATE statement
             - DynamoDB: Use ConditionExpression in UpdateItem
             - MongoDB: Use findAndModify with query conditions
-
-            ⚠️  WARNING: This default implementation is NOT atomic and NOT safe
-            for distributed deployments. It may cause duplicate job execution.
-
-            Use this default only for:
-            - Single-instance deployments
-            - Testing/development environments
-            - Storage backends without atomic operations (at your own risk)
+            - InMemory: Direct dict comparison (single-process only)
 
         Example:
             # Only update if status is still SCHEDULED and next_run_time hasn't changed
@@ -202,29 +187,7 @@ class JobStorageAdapter(ABC):
         Raises:
             ValueError: If job_id not found
         """
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.warning(
-            f"Using non-atomic fallback compare_and_swap_job for {self.__class__.__name__}. "
-            "This is NOT safe for multi-instance deployments. "
-            "Override this method with an atomic implementation for production use."
-        )
-
-        # Get current job
-        job_data = self.get_job(job_id)
-        if job_data is None:
-            raise ValueError(f"Job {job_id} not found")
-
-        # Compare: Check if all expected values match
-        for field, expected_value in expected_values.items():
-            current_value = job_data.get(field)
-            if current_value != expected_value:
-                return (False, None)
-
-        # Swap: Apply updates (⚠️ non-atomic - TOCTOU race condition possible)
-        updated_job = self.update_job(job_id, updates)
-        return (True, updated_job)
+        pass
 
     @abstractmethod
     def delete_job(self, job_id: str) -> bool:
@@ -261,7 +224,7 @@ class JobStorageAdapter(ABC):
         │                   IMPLEMENTATION CONTRACT                     │
         ├──────────────────────────────────────────────────────────────┤
         │ WHO IMPLEMENTS: Storage adapter developer                    │
-        │ WHO CALLS:      Chronis Core (SchedulingOrchestrator)        │
+        │ WHO CALLS:      Chronis Core (PollingScheduler)               │
         │ WHEN CALLED:    Every polling cycle to find due jobs         │
         ├──────────────────────────────────────────────────────────────┤
         │ CRITICAL: MUST return misfire fields for detection to work   │

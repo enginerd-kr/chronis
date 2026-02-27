@@ -1,6 +1,6 @@
-"""E2E tests for scheduler background execution (real timing, APScheduler)."""
+"""E2E tests for scheduler background execution (real timing)."""
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from conftest import wait_for
@@ -28,7 +28,7 @@ def scheduler():
 @pytest.mark.e2e
 @pytest.mark.slow
 class TestBackgroundPolling:
-    """Test that APScheduler background polling works (E2E only)."""
+    """Test that background polling works (E2E only)."""
 
     def test_interval_job_executes_repeatedly(self, scheduler, thread_safe_counter):
         """Test that interval job executes multiple times via background polling."""
@@ -41,7 +41,7 @@ class TestBackgroundPolling:
         # Create interval job with 2 second interval
         scheduler.create_interval_job(func="interval_task", seconds=2)
 
-        # Start background scheduler (real APScheduler)
+        # Start background scheduler
         scheduler.start()
 
         try:
@@ -69,9 +69,9 @@ class TestBackgroundPolling:
 
         scheduler.register_job_function("cron_task", cron_task)
 
-        # Schedule for next minute
-        # Example: if now is 10:30:45, schedule for 10:31:00
-        now = datetime.now()
+        # Schedule for next minute (use UTC to match timezone="UTC" in job creation)
+        # Example: if now is 10:30:45 UTC, schedule for 10:31:00 UTC
+        now = datetime.now(UTC)
         next_minute = now + timedelta(minutes=1)
         target_minute = next_minute.minute
 

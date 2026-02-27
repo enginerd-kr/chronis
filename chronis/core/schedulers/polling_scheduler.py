@@ -1,30 +1,95 @@
 """Polling-based scheduler implementation."""
 
+import hashlib
+import secrets
+import threading
+import uuid
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal
-
-from chronis.type_defs import DayOfWeek, Month
 
 if TYPE_CHECKING:
     from chronis.core.schedulers.fluent_builders import FluentJobBuilder
 
-from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore[import-untyped]
-from apscheduler.triggers.interval import IntervalTrigger  # type: ignore[import-untyped]
-
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
 from chronis.core.base.scheduler import BaseScheduler
+from chronis.core.common.exceptions import SchedulerError
 from chronis.core.execution.callbacks import OnFailureCallback, OnSuccessCallback
 from chronis.core.execution.job_queue import JobQueue
-from chronis.core.jobs.definition import JobInfo
-from chronis.core.schedulers import job_builders
-from chronis.core.schedulers.polling_orchestrator import PollingOrchestrator
+from chronis.core.jobs.definition import JobDefinition, JobInfo
+from chronis.core.misfire import MisfireDetector
+from chronis.core.schedulers.next_run_calculator import NextRunTimeCalculator
+from chronis.core.state.enums import TriggerType
+from chronis.type_defs import JobStorageData
 from chronis.utils.logging import ContextLogger
+from chronis.utils.time import get_timezone, utc_now
+
+
+class _PeriodicRunner:
+    """Lightweight periodic task runner using daemon threads.
+
+    Replaces APScheduler BackgroundScheduler for simple interval-based
+    periodic tasks. Each task runs in its own daemon thread with
+    non-overlapping execution (waits for completion before next interval).
+    """
+
+    def __init__(self) -> None:
+        self._tasks: list[tuple[Callable[[], Any], float, str]] = []
+        self._threads: list[threading.Thread] = []
+        self._stop_event = threading.Event()
+
+    def add_task(self, func: Callable[[], Any], interval: float, name: str) -> None:
+        """Register a periodic task (must be called before start)."""
+        self._tasks.append((func, interval, name))
+
+    def start(self) -> None:
+        """Start all registered periodic tasks in daemon threads."""
+        self._stop_event.clear()
+        for func, interval, name in self._tasks:
+            thread = threading.Thread(
+                target=self._run_loop,
+                args=(func, interval),
+                daemon=True,
+                name=f"chronis-{name}",
+            )
+            thread.start()
+            self._threads.append(thread)
+
+    def _run_loop(self, func: Callable[[], Any], interval: float) -> None:
+        """Execute func periodically until stop is signaled."""
+        while not self._stop_event.wait(timeout=interval):
+            try:
+                func()
+            except Exception:
+                pass  # Errors handled by func itself
+
+    def shutdown(self, wait: bool = True) -> None:
+        """Stop all periodic tasks."""
+        self._stop_event.set()
+        if wait:
+            for thread in self._threads:
+                thread.join(timeout=5)
+        self._threads.clear()
+        self._tasks.clear()
+
+
+def _generate_job_name(func: Callable | str) -> str:
+    """Generate human-readable job name from function (snake_case → Title Case)."""
+    func_name = func.split(".")[-1] if isinstance(func, str) else func.__name__
+    return func_name.replace("_", " ").title()
+
+
+def _generate_job_id(func: Callable | str) -> str:
+    """Generate unique job ID: {func_name}_{timestamp}_{random}."""
+    func_name = func.split(".")[-1] if isinstance(func, str) else func.__name__
+    func_name = "".join(c if c.isalnum() or c == "_" else "_" for c in func_name)[:30]
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+    return f"{func_name}_{timestamp}_{secrets.token_hex(4)}"
 
 
 class PollingScheduler(BaseScheduler):
     """
-    Polling-based scheduler with non-blocking APScheduler backend.
+    Polling-based scheduler with lightweight periodic runner.
 
     Supports various storage and lock systems through adapter pattern.
     Uses periodic polling to discover and execute scheduled jobs.
@@ -39,7 +104,6 @@ class PollingScheduler(BaseScheduler):
         lock_adapter: LockAdapter,
         polling_interval_seconds: int = 1,
         lock_ttl_seconds: int = 300,
-        lock_prefix: str = "scheduler:lock:",
         max_workers: int | None = None,
         max_queue_size: int | None = None,
         executor_interval_seconds: int | None = None,
@@ -56,7 +120,6 @@ class PollingScheduler(BaseScheduler):
             lock_adapter: Distributed lock adapter (required)
             polling_interval_seconds: Polling interval (seconds)
             lock_ttl_seconds: Lock TTL (seconds)
-            lock_prefix: Lock key prefix
             max_workers: Maximum number of worker threads (default: 20)
             max_queue_size: Maximum queue size for backpressure control (default: max_workers * 5)
             executor_interval_seconds: Executor check interval (default: min(1, polling_interval / 2))
@@ -86,7 +149,6 @@ class PollingScheduler(BaseScheduler):
             storage_adapter=storage_adapter,
             lock_adapter=lock_adapter,
             max_workers=max_workers,
-            lock_prefix=lock_prefix,
             lock_ttl_seconds=lock_ttl_seconds,
             verbose=verbose,
             logger=logger,
@@ -104,35 +166,19 @@ class PollingScheduler(BaseScheduler):
         # Initialize job queue for backpressure control
         self._job_queue = JobQueue(max_queue_size=self.max_queue_size)
 
-        # Initialize polling orchestrator
-        self._orchestrator = PollingOrchestrator(
-            storage=self.storage,
-            job_queue=self._job_queue,
-            logger=self.logger,
-            verbose=self.verbose,
-        )
+        # Random node ID for distributed job ordering
+        # Each scheduler instance gets a unique ID to reduce lock contention
+        self._node_id = str(uuid.uuid4())
 
-        # Initialize APScheduler (BackgroundScheduler - non-blocking)
-        from apscheduler.executors.pool import (  # type: ignore[import-untyped]
-            ThreadPoolExecutor as APSThreadPoolExecutor,
-        )
-
-        executors = {
-            "default": APSThreadPoolExecutor(max_workers=1)  # Single thread for internal jobs
-        }
-
-        self._apscheduler = BackgroundScheduler(
-            timezone="UTC",
-            daemon=True,
-            executors=executors,
-        )
+        # Initialize periodic runner for polling and execution tasks
+        self._runner = _PeriodicRunner()
 
     def start(self) -> None:
         """
         Start scheduler (non-blocking).
 
-        Uses APScheduler BackgroundScheduler to perform
-        polling tasks in the background. This method returns immediately.
+        Launches daemon threads for periodic polling and job execution.
+        This method returns immediately.
 
         Example:
             >>> scheduler.start()
@@ -141,67 +187,37 @@ class PollingScheduler(BaseScheduler):
             >>> time.sleep(60)
             >>> scheduler.stop()
         """
-        import logging
-
-        # Suppress APScheduler's verbose INFO logs (Running job, executed successfully)
-        logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
-        logging.getLogger("apscheduler.scheduler").setLevel(logging.WARNING)
-
         if self._running:
-            from chronis.core.common.exceptions import SchedulerError
-
             raise SchedulerError(
                 "Scheduler is already running. Call scheduler.stop() first to restart."
             )
 
-        # Start dedicated event loop for async jobs
-        self._start_async_loop()
+        # Register periodic tasks
+        self._runner = _PeriodicRunner()
+        self._runner.add_task(self._execute_queued_jobs, self.executor_interval_seconds, "executor")
+        self._runner.add_task(self._enqueue_jobs, self.polling_interval_seconds, "polling")
 
-        # Register executor job to APScheduler with configurable interval
-        executor_trigger = IntervalTrigger(seconds=self.executor_interval_seconds, timezone="UTC")
-        self._apscheduler.add_job(
-            func=self._execute_queued_jobs,
-            trigger=executor_trigger,
-            id="executor_job",
-            name="Job Executor",
-            replace_existing=True,
-            max_instances=1,
-        )
-
-        # Register polling job to APScheduler
-        polling_trigger = IntervalTrigger(seconds=self.polling_interval_seconds, timezone="UTC")
-        self._apscheduler.add_job(
-            func=self._poll_and_enqueue,
-            trigger=polling_trigger,
-            id="polling_job",
-            name="Job Polling",
-            replace_existing=True,
-            max_instances=1,
-        )
-
-        # Start APScheduler (non-blocking)
-        self._apscheduler.start()
+        # Start periodic runner (non-blocking, daemon threads)
+        self._runner.start()
         self._running = True
 
-    def stop(self, timeout: float = 30.0) -> dict[str, Any]:
+    def stop(self) -> dict[str, Any]:
         """
         Stop scheduler gracefully.
 
-        Waits for running jobs (both sync and async) to complete before shutting down.
-
-        Args:
-            timeout: Maximum seconds to wait for async jobs to complete (default: 30).
+        Waits for all running jobs to complete before shutting down.
+        Both sync and async jobs run in ThreadPoolExecutor, so shutdown
+        blocks until all workers finish.
 
         Returns:
             Dictionary with shutdown status:
-            - sync_jobs_completed: Always True (sync jobs always wait)
-            - async_jobs_completed: True if all async jobs finished, False if timeout
+            - sync_jobs_completed: Always True (ThreadPool waits for completion)
+            - async_jobs_completed: Always True (async jobs run in ThreadPool via asyncio.run)
             - was_running: Whether scheduler was running before stop
 
         Example:
-            >>> result = scheduler.stop(timeout=60.0)
-            >>> if not result['async_jobs_completed']:
-            ...     print("Warning: Some async jobs were interrupted")
+            >>> result = scheduler.stop()
+            >>> assert result['was_running'] is True
         """
         if not self._running:
             return {
@@ -210,20 +226,20 @@ class PollingScheduler(BaseScheduler):
                 "was_running": False,
             }
 
-        # Shutdown APScheduler (stops polling for new jobs)
-        self._apscheduler.shutdown(wait=True)
+        # Shutdown periodic runner (stops polling for new jobs)
+        self._runner.shutdown(wait=True)
 
-        # Stop dedicated event loop (wait for async jobs with timeout)
-        async_completed = self._stop_async_loop(timeout=timeout)
+        # Wait for async jobs on shared event loop
+        self._execution_coordinator.shutdown_async(wait=True)
 
-        # Shutdown thread pool executor (wait for sync jobs - always waits)
+        # Shutdown thread pool executor (waits for sync jobs)
         self._executor.shutdown(wait=True, cancel_futures=False)
 
         self._running = False
 
         return {
             "sync_jobs_completed": True,
-            "async_jobs_completed": async_completed,
+            "async_jobs_completed": True,
             "was_running": True,
         }
 
@@ -240,42 +256,200 @@ class PollingScheduler(BaseScheduler):
             - utilization: Queue utilization ratio (0.0 to 1.0)
             - in_flight_job_ids: List of job IDs currently in-flight
         """
-        return self._orchestrator.get_queue_status()
+        return self._job_queue.get_status()
 
     # ------------------------------------------------------------------------
-    # Internal Methods (APScheduler Polling Logic)
+    # Internal Methods (Polling Logic)
     # ------------------------------------------------------------------------
 
-    def _poll_and_enqueue(self) -> None:
-        """
-        Poll ready jobs from storage and add to queue.
+    def _recover_stuck_jobs(self) -> None:
+        """Detect and recover jobs stuck in RUNNING state after process crash."""
+        try:
+            cutoff = (utc_now() - timedelta(seconds=self.lock_ttl_seconds * 2)).isoformat()
+            stuck_jobs = self.storage.query_jobs(
+                filters={"status": "running", "updated_at_lte": cutoff},
+                limit=10,
+            )
 
-        Called periodically by APScheduler.
-        This method runs in APScheduler's background thread.
+            for job in stuck_jobs:
+                job_id = job.get("job_id", "")
+                self.logger.warning("Recovering stuck job", job_id=job_id)
+                try:
+                    self.storage.compare_and_swap_job(
+                        job_id,
+                        expected_values={"status": "running"},
+                        updates={
+                            "status": "scheduled",
+                            "updated_at": utc_now().isoformat(),
+                        },
+                    )
+                except Exception as e:
+                    self.logger.warning("Failed to recover stuck job", job_id=job_id, error=str(e))
+        except Exception as e:
+            self.logger.debug("Stuck job detection skipped", error=str(e))
+
+    def _enqueue_jobs(self) -> int:
         """
-        self._orchestrator.enqueue_jobs()
+        Get ready jobs and enqueue them.
+
+        Returns:
+            Number of jobs added to queue
+        """
+        try:
+            self._recover_stuck_jobs()
+
+            available_slots = self._job_queue.get_available_slots()
+
+            if available_slots <= 0:
+                self.logger.warning("Job queue full, skipping enqueue")
+                return 0
+
+            jobs = self._get_ready_jobs(limit=available_slots)
+
+            if jobs:
+                added_count = 0
+                for job_data in jobs:
+                    job_id = job_data.get("job_id")
+                    if not job_id:
+                        continue
+                    priority = job_data.get("priority", 5)
+                    if self._job_queue.add_job(job_id, priority):
+                        added_count += 1
+                    else:
+                        self.logger.warning("Failed to add job to queue", job_id=job_id)
+
+                return added_count
+
+            return 0
+
+        except Exception as e:
+            self.logger.error("Enqueue error", error=str(e))
+            return 0
+
+    def _get_ready_jobs(self, limit: int | None = None) -> list[Any]:
+        """
+        Query ready jobs from storage and classify them.
+
+        Args:
+            limit: Maximum number of jobs to return
+
+        Returns:
+            List of ready job data sorted by priority (high to low) then time (early to late)
+        """
+        current_time = utc_now()
+
+        # Query jobs that are ready (next_run_time <= current_time)
+        # Over-fetch by 1.5x to account for node-specific hash reordering
+        # which may push some jobs beyond the limit boundary after re-sorting
+        query_limit = int(limit * 1.5 + 1) if limit else None
+        filters = {"status": "scheduled", "next_run_time_lte": current_time.isoformat()}
+        jobs = self.storage.query_jobs(filters=filters, limit=query_limit)
+
+        # Classify into normal and misfired jobs
+        normal_jobs, misfired_jobs = MisfireDetector.classify_due_jobs(
+            jobs, current_time.isoformat()
+        )
+
+        if misfired_jobs:
+            self.logger.warning(
+                "Misfired jobs detected",
+                count=len(misfired_jobs),
+                job_ids=[j.get("job_id") for j in misfired_jobs],
+            )
+
+        # Apply misfire policy
+        ready_misfired = []
+        for job in misfired_jobs:
+            policy = job.get("if_missed", "run_once")
+            if policy == "skip":
+                self._skip_misfired_job(job)
+            else:
+                # run_once / run_all: include in ready jobs
+                ready_misfired.append(job)
+
+        # Combine all jobs
+        all_jobs = normal_jobs + ready_misfired
+
+        # Sort by priority (descending), then by node-specific hash, then by next_run_time
+        # The hash ensures each scheduler instance processes jobs in a different order,
+        # reducing lock contention in distributed environments
+        def sort_key(job: Any) -> tuple[int, int, str]:
+            priority = job.get("priority", 5)
+            job_id = job.get("job_id", "")
+            next_run = job.get("next_run_time", "")
+
+            # Create node-specific hash to distribute jobs across schedulers
+            combined = f"{self._node_id}:{job_id}"
+            hash_val = int(hashlib.md5(combined.encode()).hexdigest()[:8], 16)
+
+            return (-int(priority), hash_val, str(next_run))
+
+        all_jobs.sort(key=sort_key)  # type: ignore[arg-type]
+
+        # Apply limit if specified
+        if limit is not None:
+            all_jobs = all_jobs[:limit]
+
+        return all_jobs
+
+    def _skip_misfired_job(self, job_data: JobStorageData) -> None:
+        """Skip misfired job by advancing next_run_time to next future time."""
+        job_id = job_data.get("job_id", "")
+        trigger_type: str = job_data.get("trigger_type", "")
+
+        if trigger_type == "date":
+            self.storage.delete_job(job_id)
+            self.logger.info("Skipped misfired one-time job (deleted)", job_id=job_id)
+            return
+
+        utc_time, local_time = NextRunTimeCalculator.calculate_with_local_time(
+            trigger_type, job_data.get("trigger_args", {}), job_data.get("timezone", "UTC")
+        )
+
+        if utc_time:
+            self.storage.update_job(
+                job_id,
+                {
+                    "next_run_time": utc_time.isoformat(),
+                    "next_run_time_local": local_time.isoformat() if local_time else None,
+                    "updated_at": utc_now().isoformat(),
+                },
+            )
+            self.logger.info(
+                "Skipped misfired job, advanced to next run",
+                job_id=job_id,
+                next_run_time=utc_time.isoformat(),
+            )
+        else:
+            self.storage.update_job(
+                job_id,
+                {"status": "failed", "updated_at": utc_now().isoformat()},
+            )
+            self.logger.warning(
+                "Cannot calculate next run time for misfired job, marking as failed",
+                job_id=job_id,
+                trigger_type=trigger_type,
+            )
 
     def _execute_queued_jobs(self) -> None:
         """
         Execute jobs from queue in batches.
 
-        Called periodically by APScheduler.
+        Called periodically by the periodic runner.
         Fetches job data from storage and submits jobs to thread pool in batches
         for concurrent execution, improving throughput in distributed environments.
-
-        This method runs in APScheduler's background thread.
         """
         try:
             # Process jobs in batches for better concurrency
             batch_size = 100  # Process up to 100 jobs per iteration (increased for throughput)
 
-            while not self._orchestrator.is_queue_empty():
+            while not self._job_queue.is_empty():
                 # Get batch of job IDs from queue
                 job_ids = []
                 for _ in range(batch_size):
-                    if self._orchestrator.is_queue_empty():
+                    if self._job_queue.is_empty():
                         break
-                    job_id = self._orchestrator.get_next_job_from_queue()
+                    job_id = self._job_queue.get_next_job()
                     if job_id:
                         job_ids.append(job_id)
 
@@ -291,17 +465,17 @@ class PollingScheduler(BaseScheduler):
                     job_data = jobs_dict.get(job_id)
                     if job_data is None:
                         # Job was deleted - mark as completed and continue
-                        self._orchestrator.mark_job_completed(job_id)
+                        self._job_queue.mark_completed(job_id)
                         continue
 
                     # Try to execute with distributed lock (non-blocking)
                     executed = self._execution_coordinator.try_execute(
-                        dict(job_data), on_complete=self._orchestrator.mark_job_completed
+                        dict(job_data), on_complete=self._job_queue.mark_completed
                     )
 
                     # If not executed (lock failed or wrong status), mark as completed in queue
                     if not executed:
-                        self._orchestrator.mark_job_completed(job_id)
+                        self._job_queue.mark_completed(job_id)
 
         except Exception as e:
             self.logger.error("Executor error", error=str(e))
@@ -334,29 +508,41 @@ class PollingScheduler(BaseScheduler):
         misfire_threshold_seconds: int = 60,
     ) -> JobInfo:
         """Create interval job (runs repeatedly at fixed intervals)."""
-        job_def = job_builders.create_interval_job(
-            func=func,
-            job_id=job_id,
-            name=name,
-            seconds=seconds,
-            minutes=minutes,
-            hours=hours,
-            days=days,
-            weeks=weeks,
-            timezone=timezone,
-            args=args,
-            kwargs=kwargs,
-            metadata=metadata,
-            on_failure=on_failure,
-            on_success=on_success,
-            max_retries=max_retries,
-            retry_delay_seconds=retry_delay_seconds,
-            timeout_seconds=timeout_seconds,
-            priority=priority,
-            if_missed=if_missed,
-            misfire_threshold_seconds=misfire_threshold_seconds,
+        trigger_args = {
+            k: v
+            for k, v in {
+                "seconds": seconds,
+                "minutes": minutes,
+                "hours": hours,
+                "days": days,
+                "weeks": weeks,
+            }.items()
+            if v is not None
+        }
+        if not trigger_args:
+            raise ValueError("At least one interval parameter must be specified")
+
+        return self.create_job(
+            JobDefinition(
+                job_id=job_id or _generate_job_id(func),
+                name=name or _generate_job_name(func),
+                trigger_type=TriggerType.INTERVAL,
+                trigger_args=trigger_args,
+                func=func,
+                timezone=timezone,
+                args=args,
+                kwargs=kwargs,
+                metadata=metadata,
+                on_failure=on_failure,
+                on_success=on_success,
+                max_retries=max_retries,
+                retry_delay_seconds=retry_delay_seconds,
+                timeout_seconds=timeout_seconds,
+                priority=priority,
+                if_missed=if_missed,
+                misfire_threshold_seconds=misfire_threshold_seconds,
+            )
         )
-        return self.create_job(job_def)
 
     def create_cron_job(
         self,
@@ -384,31 +570,43 @@ class PollingScheduler(BaseScheduler):
         misfire_threshold_seconds: int = 60,
     ) -> JobInfo:
         """Create cron job (runs on specific date/time patterns)."""
-        job_def = job_builders.create_cron_job(
-            func=func,
-            job_id=job_id,
-            name=name,
-            year=year,
-            month=month,
-            day=day,
-            week=week,
-            day_of_week=day_of_week,
-            hour=hour,
-            minute=minute,
-            timezone=timezone,
-            args=args,
-            kwargs=kwargs,
-            metadata=metadata,
-            on_failure=on_failure,
-            on_success=on_success,
-            max_retries=max_retries,
-            retry_delay_seconds=retry_delay_seconds,
-            timeout_seconds=timeout_seconds,
-            priority=priority,
-            if_missed=if_missed,
-            misfire_threshold_seconds=misfire_threshold_seconds,
+        trigger_args = {
+            k: v
+            for k, v in {
+                "year": year,
+                "month": month,
+                "day": day,
+                "week": week,
+                "day_of_week": day_of_week,
+                "hour": hour,
+                "minute": minute,
+            }.items()
+            if v is not None
+        }
+        if not trigger_args:
+            raise ValueError("At least one cron parameter must be specified")
+
+        return self.create_job(
+            JobDefinition(
+                job_id=job_id or _generate_job_id(func),
+                name=name or _generate_job_name(func),
+                trigger_type=TriggerType.CRON,
+                trigger_args=trigger_args,
+                func=func,
+                timezone=timezone,
+                args=args,
+                kwargs=kwargs,
+                metadata=metadata,
+                on_failure=on_failure,
+                on_success=on_success,
+                max_retries=max_retries,
+                retry_delay_seconds=retry_delay_seconds,
+                timeout_seconds=timeout_seconds,
+                priority=priority,
+                if_missed=if_missed,
+                misfire_threshold_seconds=misfire_threshold_seconds,
+            )
         )
-        return self.create_job(job_def)
 
     def create_date_job(
         self,
@@ -430,25 +628,32 @@ class PollingScheduler(BaseScheduler):
         misfire_threshold_seconds: int = 60,
     ) -> JobInfo:
         """Create one-time job (runs once at specific date/time)."""
-        job_def = job_builders.create_date_job(
-            func=func,
-            run_date=run_date,
-            job_id=job_id,
-            name=name,
-            timezone=timezone,
-            args=args,
-            kwargs=kwargs,
-            metadata=metadata,
-            on_failure=on_failure,
-            on_success=on_success,
-            max_retries=max_retries,
-            retry_delay_seconds=retry_delay_seconds,
-            timeout_seconds=timeout_seconds,
-            priority=priority,
-            if_missed=if_missed,
-            misfire_threshold_seconds=misfire_threshold_seconds,
+        if isinstance(run_date, datetime):
+            if run_date.tzinfo is None:
+                run_date = run_date.astimezone(get_timezone("UTC"))
+            run_date = run_date.isoformat()
+
+        return self.create_job(
+            JobDefinition(
+                job_id=job_id or _generate_job_id(func),
+                name=name or _generate_job_name(func),
+                trigger_type=TriggerType.DATE,
+                trigger_args={"run_date": run_date},
+                func=func,
+                timezone=timezone,
+                args=args,
+                kwargs=kwargs,
+                metadata=metadata,
+                on_failure=on_failure,
+                on_success=on_success,
+                max_retries=max_retries,
+                retry_delay_seconds=retry_delay_seconds,
+                timeout_seconds=timeout_seconds,
+                priority=priority,
+                if_missed=if_missed,
+                misfire_threshold_seconds=misfire_threshold_seconds,
+            )
         )
-        return self.create_job(job_def)
 
     # ========================================
     # Fluent Builder API (Simplified Interface)
@@ -495,8 +700,8 @@ class PollingScheduler(BaseScheduler):
         minute: int | None = None,
         hour: int | None = None,
         day: int | None = None,
-        day_of_week: int | DayOfWeek | None = None,
-        month: int | Month | None = None,
+        day_of_week: int | str | None = None,
+        month: int | str | None = None,
         year: int | None = None,
         week: int | None = None,
     ) -> "FluentJobBuilder":

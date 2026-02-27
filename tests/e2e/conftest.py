@@ -145,7 +145,6 @@ def distributed_schedulers():
             lock_adapter=lock,
             polling_interval_seconds=1,
             lock_ttl_seconds=5,
-            lock_prefix="shared:lock:",
             verbose=False,
         )
         schedulers.append(scheduler)

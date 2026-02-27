@@ -4,7 +4,7 @@ Guide for implementing custom storage and lock adapters.
 
 ## Storage Adapter Interface
 
-Implement `JobStorageAdapter` with these **5 required methods**:
+Implement `JobStorageAdapter` with these **6 required methods**:
 
 ```python
 from chronis.adapters.base import JobStorageAdapter
@@ -30,21 +30,29 @@ class MyStorageAdapter(JobStorageAdapter):
     ) -> list[dict]:
         """Query jobs with filters."""
 
+    def compare_and_swap_job(
+        self,
+        job_id: str,
+        expected_values: dict,
+        updates: dict,
+    ) -> tuple[bool, dict | None]:
+        """Atomically update job only if current values match expected values.
+
+        MUST be atomic to prevent duplicate job execution in distributed deployments.
+
+        Examples:
+        - Redis: WATCH/MULTI/EXEC transaction
+        - PostgreSQL: UPDATE ... WHERE conditions
+        - DynamoDB: ConditionExpression in UpdateItem
+        - InMemory: Direct dict comparison (single-process only)
+        """
+
     # Optional: Override for optimization
-    # def compare_and_swap_job(self, job_id, expected_values, updates):
-    #     """Atomic update. Default: non-atomic fallback with warning."""
-    #
     # def count_jobs(self, filters=None):
     #     """Count jobs. Default: len(query_jobs(filters))."""
 ```
 
 ### Optional Method Overrides
-
-**compare_and_swap_job** (Recommended for production):
-
-- **Default**: Non-atomic get → check → update fallback with warning
-- **Override for**: Multi-instance deployments requiring atomicity
-- **Examples**: Redis WATCH/MULTI/EXEC, PostgreSQL WHERE conditions
 
 **count_jobs** (Recommended for large datasets):
 
@@ -481,10 +489,10 @@ def test_storage_adapter():
 ### Storage Adapters
 
 - **In-Memory**: [`chronis/adapters/storage/memory.py`](../chronis/adapters/storage/memory.py)
-- **PostgreSQL**: [`chronis/contrib/storage/postgres/adapter.py`](../chronis/contrib/storage/postgres/adapter.py)
-- **Redis**: [`chronis/contrib/storage/redis.py`](../chronis/contrib/storage/redis.py)
+- **PostgreSQL**: [`chronis/contrib/adapters/storage/postgres/adapter.py`](../chronis/contrib/adapters/storage/postgres/adapter.py)
+- **Redis**: [`chronis/contrib/adapters/storage/redis.py`](../chronis/contrib/adapters/storage/redis.py)
 
 ### Lock Adapters
 
 - **In-Memory**: [`chronis/adapters/lock/memory.py`](../chronis/adapters/lock/memory.py)
-- **Redis**: [`chronis/contrib/lock/redis.py`](../chronis/contrib/lock/redis.py)
+- **Redis**: [`chronis/contrib/adapters/lock/redis.py`](../chronis/contrib/adapters/lock/redis.py)

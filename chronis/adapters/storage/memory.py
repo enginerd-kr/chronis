@@ -1,6 +1,7 @@
 """In-memory storage adapter for testing."""
 
 import logging
+import threading
 from typing import Any
 
 from chronis.adapters.base import JobStorageAdapter
@@ -21,6 +22,7 @@ class InMemoryStorageAdapter(JobStorageAdapter):
     def __init__(self) -> None:
         """Initialize in-memory storage adapter."""
         self._jobs: dict[str, JobStorageData] = {}
+        self._lock = threading.Lock()
 
         logger.warning(
             "InMemoryStorageAdapter is for testing/development only. "
@@ -29,23 +31,27 @@ class InMemoryStorageAdapter(JobStorageAdapter):
 
     def create_job(self, job_data: JobStorageData) -> JobStorageData:
         """Create a job."""
-        job_id = job_data["job_id"]
-        if job_id in self._jobs:
-            raise ValueError(f"Job {job_id} already exists")
-        self._jobs[job_id] = job_data.copy()  # type: ignore[typeddict-item]
-        return job_data
+        with self._lock:
+            job_id = job_data["job_id"]
+            if job_id in self._jobs:
+                raise ValueError(f"Job {job_id} already exists")
+            self._jobs[job_id] = job_data.copy()  # type: ignore[typeddict-item]
+            return job_data
 
     def get_job(self, job_id: str) -> JobStorageData | None:
         """Get a job."""
-        return self._jobs.get(job_id)
+        with self._lock:
+            job = self._jobs.get(job_id)
+            return job.copy() if job else None  # type: ignore[union-attr]
 
     def update_job(self, job_id: str, updates: JobUpdateData) -> JobStorageData:
         """Update a job."""
-        if job_id not in self._jobs:
-            raise ValueError(f"Job {job_id} not found")
-        self._jobs[job_id].update(updates)  # type: ignore[typeddict-item]
-        self._jobs[job_id]["updated_at"] = utc_now().isoformat()  # type: ignore[typeddict-item]
-        return self._jobs[job_id]
+        with self._lock:
+            if job_id not in self._jobs:
+                raise ValueError(f"Job {job_id} not found")
+            self._jobs[job_id].update(updates)  # type: ignore[typeddict-item]
+            self._jobs[job_id]["updated_at"] = utc_now().isoformat()  # type: ignore[typeddict-item]
+            return self._jobs[job_id].copy()  # type: ignore[return-value]
 
     def compare_and_swap_job(
         self,
@@ -71,29 +77,31 @@ class InMemoryStorageAdapter(JobStorageAdapter):
         Raises:
             ValueError: If job_id not found
         """
-        if job_id not in self._jobs:
-            raise ValueError(f"Job {job_id} not found")
+        with self._lock:
+            if job_id not in self._jobs:
+                raise ValueError(f"Job {job_id} not found")
 
-        current_job = self._jobs[job_id]
+            current_job = self._jobs[job_id]
 
-        # Compare: Check if all expected values match current values
-        for field, expected_value in expected_values.items():
-            current_value = current_job.get(field)
-            if current_value != expected_value:
-                # Mismatch - return failure without updating
-                return (False, None)
+            # Compare: Check if all expected values match current values
+            for field, expected_value in expected_values.items():
+                current_value = current_job.get(field)
+                if current_value != expected_value:
+                    # Mismatch - return failure without updating
+                    return (False, None)
 
-        # Swap: All expectations matched, apply updates
-        self._jobs[job_id].update(updates)  # type: ignore[typeddict-item]
-        self._jobs[job_id]["updated_at"] = utc_now().isoformat()  # type: ignore[typeddict-item]
-        return (True, self._jobs[job_id])
+            # Swap: All expectations matched, apply updates
+            self._jobs[job_id].update(updates)  # type: ignore[typeddict-item]
+            self._jobs[job_id]["updated_at"] = utc_now().isoformat()  # type: ignore[typeddict-item]
+            return (True, self._jobs[job_id].copy())  # type: ignore[return-value]
 
     def delete_job(self, job_id: str) -> bool:
         """Delete a job."""
-        if job_id in self._jobs:
-            del self._jobs[job_id]
-            return True
-        return False
+        with self._lock:
+            if job_id in self._jobs:
+                del self._jobs[job_id]
+                return True
+            return False
 
     def query_jobs(
         self,
@@ -112,7 +120,8 @@ class InMemoryStorageAdapter(JobStorageAdapter):
         Returns:
             List of jobs matching filters, sorted by next_run_time
         """
-        jobs = list(self._jobs.values())
+        with self._lock:
+            jobs = [j.copy() for j in self._jobs.values()]  # type: ignore[misc]
 
         if filters:
             if "status" in filters:
@@ -124,6 +133,14 @@ class InMemoryStorageAdapter(JobStorageAdapter):
                     for j in jobs
                     if j.get("next_run_time") is not None
                     and j.get("next_run_time") <= filters["next_run_time_lte"]
+                ]
+
+            if "updated_at_lte" in filters:
+                jobs = [
+                    j
+                    for j in jobs
+                    if j.get("updated_at") is not None
+                    and j.get("updated_at") <= filters["updated_at_lte"]
                 ]
 
             for key, value in filters.items():

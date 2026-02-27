@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from chronis.core.misfire import MisfirePolicy
+from chronis.core.schedulers.next_run_calculator import NextRunTimeCalculator
 from chronis.core.state import JobStatus
 from chronis.core.state.enums import TriggerType
 from chronis.utils.time import get_timezone, utc_now
@@ -23,17 +25,22 @@ class JobDefinition(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    # Required fields
     job_id: str
     name: str
     trigger_type: TriggerType
     trigger_args: dict[str, Any]
     func: Callable | str
+
+    # Scheduling options
     timezone: str = "UTC"
     args: tuple | None = None
     kwargs: dict[str, Any] | None = None
     status: JobStatus = JobStatus.PENDING
     next_run_time: datetime | None = None
     metadata: dict[str, Any] | None = None
+
+    # Execution options
     on_failure: "OnFailureCallback | None" = None
     on_success: "OnSuccessCallback | None" = None
     max_retries: int = 0
@@ -43,19 +50,22 @@ class JobDefinition(BaseModel):
     if_missed: Literal["skip", "run_once", "run_all"] | None = None
     misfire_threshold_seconds: int = 60
 
+    @field_validator("args", mode="before")
+    @classmethod
+    def default_args(cls, v: Any) -> tuple:
+        """Convert None to empty tuple."""
+        return v if v is not None else ()
+
+    @field_validator("kwargs", "metadata", mode="before")
+    @classmethod
+    def default_dicts(cls, v: Any) -> dict:
+        """Convert None to empty dict."""
+        return v if v is not None else {}
+
     def model_post_init(self, __context: Any) -> None:
-        """Normalize None values to defaults after validation."""
-        if self.args is None:
-            object.__setattr__(self, "args", ())
-        if self.kwargs is None:
-            object.__setattr__(self, "kwargs", {})
-        if self.metadata is None:
-            object.__setattr__(self, "metadata", {})
-
+        """Set if_missed default based on trigger_type."""
         if self.if_missed is None:
-            from chronis.core.misfire import get_default_policy
-
-            default_policy = get_default_policy(self.trigger_type)
+            default_policy = MisfirePolicy.get_default_for_trigger(self.trigger_type.value)
             object.__setattr__(self, "if_missed", default_policy.value)
 
     @field_validator("timezone")
@@ -125,8 +135,6 @@ class JobDefinition(BaseModel):
 
     def _calculate_initial_next_run_time(self) -> datetime | None:
         """Calculate initial next_run_time in UTC."""
-        from chronis.core.schedulers.next_run_calculator import NextRunTimeCalculator
-
         tz = get_timezone(self.timezone)
         current_time = datetime.now(tz)
 
@@ -158,6 +166,12 @@ class JobInfo:
     timeout_seconds: int | None = None
     # Priority information
     priority: int = 5
+    # Misfire information
+    if_missed: str | None = None
+    misfire_threshold_seconds: int = 60
+    # Execution history
+    last_run_time: datetime | None = None
+    last_scheduled_time: datetime | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "JobInfo":
@@ -185,6 +199,16 @@ class JobInfo:
             retry_count=data.get("retry_count", 0),
             timeout_seconds=data.get("timeout_seconds"),
             priority=data.get("priority", 5),
+            if_missed=data.get("if_missed"),
+            misfire_threshold_seconds=data.get("misfire_threshold_seconds", 60),
+            last_run_time=(
+                datetime.fromisoformat(data["last_run_time"]) if data.get("last_run_time") else None
+            ),
+            last_scheduled_time=(
+                datetime.fromisoformat(data["last_scheduled_time"])
+                if data.get("last_scheduled_time")
+                else None
+            ),
         )
 
     def can_execute(self, current_time: datetime | None = None) -> bool:

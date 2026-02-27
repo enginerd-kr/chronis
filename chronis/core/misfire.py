@@ -4,12 +4,14 @@ This module provides unified misfire detection and handling functionality.
 All misfire-related logic is consolidated here for simplicity.
 """
 
+from __future__ import annotations
+
 from datetime import datetime, timedelta
 from enum import Enum
+from typing import TYPE_CHECKING
 
-from chronis.core.jobs.definition import JobInfo
-from chronis.core.schedulers.next_run_calculator import NextRunTimeCalculator
-from chronis.type_defs import JobStorageData
+if TYPE_CHECKING:
+    from chronis.type_defs import JobStorageData
 
 
 class MisfirePolicy(str, Enum):
@@ -32,7 +34,7 @@ class MisfirePolicy(str, Enum):
     RUN_ALL = "run_all"
 
     @staticmethod
-    def get_default_for_trigger(trigger_type: str) -> "MisfirePolicy":
+    def get_default_for_trigger(trigger_type: str) -> MisfirePolicy:
         """
         Get default misfire policy for trigger type.
 
@@ -136,109 +138,7 @@ class MisfireDetector:
         return delay if delay > threshold else None
 
 
-class MisfireHandler:
-    """Handle misfired jobs according to policy."""
-
-    MAX_MISSED_RUNS = 100
-
-    def handle(
-        self,
-        job: JobInfo,
-        scheduled_time: datetime,
-        current_time: datetime,
-    ) -> list[datetime]:
-        """
-        Determine execution times for misfired job.
-
-        Args:
-            job: Job information
-            scheduled_time: Original scheduled time that was missed
-            current_time: Current time when misfire was detected
-
-        Returns:
-            List of times to execute the job (empty list = skip execution)
-        """
-        policy_str = job.metadata.get("if_missed", "run_once")
-
-        if policy_str == MisfirePolicy.SKIP.value:
-            return []
-
-        elif policy_str == MisfirePolicy.RUN_ONCE.value:
-            return [current_time]
-
-        elif policy_str == MisfirePolicy.RUN_ALL.value:
-            return self._get_all_missed_runs(job, scheduled_time, current_time)
-
-        return []
-
-    def _get_all_missed_runs(
-        self,
-        job: JobInfo,
-        scheduled_time: datetime,
-        current_time: datetime,
-    ) -> list[datetime]:
-        """
-        Calculate all missed execution times.
-
-        Args:
-            job: Job information
-            scheduled_time: Original scheduled time that was missed
-            current_time: Current time
-
-        Returns:
-            List of all missed execution times (up to MAX_MISSED_RUNS)
-        """
-        missed_runs: list[datetime] = []
-        check_time = scheduled_time
-
-        while check_time < current_time and len(missed_runs) < self.MAX_MISSED_RUNS:
-            missed_runs.append(check_time)
-
-            next_time = NextRunTimeCalculator.calculate(
-                job.trigger_type,
-                job.trigger_args,
-                job.timezone,
-                check_time,
-            )
-
-            if next_time is None:
-                break
-
-            check_time = next_time
-
-        return missed_runs
-
-
-# Aliases for backward compatibility
-MisfireClassifier = MisfireDetector
-SimpleMisfirePolicy = MisfirePolicy
-
-
-def get_default_policy(trigger_type):
-    """
-    Get default misfire policy for a trigger type.
-
-    Args:
-        trigger_type: Trigger type (TriggerType enum or string)
-
-    Returns:
-        MisfirePolicy enum
-    """
-    from chronis.core.state.enums import TriggerType
-
-    if isinstance(trigger_type, TriggerType):
-        trigger_type_str = trigger_type.value
-    else:
-        trigger_type_str = str(trigger_type)
-
-    return MisfirePolicy.get_default_for_trigger(trigger_type_str)
-
-
 __all__ = [
     "MisfirePolicy",
-    "SimpleMisfirePolicy",  # Backward compatibility
     "MisfireDetector",
-    "MisfireClassifier",  # Backward compatibility
-    "MisfireHandler",
-    "get_default_policy",
 ]

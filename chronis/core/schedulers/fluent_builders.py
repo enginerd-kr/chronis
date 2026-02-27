@@ -6,8 +6,6 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 
-from chronis.type_defs import DayOfWeek, Month
-
 if TYPE_CHECKING:
     from chronis.core.execution.callbacks import OnFailureCallback, OnSuccessCallback
     from chronis.core.jobs.definition import JobInfo
@@ -99,18 +97,17 @@ class FluentJobBuilder:
             scheduler.every(hours=1, minutes=30).run("backup")
         """
         self._trigger_type = "interval"
-        self._trigger_params = {}
-
-        if seconds is not None:
-            self._trigger_params["seconds"] = seconds
-        if minutes is not None:
-            self._trigger_params["minutes"] = minutes
-        if hours is not None:
-            self._trigger_params["hours"] = hours
-        if days is not None:
-            self._trigger_params["days"] = days
-        if weeks is not None:
-            self._trigger_params["weeks"] = weeks
+        self._trigger_params = {
+            k: v
+            for k, v in {
+                "seconds": seconds,
+                "minutes": minutes,
+                "hours": hours,
+                "days": days,
+                "weeks": weeks,
+            }.items()
+            if v is not None
+        }
 
         if not self._trigger_params:
             raise ValueError("At least one interval parameter must be specified")
@@ -123,8 +120,8 @@ class FluentJobBuilder:
         minute: int | None = None,
         hour: int | None = None,
         day: int | None = None,
-        day_of_week: int | DayOfWeek | None = None,
-        month: int | Month | None = None,
+        day_of_week: int | str | None = None,
+        month: int | str | None = None,
         year: int | None = None,
         week: int | None = None,
     ) -> FluentJobBuilder:
@@ -157,22 +154,22 @@ class FluentJobBuilder:
             scheduler.on(day=1, hour=0, minute=0).run("monthly")
         """
         self._trigger_type = "cron"
-        self._trigger_params = {}
+        self._trigger_params = {
+            k: v
+            for k, v in {
+                "minute": minute,
+                "hour": hour,
+                "day": day,
+                "day_of_week": day_of_week,
+                "month": month,
+                "year": year,
+                "week": week,
+            }.items()
+            if v is not None
+        }
 
-        if minute is not None:
-            self._trigger_params["minute"] = minute
-        if hour is not None:
-            self._trigger_params["hour"] = hour
-        if day is not None:
-            self._trigger_params["day"] = day
-        if day_of_week is not None:
-            self._trigger_params["day_of_week"] = day_of_week
-        if month is not None:
-            self._trigger_params["month"] = month
-        if year is not None:
-            self._trigger_params["year"] = year
-        if week is not None:
-            self._trigger_params["week"] = week
+        if not self._trigger_params:
+            raise ValueError("At least one cron parameter must be specified")
 
         return self
 
@@ -294,65 +291,29 @@ class FluentJobBuilder:
         if self._trigger_type is None:
             raise ValueError("No trigger configured. Call every(), on(), or once() before run()")
 
-        func_args = args if args else None
-        func_kwargs = kwargs if kwargs else None
+        common = {
+            "func": func,
+            "job_id": self._job_id,
+            "name": self._name,
+            "timezone": self._timezone,
+            "args": args if args else None,
+            "kwargs": kwargs if kwargs else None,
+            "metadata": self._metadata,
+            "on_failure": self._on_failure,
+            "on_success": self._on_success,
+            "max_retries": self._max_retries,
+            "retry_delay_seconds": self._retry_delay_seconds,
+            "timeout_seconds": self._timeout_seconds,
+            "priority": self._priority,
+            "if_missed": self._if_missed,
+            "misfire_threshold_seconds": self._misfire_threshold_seconds,
+        }
 
         if self._trigger_type == "interval":
-            return self._scheduler.create_interval_job(
-                func=func,
-                job_id=self._job_id,
-                name=self._name,
-                timezone=self._timezone,
-                args=func_args,
-                kwargs=func_kwargs,
-                metadata=self._metadata,
-                on_failure=self._on_failure,
-                on_success=self._on_success,
-                max_retries=self._max_retries,
-                retry_delay_seconds=self._retry_delay_seconds,
-                timeout_seconds=self._timeout_seconds,
-                priority=self._priority,
-                if_missed=self._if_missed,
-                misfire_threshold_seconds=self._misfire_threshold_seconds,
-                **self._trigger_params,
-            )
+            return self._scheduler.create_interval_job(**common, **self._trigger_params)  # type: ignore[arg-type]
         elif self._trigger_type == "cron":
-            return self._scheduler.create_cron_job(
-                func=func,
-                job_id=self._job_id,
-                name=self._name,
-                timezone=self._timezone,
-                args=func_args,
-                kwargs=func_kwargs,
-                metadata=self._metadata,
-                on_failure=self._on_failure,
-                on_success=self._on_success,
-                max_retries=self._max_retries,
-                retry_delay_seconds=self._retry_delay_seconds,
-                timeout_seconds=self._timeout_seconds,
-                priority=self._priority,
-                if_missed=self._if_missed,
-                misfire_threshold_seconds=self._misfire_threshold_seconds,
-                **self._trigger_params,
-            )
+            return self._scheduler.create_cron_job(**common, **self._trigger_params)  # type: ignore[arg-type]
         elif self._trigger_type == "date":
-            return self._scheduler.create_date_job(
-                func=func,
-                run_date=self._trigger_params["run_date"],
-                job_id=self._job_id,
-                name=self._name,
-                timezone=self._timezone,
-                args=func_args,
-                kwargs=func_kwargs,
-                metadata=self._metadata,
-                on_failure=self._on_failure,
-                on_success=self._on_success,
-                max_retries=self._max_retries,
-                retry_delay_seconds=self._retry_delay_seconds,
-                timeout_seconds=self._timeout_seconds,
-                priority=self._priority,
-                if_missed=self._if_missed,
-                misfire_threshold_seconds=self._misfire_threshold_seconds,
-            )
+            return self._scheduler.create_date_job(**common, **self._trigger_params)  # type: ignore[arg-type]
         else:
             raise ValueError(f"Unknown trigger type: {self._trigger_type}")

@@ -50,6 +50,10 @@ class JobQueue:
 
         # In-flight jobs: job IDs dequeued and sent for execution (thread-safe set)
         self._in_flight_jobs: set[str] = set()
+
+        # All tracked job IDs (pending + in-flight) for duplicate prevention
+        self._known_job_ids: set[str] = set()
+
         self._lock = threading.RLock()
 
     def get_available_slots(self) -> int:
@@ -65,7 +69,7 @@ class JobQueue:
 
     def add_job(self, job_id: str, priority: int = 5) -> bool:
         """
-        Add job ID to pending queue with priority.
+        Add job ID to pending queue with priority. Rejects duplicates.
 
         OPTIMIZED: Only stores job_id + priority instead of full job data.
         Job data will be fetched fresh from storage during execution.
@@ -79,20 +83,21 @@ class JobQueue:
             priority: Job priority (default: 5, higher = more urgent)
 
         Returns:
-            True if added, False if queue is full
+            True if added, False if queue is full or job already in queue
         """
-        try:
-            # Increment sequence counter for FIFO within same priority
-            with self._lock:
-                sequence = self._sequence_counter
-                self._sequence_counter += 1
+        with self._lock:
+            if job_id in self._known_job_ids:
+                return False
 
-            # Enqueue as tuple: (negative_priority, sequence, job_id)
-            # Negative priority so higher numbers come first
-            self._pending_queue.put_nowait((-priority, sequence, job_id))
-            return True
-        except Full:
-            return False
+            sequence = self._sequence_counter
+            self._sequence_counter += 1
+
+            try:
+                self._pending_queue.put_nowait((-priority, sequence, job_id))
+                self._known_job_ids.add(job_id)
+                return True
+            except Full:
+                return False
 
     def get_next_job(self) -> str | None:
         """
@@ -110,7 +115,7 @@ class JobQueue:
             # Dequeue tuple: (negative_priority, sequence, job_id)
             _priority, _sequence, job_id = self._pending_queue.get_nowait()
 
-            # Mark as in-flight
+            # Mark as in-flight (keep in _known_job_ids)
             with self._lock:
                 self._in_flight_jobs.add(job_id)
 
@@ -121,13 +126,14 @@ class JobQueue:
 
     def mark_completed(self, job_id: str) -> None:
         """
-        Mark job as completed and remove from in-flight set.
+        Mark job as completed and remove from tracking.
 
         Args:
             job_id: Job ID to remove
         """
         with self._lock:
             self._in_flight_jobs.discard(job_id)
+            self._known_job_ids.discard(job_id)
 
     def get_status(self) -> dict[str, Any]:
         """

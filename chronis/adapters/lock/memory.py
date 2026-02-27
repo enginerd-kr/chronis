@@ -208,6 +208,9 @@ class InMemoryLockAdapter(LockAdapter):
         new_expiry_time = time.time() + ttl_seconds
 
         with self._mutex:
+            # Clean up expired lock before extending
+            self._cleanup_expired_lock(lock_key)
+
             if lock_key not in self._locks:
                 return False
 
