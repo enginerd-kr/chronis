@@ -28,7 +28,7 @@ from chronis.utils.time import get_timezone, utc_now
 class _PeriodicRunner:
     """Lightweight periodic task runner using daemon threads.
 
-    Replaces APScheduler BackgroundScheduler for simple interval-based
+    Lightweight periodic task runner using daemon threads for simple interval-based
     periodic tasks. Each task runs in its own daemon thread with
     non-overlapping execution (waits for completion before next interval).
     """

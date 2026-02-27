@@ -117,7 +117,7 @@ class BaseScheduler(ABC):
         Start scheduler (implementation-specific).
 
         Subclasses must implement this to start their scheduling mechanism:
-        - PollingScheduler: Start APScheduler for periodic polling
+        - PollingScheduler: Start periodic polling
         - EventScheduler: Start event listener
         """
         pass
