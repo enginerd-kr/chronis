@@ -1,8 +1,6 @@
 """Job execution coordination service."""
 
 import asyncio
-import inspect
-import threading
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -12,8 +10,8 @@ from typing import Any
 from tenacity import RetryError, retry, stop_after_attempt, wait_random_exponential
 
 from chronis.adapters.base import JobStorageAdapter, LockAdapter
-from chronis.core.common.exceptions import FunctionNotRegisteredError, JobTimeoutError
 from chronis.core.execution.callbacks import OnFailureCallback, OnSuccessCallback
+from chronis.core.execution.job_executor import JobExecutor
 from chronis.core.jobs.definition import JobInfo
 from chronis.core.schedulers.next_run_calculator import NextRunTimeCalculator
 from chronis.core.state import JobStatus
@@ -27,8 +25,9 @@ class ExecutionCoordinator:
     """
     Coordinates job execution with concurrency control and distributed locking.
 
-    Ensures jobs are executed exactly once across distributed instances.
-    Sync jobs run in ThreadPoolExecutor, async jobs run on a shared event loop.
+    Manages the job lifecycle: CAS claiming, lock management, status transitions,
+    retry scheduling, and callback invocation. Delegates actual function execution
+    to JobExecutor.
     """
 
     def __init__(
@@ -45,22 +44,6 @@ class ExecutionCoordinator:
         lock_ttl_seconds: int = 300,
         verbose: bool = False,
     ) -> None:
-        """
-        Initialize execution coordinator.
-
-        Args:
-            storage: Storage adapter for job updates
-            lock: Lock adapter for distributed locking
-            executor: Thread pool executor for job execution
-            function_registry: Registry of job functions by name
-            failure_handler_registry: Registry of job-specific failure handlers by job_id
-            success_handler_registry: Registry of job-specific success handlers by job_id
-            global_on_failure: Global failure handler for all jobs
-            global_on_success: Global success handler for all jobs
-            logger: Context logger
-            lock_ttl_seconds: Lock TTL in seconds
-            verbose: Enable verbose logging
-        """
         self.storage = storage
         self.lock = lock
         self.executor = executor
@@ -73,9 +56,7 @@ class ExecutionCoordinator:
         self.lock_ttl_seconds = lock_ttl_seconds
         self.verbose = verbose
 
-        # Shared event loop for async job execution (lazy-initialized)
-        self._async_loop: asyncio.AbstractEventLoop | None = None
-        self._async_thread: threading.Thread | None = None
+        self._job_executor = JobExecutor(function_registry, logger)
 
     def try_execute(self, job_data: dict[str, Any], on_complete: Callable[[str], None]) -> bool:
         """
@@ -115,15 +96,7 @@ class ExecutionCoordinator:
 
     @contextmanager
     def _acquire_lock_context(self, lock_key: str) -> Generator[bool, None, None]:
-        """
-        Context manager for lock acquisition and release with retry.
-
-        Args:
-            lock_key: Lock key
-
-        Yields:
-            True if lock acquired, False otherwise
-        """
+        """Context manager for lock acquisition and release with retry."""
         lock_acquired = False
         try:
             lock_acquired = self.lock.acquire(lock_key, self.lock_ttl_seconds, blocking=False)
@@ -143,23 +116,13 @@ class ExecutionCoordinator:
 
         Routes async functions to the shared event loop and sync functions
         to the thread pool executor.
-
-        Args:
-            job_data: Job data
-            job_logger: Context logger
-            on_complete: Completion callback
-
-        Raises:
-            Exception: Re-raises any exception after rollback
         """
         job_id = job_data["job_id"]
         func_name = job_data.get("func_name", "")
-        func = self.function_registry.get(func_name)
-        is_async = func is not None and inspect.iscoroutinefunction(func)
 
         try:
-            if is_async:
-                loop = self._ensure_async_loop()
+            if self._job_executor.is_async(func_name):
+                loop = self._job_executor.ensure_async_loop()
                 future = asyncio.run_coroutine_threadsafe(
                     self._execute_async(job_data, job_logger), loop
                 )
@@ -186,176 +149,69 @@ class ExecutionCoordinator:
             raise submit_error
 
     # ------------------------------------------------------------------
-    # Sync execution (ThreadPoolExecutor)
+    # Execution dispatch (delegates to JobExecutor)
     # ------------------------------------------------------------------
 
     def _execute_in_background(self, job_data: dict[str, Any], job_logger: ContextLogger) -> None:
         """Execute sync job in background thread."""
         try:
-            self._execute_sync_function(job_data, job_logger)
+            self._job_executor.execute_sync(job_data, job_logger)
             self._handle_job_success(job_data, job_logger)
         except Exception as e:
             self._handle_job_failure(job_data, e, job_logger)
-
-    def _execute_sync_function(
-        self, job_data: dict[str, Any], job_logger: ContextLogger
-    ) -> None:
-        """
-        Execute sync job function with optional timeout.
-
-        Args:
-            job_data: Job data
-            job_logger: Context logger
-
-        Raises:
-            FunctionNotRegisteredError: If function not found
-            JobTimeoutError: If execution exceeds timeout
-        """
-        func_name = job_data["func_name"]
-        args = tuple(job_data.get("args", []))
-        kwargs = job_data.get("kwargs", {})
-        timeout_seconds = job_data.get("timeout_seconds")
-
-        func = self.function_registry.get(func_name)
-        if not func:
-            raise FunctionNotRegisteredError(
-                f"Function '{func_name}' is not registered. "
-                "Call scheduler.register_job_function(name, func) before creating jobs."
-            )
-
-        if timeout_seconds:
-            result: dict[str, Any] = {"completed": False, "error": None}
-
-            def _run_with_result():
-                try:
-                    func(*args, **kwargs)
-                    result["completed"] = True
-                except Exception as e:
-                    result["error"] = e
-
-            thread = threading.Thread(target=_run_with_result, daemon=True)
-            thread.start()
-            thread.join(timeout=timeout_seconds)
-
-            if thread.is_alive():
-                timeout_msg = (
-                    f"Job exceeded timeout of {timeout_seconds}s. "
-                    "Note: Thread cannot be forcefully stopped and may continue running."
-                )
-                job_logger.warning(
-                    "Job timeout (thread still running)",
-                    timeout_seconds=timeout_seconds,
-                    job_type="sync",
-                )
-                raise JobTimeoutError(timeout_msg)
-
-            error = result["error"]
-            if error:
-                raise error  # type: ignore[misc]
-
-            if not result["completed"]:
-                raise RuntimeError("Job did not complete")
-        else:
-            func(*args, **kwargs)
-
-    # ------------------------------------------------------------------
-    # Async execution (shared event loop)
-    # ------------------------------------------------------------------
 
     async def _execute_async(
         self, job_data: dict[str, Any], job_logger: ContextLogger
     ) -> None:
         """Execute async job on the shared event loop."""
-        func_name = job_data["func_name"]
-        args = tuple(job_data.get("args", []))
-        kwargs = job_data.get("kwargs", {})
-        timeout_seconds = job_data.get("timeout_seconds")
-
+        loop = asyncio.get_running_loop()
         try:
-            func = self.function_registry.get(func_name)
-            if not func:
-                raise FunctionNotRegisteredError(
-                    f"Function '{func_name}' is not registered. "
-                    "Call scheduler.register_job_function(name, func) before creating jobs."
-                )
-
-            coro = func(*args, **kwargs)
-            if timeout_seconds:
-                await asyncio.wait_for(coro, timeout=timeout_seconds)
-            else:
-                await coro
-
-            self._handle_job_success(job_data, job_logger)
-        except Exception as e:
-            self._handle_job_failure(job_data, e, job_logger)
-
-    def _ensure_async_loop(self) -> asyncio.AbstractEventLoop:
-        """Get or create the shared event loop for async jobs."""
-        if self._async_loop is None or self._async_loop.is_closed():
-            self._async_loop = asyncio.new_event_loop()
-            self._async_thread = threading.Thread(
-                target=self._async_loop.run_forever,
-                daemon=True,
-                name="chronis-async",
+            await self._job_executor.execute_async(job_data, job_logger)
+            # Run sync I/O (storage updates, callbacks) off the event loop
+            await loop.run_in_executor(
+                None, self._handle_job_success, job_data, job_logger
             )
-            self._async_thread.start()
-        return self._async_loop
+        except Exception as e:
+            await loop.run_in_executor(
+                None, self._handle_job_failure, job_data, e, job_logger
+            )
 
     def shutdown_async(self, wait: bool = True) -> None:
-        """
-        Shut down the shared async event loop.
-
-        Args:
-            wait: If True, wait for running async jobs to complete.
-        """
-        if self._async_loop is None or self._async_loop.is_closed():
-            return
-
-        if wait:
-            # Wait for all pending async tasks to complete
-            async def _drain() -> None:
-                tasks = [
-                    t for t in asyncio.all_tasks(self._async_loop)
-                    if t is not asyncio.current_task()
-                ]
-                if tasks:
-                    await asyncio.gather(*tasks, return_exceptions=True)
-
-            try:
-                future = asyncio.run_coroutine_threadsafe(_drain(), self._async_loop)
-                future.result(timeout=60)
-            except Exception:
-                pass
-
-        self._async_loop.call_soon_threadsafe(self._async_loop.stop)
-        if self._async_thread:
-            self._async_thread.join(timeout=5)
-        self._async_loop.close()
-        self._async_loop = None
-        self._async_thread = None
+        """Shut down the shared async event loop."""
+        self._job_executor.shutdown_async(wait)
 
     # ------------------------------------------------------------------
-    # Shared success/failure handlers
+    # Success/failure handlers
     # ------------------------------------------------------------------
 
     def _handle_job_success(self, job_data: dict[str, Any], job_logger: ContextLogger) -> None:
         """Handle successful job execution (shared by sync and async paths)."""
         job_id = job_data["job_id"]
+        now = utc_now()
         try:
-            if job_data.get("retry_count", 0) > 0:
-                self.storage.update_job(
-                    job_id, {"retry_count": 0, "updated_at": utc_now().isoformat()}
-                )
-
             next_status = JobInfo.determine_next_status_after_execution(
                 trigger_type=job_data["trigger_type"], execution_succeeded=True
             )
 
             if next_status is None:
+                # DATE job: delete directly
                 self.storage.delete_job(job_id)
             else:
-                self._update_next_run_time(job_data)
-                self._update_job_status(job_id, next_status)
+                # Recurring job: combine ALL updates into single storage call
+                updates: JobUpdateData = {
+                    "status": next_status.value,
+                    "updated_at": now.isoformat(),
+                }
+
+                if job_data.get("retry_count", 0) > 0:
+                    updates["retry_count"] = 0
+
+                original_scheduled_time = job_data.get("_original_scheduled_time")
+                if original_scheduled_time:
+                    updates["last_scheduled_time"] = original_scheduled_time
+                    updates["last_run_time"] = now.isoformat()
+
+                self.storage.update_job(job_id, updates)
 
             self._invoke_success_callback(job_id, job_data)
         except Exception as e:
@@ -407,17 +263,12 @@ class ExecutionCoordinator:
         1. The job status is still SCHEDULED
         2. The next_run_time hasn't been updated by another instance
 
-        This eliminates the Time-of-Check to Time-of-Use (TOCTOU) vulnerability
-        by combining verification and update into a single atomic operation.
-
         Args:
             job_id: Job ID to claim
             job_data: Job data from queue (may be stale)
 
         Returns:
-            Tuple of (success, updated_job_data):
-                - success: True if job was successfully claimed
-                - updated_job_data: Updated job data if success=True, None otherwise
+            Tuple of (success, updated_job_data)
         """
         trigger_type = job_data["trigger_type"]
         current_time_str = utc_now().isoformat()
@@ -475,7 +326,6 @@ class ExecutionCoordinator:
             )
             if success and updated_job:
                 result = dict(updated_job)
-                # Preserve original scheduled time for _update_next_run_time()
                 result["_original_scheduled_time"] = queue_next_run
                 return (True, result)
             return (False, None)
@@ -495,36 +345,6 @@ class ExecutionCoordinator:
                 "updated_at": utc_now().isoformat(),
             },
         )
-
-    def _update_next_run_time(self, job_data: dict[str, Any]) -> None:
-        """
-        Update execution timestamps after job runs.
-
-        next_run_time for recurring jobs is already set by _try_claim_job_with_cas().
-        This only records last_scheduled_time and last_run_time.
-        For DATE jobs, also clears next_run_time.
-        """
-        original_scheduled_time = job_data.get("_original_scheduled_time")
-        if not original_scheduled_time:
-            return
-
-        updates: JobUpdateData = {
-            "last_scheduled_time": original_scheduled_time,
-            "last_run_time": utc_now().isoformat(),
-            "updated_at": utc_now().isoformat(),
-        }
-
-        if job_data["trigger_type"] == TriggerType.DATE.value:
-            updates["next_run_time"] = None
-
-        try:
-            self.storage.update_job(job_data["job_id"], updates)
-        except Exception as e:
-            self.logger.warning(
-                "Failed to update execution timestamps",
-                job_id=job_data["job_id"],
-                error=str(e),
-            )
 
     # ------------------------------------------------------------------
     # Callbacks
@@ -581,20 +401,16 @@ class ExecutionCoordinator:
         Schedule job retry with exponential backoff.
 
         Backoff formula: delay = base_delay * (2 ^ (retry_count - 1)), capped at 3600s.
-
-        Args:
-            job_data: Job data from storage
-            next_retry_count: Next retry attempt number (1-indexed)
-            job_logger: Context logger for this job
         """
         job_id = job_data["job_id"]
         base_delay = job_data.get("retry_delay_seconds", 60)
         timezone = job_data.get("timezone", "UTC")
+        now = utc_now()
 
         # Exponential backoff: 60s, 120s, 240s, 480s, 960s, 1800s, 3600s (cap)
         delay_seconds = min(base_delay * (2 ** (next_retry_count - 1)), 3600)
 
-        next_run_time = utc_now() + timedelta(seconds=delay_seconds)
+        next_run_time = now + timedelta(seconds=delay_seconds)
         tz = get_timezone(timezone)
         next_run_time_local = next_run_time.astimezone(tz)
 
@@ -606,7 +422,7 @@ class ExecutionCoordinator:
                     "next_run_time": next_run_time.isoformat(),
                     "next_run_time_local": next_run_time_local.isoformat(),
                     "status": JobStatus.SCHEDULED.value,
-                    "updated_at": utc_now().isoformat(),
+                    "updated_at": now.isoformat(),
                 },
             )
 

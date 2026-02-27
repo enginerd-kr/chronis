@@ -10,8 +10,6 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from chronis.core.schedulers.next_run_calculator import NextRunTimeCalculator
-
 if TYPE_CHECKING:
     from chronis.type_defs import JobStorageData
 
@@ -140,82 +138,7 @@ class MisfireDetector:
         return delay if delay > threshold else None
 
 
-class MisfireHandler:
-    """Handle misfired jobs according to policy."""
-
-    MAX_MISSED_RUNS = 100
-
-    def handle(
-        self,
-        job_data: JobStorageData,
-        scheduled_time: datetime,
-        current_time: datetime,
-    ) -> list[datetime]:
-        """
-        Determine execution times for misfired job.
-
-        Args:
-            job_data: Job storage data
-            scheduled_time: Original scheduled time that was missed
-            current_time: Current time when misfire was detected
-
-        Returns:
-            List of times to execute the job (empty list = skip execution)
-        """
-        policy_str = job_data.get("if_missed", "run_once")
-
-        if policy_str == MisfirePolicy.SKIP.value:
-            return []
-
-        elif policy_str == MisfirePolicy.RUN_ONCE.value:
-            return [current_time]
-
-        elif policy_str == MisfirePolicy.RUN_ALL.value:
-            return self._get_all_missed_runs(job_data, scheduled_time, current_time)
-
-        return []
-
-    def _get_all_missed_runs(
-        self,
-        job_data: JobStorageData,
-        scheduled_time: datetime,
-        current_time: datetime,
-    ) -> list[datetime]:
-        """
-        Calculate all missed execution times.
-
-        Args:
-            job_data: Job storage data
-            scheduled_time: Original scheduled time that was missed
-            current_time: Current time
-
-        Returns:
-            List of all missed execution times (up to MAX_MISSED_RUNS)
-        """
-        missed_runs: list[datetime] = []
-        check_time = scheduled_time
-
-        trigger_type = job_data.get("trigger_type", "interval")
-        trigger_args = job_data.get("trigger_args", {})
-        timezone = job_data.get("timezone", "UTC")
-
-        while check_time < current_time and len(missed_runs) < self.MAX_MISSED_RUNS:
-            missed_runs.append(check_time)
-
-            next_time = NextRunTimeCalculator.calculate(
-                trigger_type, trigger_args, timezone, check_time
-            )
-
-            if next_time is None:
-                break
-
-            check_time = next_time
-
-        return missed_runs
-
-
 __all__ = [
     "MisfirePolicy",
     "MisfireDetector",
-    "MisfireHandler",
 ]

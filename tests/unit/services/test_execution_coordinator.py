@@ -1,11 +1,15 @@
 """Pure unit tests for ExecutionCoordinator with mocks for all dependencies."""
 
+import asyncio
+import threading
 from datetime import UTC, datetime
 from unittest.mock import Mock, patch
 
 import pytest
 
 from chronis.core.execution.coordinator import ExecutionCoordinator
+from chronis.core.execution.job_executor import JobExecutor
+from chronis.core.state import JobStatus
 
 
 class TestTriggerExecutionLogging:
@@ -107,13 +111,18 @@ class TestExecuteInBackgroundRetryLogic:
         with patch(
             "chronis.core.jobs.definition.JobInfo.determine_next_status_after_execution"
         ) as status_mock:
-            status_mock.return_value = None
+            # Test with recurring job (INTERVAL) so retry_count reset is included in update
+            status_mock.return_value = JobStatus.SCHEDULED
+            job_data["trigger_type"] = "interval"
 
             coordinator._execute_in_background(job_data, Mock())
 
-        # Verify retry_count was reset to 0
+        # Verify retry_count was reset to 0 in a single update_job call
         update_calls = [call for call in storage_mock.method_calls if call[0] == "update_job"]
-        assert any("retry_count" in str(call) and "0" in str(call) for call in update_calls)
+        assert len(update_calls) == 1
+        updates_dict = update_calls[0][1][1]  # second positional arg
+        assert updates_dict["retry_count"] == 0
+        assert updates_dict["status"] == "scheduled"
 
 
 class TestScheduleRetryErrorHandling:
@@ -412,3 +421,166 @@ class TestExecutorSubmitRollback:
 
         # Verify no warning logged
         job_logger.warning.assert_not_called()
+
+
+class TestAsyncJobDispatch:
+    """Test async job routing to the shared event loop."""
+
+    def test_async_job_dispatches_to_event_loop(self):
+        """Async function should be routed to the shared event loop, not the thread pool."""
+        async def async_func():
+            pass
+
+        coordinator = ExecutionCoordinator(
+            storage=Mock(),
+            lock=Mock(),
+            executor=Mock(),
+            function_registry={"async_func": async_func},
+            failure_handler_registry={},
+            success_handler_registry={},
+            global_on_failure=None,
+            global_on_success=None,
+            logger=Mock(),
+        )
+
+        job_data = {"job_id": "test-1", "func_name": "async_func"}
+        on_complete = Mock()
+
+        # Mock the event loop to avoid actually starting one
+        mock_loop = Mock()
+        mock_future = Mock()
+        mock_loop.is_closed.return_value = False
+        coordinator._job_executor._async_loop = mock_loop
+        coordinator._job_executor._async_thread = Mock()
+
+        with patch("asyncio.run_coroutine_threadsafe", return_value=mock_future) as mock_rcts:
+            coordinator._trigger_execution(job_data, Mock(), on_complete)
+
+        # Async path should be used, not executor.submit
+        mock_rcts.assert_called_once()
+        coordinator.executor.submit.assert_not_called()
+        mock_future.add_done_callback.assert_called_once()
+
+    def test_sync_job_dispatches_to_thread_pool(self):
+        """Sync function should be routed to the thread pool, not the event loop."""
+        def sync_func():
+            pass
+
+        executor_mock = Mock()
+        future_mock = Mock()
+        executor_mock.submit.return_value = future_mock
+
+        coordinator = ExecutionCoordinator(
+            storage=Mock(),
+            lock=Mock(),
+            executor=executor_mock,
+            function_registry={"sync_func": sync_func},
+            failure_handler_registry={},
+            success_handler_registry={},
+            global_on_failure=None,
+            global_on_success=None,
+            logger=Mock(),
+        )
+
+        job_data = {"job_id": "test-1", "func_name": "sync_func"}
+
+        with patch("asyncio.run_coroutine_threadsafe") as mock_rcts:
+            coordinator._trigger_execution(job_data, Mock(), Mock())
+
+        executor_mock.submit.assert_called_once()
+        mock_rcts.assert_not_called()
+
+
+class TestEnsureAsyncLoopThreadSafety:
+    """Test that ensure_async_loop() is thread-safe."""
+
+    def test_concurrent_calls_create_single_loop(self):
+        """Multiple threads calling ensure_async_loop() should produce exactly one loop."""
+        executor = JobExecutor(function_registry={}, logger=Mock())
+        barrier = threading.Barrier(10)
+        loops: list[asyncio.AbstractEventLoop] = []
+        lock = threading.Lock()
+
+        def get_loop():
+            barrier.wait()
+            loop = executor.ensure_async_loop()
+            with lock:
+                loops.append(loop)
+
+        threads = [threading.Thread(target=get_loop) for _ in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+
+        # All threads should get the same loop instance
+        assert len(loops) == 10
+        assert all(loop is loops[0] for loop in loops)
+
+        # Cleanup
+        executor.shutdown_async(wait=False)
+
+
+class TestSubmitFailureRollback:
+    """Test rollback behavior when both submit and rollback fail."""
+
+    def test_rollback_failure_does_not_mask_original_error(self):
+        """If rollback also fails, the original submit error should still be raised."""
+        storage_mock = Mock()
+        storage_mock.update_job.side_effect = RuntimeError("Storage down")
+
+        executor_mock = Mock()
+        executor_mock.submit.side_effect = RuntimeError("ThreadPool is shutting down")
+
+        coordinator = ExecutionCoordinator(
+            storage=storage_mock,
+            lock=Mock(),
+            executor=executor_mock,
+            function_registry={},
+            failure_handler_registry={},
+            success_handler_registry={},
+            global_on_failure=None,
+            global_on_success=None,
+            logger=Mock(),
+        )
+
+        job_logger = Mock()
+
+        # Original error should propagate, not the rollback error
+        with pytest.raises(RuntimeError, match="ThreadPool is shutting down"):
+            coordinator._trigger_execution({"job_id": "test-1"}, job_logger, Mock())
+
+        # Rollback was attempted
+        storage_mock.update_job.assert_called_once()
+        # Rollback failure was logged
+        job_logger.error.assert_called_once()
+        assert "Failed to rollback" in job_logger.error.call_args[0][0]
+
+
+class TestShutdownAsync:
+    """Test async shutdown waits for running tasks."""
+
+    def test_shutdown_waits_for_running_tasks(self):
+        """shutdown_async(wait=True) should wait for running async tasks."""
+        executor = JobExecutor(function_registry={}, logger=Mock())
+        loop = executor.ensure_async_loop()
+
+        completed = threading.Event()
+
+        async def slow_task():
+            await asyncio.sleep(0.3)
+            completed.set()
+
+        asyncio.run_coroutine_threadsafe(slow_task(), loop)
+
+        executor.shutdown_async(wait=True)
+
+        # Task should have completed before shutdown returned
+        assert completed.is_set()
+        assert executor._async_loop is None
+
+    def test_shutdown_without_loop_is_noop(self):
+        """shutdown_async() on uninitialized executor should not raise."""
+        executor = JobExecutor(function_registry={}, logger=Mock())
+        # Should not raise
+        executor.shutdown_async(wait=True)
