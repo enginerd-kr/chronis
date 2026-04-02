@@ -13,7 +13,7 @@ from chronis.type_defs import JobStorageData, JobUpdateData
 from chronis.utils.time import utc_now
 
 
-class PostgreSQLStorageAdapter(JobStorageAdapter):
+class PostgreSQLStorage(JobStorageAdapter):
     """
     PostgreSQL-based job storage adapter with migration-based schema management.
 
@@ -72,7 +72,7 @@ class PostgreSQLStorageAdapter(JobStorageAdapter):
         if not table_name:
             raise ValueError(
                 "Table name cannot be empty\n"
-                "Example: PostgreSQLStorageAdapter(conn, 'chronis_jobs')"
+                "Example: PostgreSQLStorage(conn, 'chronis_jobs')"
             )
 
         if len(table_name) > self._MAX_TABLE_NAME_LENGTH:

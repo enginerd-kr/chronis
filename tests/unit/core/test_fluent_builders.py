@@ -4,14 +4,14 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from chronis import InMemoryLockAdapter, InMemoryStorageAdapter, PollingScheduler
+from chronis import InMemoryLock, InMemoryStorage, PollingScheduler
 
 
 @pytest.fixture
 def scheduler():
     """Create scheduler for testing."""
-    storage = InMemoryStorageAdapter()
-    lock = InMemoryLockAdapter()
+    storage = InMemoryStorage()
+    lock = InMemoryLock()
     sched = PollingScheduler(
         storage_adapter=storage,
         lock_adapter=lock,

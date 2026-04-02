@@ -18,7 +18,7 @@ timing code within your job functions or use APM tools.
 import time
 from datetime import UTC, datetime, timedelta
 
-from chronis import InMemoryLockAdapter, InMemoryStorageAdapter, PollingScheduler
+from chronis import InMemoryLock, InMemoryStorage, PollingScheduler
 
 # =============================================================================
 # Execution History Storage
@@ -181,8 +181,8 @@ def main():
 
     # 2. Setup scheduler with history handlers
     print("\n2. Creating scheduler with execution history handlers...")
-    storage = InMemoryStorageAdapter()
-    lock = InMemoryLockAdapter()
+    storage = InMemoryStorage()
+    lock = InMemoryLock()
     scheduler = PollingScheduler(
         storage_adapter=storage,
         lock_adapter=lock,

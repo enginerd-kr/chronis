@@ -4,8 +4,8 @@ import time
 from datetime import datetime, timedelta
 
 from chronis import (
-    InMemoryLockAdapter,
-    InMemoryStorageAdapter,
+    InMemoryLock,
+    InMemoryStorage,
     PollingScheduler,
 )
 
@@ -31,8 +31,8 @@ def main():
 
     # 1. Create storage and lock adapters
     print("1. Creating adapters...")
-    storage = InMemoryStorageAdapter()
-    lock = InMemoryLockAdapter()
+    storage = InMemoryStorage()
+    lock = InMemoryLock()
 
     # 2. Create scheduler
     print("2. Creating scheduler...")

@@ -5,7 +5,7 @@ from datetime import timedelta
 import pytest
 from conftest import register_dummy_job
 
-from chronis import InMemoryStorageAdapter
+from chronis import InMemoryStorage
 from chronis.core.misfire import MisfireDetector
 from chronis.utils.time import utc_now
 
@@ -68,7 +68,7 @@ class TestMisfireIntegration:
 
     def test_misfire_classification_in_query(self):
         """Test that misfire classification works with query_jobs."""
-        storage = InMemoryStorageAdapter()
+        storage = InMemoryStorage()
 
         # Create a job that should be misfired
         past_time = (utc_now() - timedelta(minutes=5)).isoformat()
@@ -116,7 +116,7 @@ class TestMisfireIntegration:
 
     def test_update_job_with_run_times(self):
         """Test that update_job works correctly with run time fields."""
-        storage = InMemoryStorageAdapter()
+        storage = InMemoryStorage()
 
         # Create a job
         now = utc_now()
@@ -169,7 +169,7 @@ class TestMisfireIntegration:
 
     def test_update_job_run_times_nonexistent_job(self):
         """Test that update_job raises error for nonexistent job."""
-        storage = InMemoryStorageAdapter()
+        storage = InMemoryStorage()
 
         with pytest.raises(ValueError, match="Job nonexistent not found"):
             storage.update_job(

@@ -1,5 +1,5 @@
 """Storage adapters."""
 
-from chronis.adapters.storage.memory import InMemoryStorageAdapter
+from chronis.adapters.storage.memory import InMemoryStorage
 
-__all__ = ["InMemoryStorageAdapter"]
+__all__ = ["InMemoryStorage"]

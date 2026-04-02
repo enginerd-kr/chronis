@@ -4,7 +4,7 @@ import asyncio
 import time
 from datetime import UTC, datetime, timedelta
 
-from chronis import InMemoryLockAdapter, InMemoryStorageAdapter, PollingScheduler
+from chronis import InMemoryLock, InMemoryStorage, PollingScheduler
 
 
 class TestPollingSchedulerGracefulShutdown:
@@ -12,8 +12,8 @@ class TestPollingSchedulerGracefulShutdown:
 
     def test_stop_waits_for_sync_job(self):
         """Test that stop() waits for sync jobs to complete."""
-        storage = InMemoryStorageAdapter()
-        lock = InMemoryLockAdapter()
+        storage = InMemoryStorage()
+        lock = InMemoryLock()
         scheduler = PollingScheduler(
             storage_adapter=storage,
             lock_adapter=lock,
@@ -49,8 +49,8 @@ class TestPollingSchedulerGracefulShutdown:
 
     def test_stop_waits_for_async_job(self):
         """Test that stop() waits for async jobs to complete."""
-        storage = InMemoryStorageAdapter()
-        lock = InMemoryLockAdapter()
+        storage = InMemoryStorage()
+        lock = InMemoryLock()
         scheduler = PollingScheduler(
             storage_adapter=storage,
             lock_adapter=lock,
@@ -86,8 +86,8 @@ class TestPollingSchedulerGracefulShutdown:
 
     def test_stop_waits_for_async_job_to_complete(self):
         """Test that stop() waits for async jobs (same as sync) since they run in ThreadPool."""
-        storage = InMemoryStorageAdapter()
-        lock = InMemoryLockAdapter()
+        storage = InMemoryStorage()
+        lock = InMemoryLock()
         scheduler = PollingScheduler(
             storage_adapter=storage,
             lock_adapter=lock,
@@ -123,8 +123,8 @@ class TestPollingSchedulerGracefulShutdown:
 
     def test_stop_when_not_running(self):
         """Test that stop() returns immediately when scheduler not running."""
-        storage = InMemoryStorageAdapter()
-        lock = InMemoryLockAdapter()
+        storage = InMemoryStorage()
+        lock = InMemoryLock()
         scheduler = PollingScheduler(
             storage_adapter=storage,
             lock_adapter=lock,
@@ -141,8 +141,8 @@ class TestPollingSchedulerGracefulShutdown:
 
     def test_stop_waits_for_long_async_job(self):
         """Test that stop() waits for long async jobs since they run in ThreadPool."""
-        storage = InMemoryStorageAdapter()
-        lock = InMemoryLockAdapter()
+        storage = InMemoryStorage()
+        lock = InMemoryLock()
         scheduler = PollingScheduler(
             storage_adapter=storage,
             lock_adapter=lock,

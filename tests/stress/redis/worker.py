@@ -16,8 +16,8 @@ import time
 import redis
 
 from chronis import PollingScheduler
-from chronis.contrib.adapters.lock import RedisLockAdapter
-from chronis.contrib.adapters.storage import RedisStorageAdapter
+from chronis.contrib.adapters.lock import RedisLock
+from chronis.contrib.adapters.storage import RedisStorage
 
 # Global flag for graceful shutdown
 shutdown_requested = False
@@ -129,8 +129,8 @@ def main():
         return 1
 
     # Create adapters
-    storage = RedisStorageAdapter(redis_client, key_prefix="stress:jobs:")
-    lock = RedisLockAdapter(redis_client, key_prefix="stress:lock:")
+    storage = RedisStorage(redis_client, key_prefix="stress:jobs:")
+    lock = RedisLock(redis_client, key_prefix="stress:lock:")
 
     # Create scheduler with tuned settings for stress test
     scheduler = PollingScheduler(

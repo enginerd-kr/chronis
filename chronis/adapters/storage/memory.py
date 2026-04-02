@@ -11,12 +11,12 @@ from chronis.utils.time import utc_now
 logger = logging.getLogger(__name__)
 
 
-class InMemoryStorageAdapter(JobStorageAdapter):
+class InMemoryStorage(JobStorageAdapter):
     """
     In-memory storage adapter for testing and local development.
 
     WARNING: Not for production use. Data is not persisted and not distributed.
-    Use RedisStorageAdapter or PostgreSQLStorageAdapter in production.
+    Use RedisStorage or PostgreSQLStorage in production.
     """
 
     def __init__(self) -> None:
@@ -25,8 +25,8 @@ class InMemoryStorageAdapter(JobStorageAdapter):
         self._lock = threading.Lock()
 
         logger.warning(
-            "InMemoryStorageAdapter is for testing/development only. "
-            "Use RedisStorageAdapter, PostgreSQLStorageAdapter, or DynamoDBStorageAdapter in production."
+            "InMemoryStorage is for testing/development only. "
+            "Use RedisStorage, PostgreSQLStorage, or DynamoDBStorageAdapter in production."
         )
 
     def create_job(self, job_data: JobStorageData) -> JobStorageData:

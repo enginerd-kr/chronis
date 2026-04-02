@@ -306,7 +306,7 @@ LUA_EXTEND_SCRIPT = """
     return 1
 """
 
-class RedisLockAdapter(LockAdapter):
+class RedisLock(LockAdapter):
     def __init__(self, redis_client, key_prefix="chronis:lock:"):
         self.redis = redis_client
         self.key_prefix = key_prefix

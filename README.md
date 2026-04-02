@@ -35,12 +35,12 @@ pip install chronis[all]        # All adapters
 ## Quick Start
 
 ```python
-from chronis import PollingScheduler, InMemoryStorageAdapter, InMemoryLockAdapter
+from chronis import PollingScheduler, InMemoryStorage, InMemoryLock
 
 # Setup
 scheduler = PollingScheduler(
-    storage_adapter=InMemoryStorageAdapter(),
-    lock_adapter=InMemoryLockAdapter(),
+    storage_adapter=InMemoryStorage(),
+    lock_adapter=InMemoryLock(),
 )
 
 def send_email():

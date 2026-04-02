@@ -22,8 +22,8 @@ import time
 import psycopg2
 
 from chronis import PollingScheduler
-from chronis.adapters.lock import InMemoryLockAdapter
-from chronis.contrib.adapters.storage import PostgreSQLStorageAdapter
+from chronis.adapters.lock import InMemoryLock
+from chronis.contrib.adapters.storage import PostgreSQLStorage
 
 
 def send_notification():
@@ -60,8 +60,8 @@ def main():
         # 2. Create adapters (automatic migrations)
         print("2. Creating PostgreSQL storage adapter...")
         print("   Running database migrations...")
-        storage = PostgreSQLStorageAdapter(conn)
-        lock = InMemoryLockAdapter()  # Use Redis for production
+        storage = PostgreSQLStorage(conn)
+        lock = InMemoryLock()  # Use Redis for production
         print("   ✓ Adapters created")
         print("   ✓ Database migrations applied")
         print("   ✓ Tables: chronis_jobs, chronis_migration_history\n")

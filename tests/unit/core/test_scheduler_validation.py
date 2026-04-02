@@ -2,8 +2,8 @@
 
 import pytest
 
-from chronis.adapters.lock.memory import InMemoryLockAdapter
-from chronis.adapters.storage.memory import InMemoryStorageAdapter
+from chronis.adapters.lock.memory import InMemoryLock
+from chronis.adapters.storage.memory import InMemoryStorage
 from chronis.core.schedulers.polling_scheduler import PollingScheduler
 
 
@@ -14,8 +14,8 @@ class TestPollingIntervalValidation:
         """Test that polling_interval < MIN_POLLING_INTERVAL raises ValueError."""
         with pytest.raises(ValueError) as exc_info:
             PollingScheduler(
-                storage_adapter=InMemoryStorageAdapter(),
-                lock_adapter=InMemoryLockAdapter(),
+                storage_adapter=InMemoryStorage(),
+                lock_adapter=InMemoryLock(),
                 polling_interval_seconds=0,  # Below MIN (1)
             )
 
@@ -25,8 +25,8 @@ class TestPollingIntervalValidation:
         """Test that polling_interval > MAX_POLLING_INTERVAL raises ValueError."""
         with pytest.raises(ValueError) as exc_info:
             PollingScheduler(
-                storage_adapter=InMemoryStorageAdapter(),
-                lock_adapter=InMemoryLockAdapter(),
+                storage_adapter=InMemoryStorage(),
+                lock_adapter=InMemoryLock(),
                 polling_interval_seconds=4000,  # Above MAX (3600)
             )
 
@@ -40,8 +40,8 @@ class TestLockTTLValidation:
         """Test that lock_ttl < 2x polling_interval raises ValueError."""
         with pytest.raises(ValueError) as exc_info:
             PollingScheduler(
-                storage_adapter=InMemoryStorageAdapter(),
-                lock_adapter=InMemoryLockAdapter(),
+                storage_adapter=InMemoryStorage(),
+                lock_adapter=InMemoryLock(),
                 polling_interval_seconds=10,
                 lock_ttl_seconds=15,  # Less than 2x (20)
             )

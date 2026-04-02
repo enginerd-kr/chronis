@@ -39,12 +39,12 @@ V010__add_retry_tracking.sql
 
 ```python
 import psycopg2
-from chronis.contrib.adapters.storage.postgres import PostgreSQLStorageAdapter
+from chronis.contrib.adapters.storage.postgres import PostgreSQLStorage
 
 conn = psycopg2.connect(...)
 
 # Automatically runs pending migrations on initialization
-storage = PostgreSQLStorageAdapter(
+storage = PostgreSQLStorage(
     conn,
     migrations_dir="chronis/contrib/adapters/storage/postgres/migrations"
 )
@@ -73,7 +73,7 @@ runner.migrate(target_version=5)
 
 ```python
 # Initialize without running migrations
-storage = PostgreSQLStorageAdapter(
+storage = PostgreSQLStorage(
     conn,
     migrations_dir="chronis/contrib/adapters/storage/postgres/migrations",
     auto_migrate=False
@@ -149,7 +149,7 @@ for m in status['pending']:
 If you need more control, disable auto-migration and run manually:
 
 ```python
-storage = PostgreSQLStorageAdapter(
+storage = PostgreSQLStorage(
     conn,
     migrations_dir="chronis/contrib/adapters/storage/migrations",
     auto_migrate=False

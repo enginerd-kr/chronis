@@ -5,17 +5,17 @@ import time
 
 import pytest
 
-from chronis.adapters.lock import InMemoryLockAdapter
+from chronis.adapters.lock import InMemoryLock
 
 
 @pytest.fixture
 def lock_adapter():
     """Create in-memory lock adapter."""
-    return InMemoryLockAdapter()
+    return InMemoryLock()
 
 
-class TestInMemoryLockAdapter:
-    """Unit tests for InMemoryLockAdapter basic operations."""
+class TestInMemoryLock:
+    """Unit tests for InMemoryLock basic operations."""
 
     def test_acquire_lock(self, lock_adapter):
         """Test acquiring a lock."""
@@ -105,8 +105,8 @@ class TestLockOwnership:
 
     def test_different_instances_cannot_interfere(self):
         """Test different lock adapter instances cannot interfere with each other's locks."""
-        adapter1 = InMemoryLockAdapter()
-        adapter2 = InMemoryLockAdapter()
+        adapter1 = InMemoryLock()
+        adapter2 = InMemoryLock()
 
         # Adapter 1 acquires lock
         adapter1.acquire("test-lock", ttl_seconds=60)
@@ -384,7 +384,7 @@ class TestRaceConditions:
 
     def test_ownership_prevents_cross_thread_release(self):
         """Test ownership prevents thread from releasing another thread's lock with different owner_id."""
-        adapter = InMemoryLockAdapter()
+        adapter = InMemoryLock()
 
         def thread1_work(results):
             # Thread 1 acquires with explicit owner_id
