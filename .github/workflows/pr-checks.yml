@@ -12,7 +12,29 @@ permissions:
   id-token: write
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect code changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'chronis/**'
+              - 'tests/**'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - '.github/workflows/pr-checks.yml'
+
   lint-and-test:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -52,8 +74,8 @@ jobs:
           MINIMUM_ORANGE: 60
 
   claude-review-and-label:
-    needs: lint-and-test
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    needs: [changes, lint-and-test]
+    if: always() && github.event.pull_request.head.repo.full_name == github.repository && (needs.lint-and-test.result == 'success' || needs.lint-and-test.result == 'skipped')
     runs-on: ubuntu-latest
 
     steps:
