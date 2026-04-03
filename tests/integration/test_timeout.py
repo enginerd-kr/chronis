@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from chronis import InMemoryLockAdapter, InMemoryStorageAdapter, PollingScheduler
+from chronis import InMemoryLock, InMemoryStorage, PollingScheduler
 from chronis.core.state import JobStatus
 
 
@@ -15,8 +15,8 @@ class TestJobTimeout:
 
     def test_sync_job_timeout_fails_job(self):
         """Test that sync job times out and marks job as failed."""
-        storage = InMemoryStorageAdapter()
-        lock = InMemoryLockAdapter()
+        storage = InMemoryStorage()
+        lock = InMemoryLock()
         scheduler = PollingScheduler(
             storage_adapter=storage,
             lock_adapter=lock,
@@ -44,8 +44,8 @@ class TestJobTimeout:
     @pytest.mark.asyncio
     async def test_async_job_timeout_fails_job(self):
         """Test that async job times out and marks job as failed."""
-        storage = InMemoryStorageAdapter()
-        lock = InMemoryLockAdapter()
+        storage = InMemoryStorage()
+        lock = InMemoryLock()
         scheduler = PollingScheduler(
             storage_adapter=storage,
             lock_adapter=lock,
@@ -72,8 +72,8 @@ class TestJobTimeout:
 
     def test_sync_job_within_timeout_succeeds(self):
         """Test that sync job completes successfully within timeout."""
-        storage = InMemoryStorageAdapter()
-        lock = InMemoryLockAdapter()
+        storage = InMemoryStorage()
+        lock = InMemoryLock()
         scheduler = PollingScheduler(
             storage_adapter=storage,
             lock_adapter=lock,
@@ -104,8 +104,8 @@ class TestJobTimeout:
     @pytest.mark.asyncio
     async def test_async_job_within_timeout_succeeds(self):
         """Test that async job completes successfully within timeout."""
-        storage = InMemoryStorageAdapter()
-        lock = InMemoryLockAdapter()
+        storage = InMemoryStorage()
+        lock = InMemoryLock()
         scheduler = PollingScheduler(
             storage_adapter=storage,
             lock_adapter=lock,
@@ -135,8 +135,8 @@ class TestJobTimeout:
 
     def test_job_without_timeout_runs_indefinitely(self):
         """Test that job without timeout can run for extended period."""
-        storage = InMemoryStorageAdapter()
-        lock = InMemoryLockAdapter()
+        storage = InMemoryStorage()
+        lock = InMemoryLock()
         scheduler = PollingScheduler(
             storage_adapter=storage,
             lock_adapter=lock,

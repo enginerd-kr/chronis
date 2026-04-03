@@ -13,7 +13,7 @@ Key concepts:
 import time
 from datetime import UTC, datetime, timedelta
 
-from chronis import InMemoryLockAdapter, InMemoryStorageAdapter, PollingScheduler
+from chronis import InMemoryLock, InMemoryStorage, PollingScheduler
 
 # =============================================================================
 # DLQ Storage (In-Memory for simplicity, but could be PostgreSQL, Redis, etc.)
@@ -176,8 +176,8 @@ def main():
 
     # 2. Setup scheduler with DLQ failure handler
     print("\n2. Creating scheduler with DLQ failure handler...")
-    storage = InMemoryStorageAdapter()
-    lock = InMemoryLockAdapter()
+    storage = InMemoryStorage()
+    lock = InMemoryLock()
     scheduler = PollingScheduler(
         storage_adapter=storage,
         lock_adapter=lock,

@@ -5,8 +5,8 @@ from datetime import timedelta
 
 import pytest
 
-from chronis.adapters.lock import InMemoryLockAdapter
-from chronis.adapters.storage import InMemoryStorageAdapter
+from chronis.adapters.lock import InMemoryLock
+from chronis.adapters.storage import InMemoryStorage
 from chronis.core.schedulers.polling_scheduler import PollingScheduler
 from chronis.utils.time import utc_now
 
@@ -14,8 +14,8 @@ from chronis.utils.time import utc_now
 @pytest.fixture
 def scheduler():
     """Create scheduler with in-memory adapters."""
-    storage = InMemoryStorageAdapter()
-    lock = InMemoryLockAdapter()
+    storage = InMemoryStorage()
+    lock = InMemoryLock()
     scheduler = PollingScheduler(
         storage_adapter=storage,
         lock_adapter=lock,

@@ -105,9 +105,9 @@ You can provide your own migration directory:
 
 ```python
 from pathlib import Path
-from chronis.contrib.adapters.storage import PostgreSQLStorageAdapter
+from chronis.contrib.adapters.storage import PostgreSQLStorage
 
-storage = PostgreSQLStorageAdapter(
+storage = PostgreSQLStorage(
     conn,
     migrations_dir="my_custom_migrations"
 )
@@ -130,7 +130,7 @@ runner.migrate()
 ### Disable Auto-Migration
 
 ```python
-storage = PostgreSQLStorageAdapter(
+storage = PostgreSQLStorage(
     conn,
     auto_migrate=False  # Don't run migrations on init
 )

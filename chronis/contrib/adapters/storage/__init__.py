@@ -4,16 +4,16 @@ __all__ = []
 
 # Redis storage adapter (optional)
 try:
-    from chronis.contrib.adapters.storage.redis import RedisStorageAdapter
+    from chronis.contrib.adapters.storage.redis import RedisStorage
 
-    __all__.append("RedisStorageAdapter")
+    __all__.append("RedisStorage")
 except ImportError:
-    RedisStorageAdapter = None  # type: ignore[assignment, misc]
+    RedisStorage = None  # type: ignore[assignment, misc]
 
 # PostgreSQL storage adapter (optional)
 try:
-    from chronis.contrib.adapters.storage.postgres import PostgreSQLStorageAdapter
+    from chronis.contrib.adapters.storage.postgres import PostgreSQLStorage
 
-    __all__.append("PostgreSQLStorageAdapter")
+    __all__.append("PostgreSQLStorage")
 except ImportError:
-    PostgreSQLStorageAdapter = None  # type: ignore[assignment, misc]
+    PostgreSQLStorage = None  # type: ignore[assignment, misc]

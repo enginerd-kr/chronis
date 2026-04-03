@@ -3,14 +3,14 @@
 import time
 from datetime import timedelta
 
-from chronis import InMemoryLockAdapter, InMemoryStorageAdapter, PollingScheduler
+from chronis import InMemoryLock, InMemoryStorage, PollingScheduler
 from chronis.utils.time import utc_now
 
 
 def _create_scheduler(max_queue_size=3, max_workers=2, **overrides):
     defaults = {
-        "storage_adapter": InMemoryStorageAdapter(),
-        "lock_adapter": InMemoryLockAdapter(),
+        "storage_adapter": InMemoryStorage(),
+        "lock_adapter": InMemoryLock(),
         "polling_interval_seconds": 1,
         "executor_interval_seconds": 1,
         "max_workers": max_workers,

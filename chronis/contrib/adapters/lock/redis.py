@@ -29,7 +29,7 @@ LUA_EXTEND_SCRIPT = """
 """
 
 
-class RedisLockAdapter(LockAdapter):
+class RedisLock(LockAdapter):
     """
     Redis-based distributed lock adapter with ownership tracking.
 
@@ -48,7 +48,7 @@ class RedisLockAdapter(LockAdapter):
     Example:
         >>> import redis
         >>> client = redis.Redis(host='localhost', port=6379, db=0)
-        >>> lock = RedisLockAdapter(client)
+        >>> lock = RedisLock(client)
         >>>
         >>> # Non-blocking acquire
         >>> if lock.acquire("my-lock", ttl_seconds=60):
@@ -76,7 +76,7 @@ class RedisLockAdapter(LockAdapter):
         Example:
             >>> import redis
             >>> client = redis.Redis(host='localhost', port=6379, decode_responses=True)
-            >>> lock = RedisLockAdapter(client)
+            >>> lock = RedisLock(client)
         """
         self.redis = redis_client
         self.key_prefix = key_prefix

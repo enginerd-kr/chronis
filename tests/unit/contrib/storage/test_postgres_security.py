@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from chronis.contrib.adapters.storage.postgres import PostgreSQLStorageAdapter
+from chronis.contrib.adapters.storage.postgres import PostgreSQLStorage
 
 
 class TestTableNameValidation:
@@ -30,7 +30,7 @@ class TestTableNameValidation:
 
         with patch("chronis.contrib.adapters.storage.postgres.adapter.MigrationRunner"):
             # Should not raise ValueError for valid names
-            PostgreSQLStorageAdapter(mock_conn, table_name=valid_name, auto_migrate=False)
+            PostgreSQLStorage(mock_conn, table_name=valid_name, auto_migrate=False)
 
     @pytest.mark.parametrize(
         "malicious_name",
@@ -48,14 +48,14 @@ class TestTableNameValidation:
     def test_sql_injection_attempts_blocked(self, malicious_name):
         """SQL injection attempts should raise ValueError."""
         with pytest.raises(ValueError, match="Invalid table name"):
-            PostgreSQLStorageAdapter(None, table_name=malicious_name)  # type: ignore
+            PostgreSQLStorage(None, table_name=malicious_name)  # type: ignore
 
     def test_table_name_too_long(self):
         """Table names over 63 characters should be rejected."""
         too_long = "a" * 64
 
         with pytest.raises(ValueError, match="too long"):
-            PostgreSQLStorageAdapter(None, table_name=too_long)  # type: ignore
+            PostgreSQLStorage(None, table_name=too_long)  # type: ignore
 
     @pytest.mark.parametrize(
         "invalid_name",
@@ -69,12 +69,12 @@ class TestTableNameValidation:
     def test_table_name_invalid_start_character(self, invalid_name):
         """Table names starting with numbers should be rejected."""
         with pytest.raises(ValueError, match="Invalid table name"):
-            PostgreSQLStorageAdapter(None, table_name=invalid_name)  # type: ignore
+            PostgreSQLStorage(None, table_name=invalid_name)  # type: ignore
 
     def test_table_name_empty(self):
         """Empty table name should be rejected."""
         with pytest.raises(ValueError, match="cannot be empty"):
-            PostgreSQLStorageAdapter(None, table_name="")  # type: ignore
+            PostgreSQLStorage(None, table_name="")  # type: ignore
 
     @pytest.mark.parametrize(
         "invalid_name",
@@ -95,7 +95,7 @@ class TestTableNameValidation:
     def test_table_name_special_characters(self, invalid_name):
         """Table names with special characters should be rejected."""
         with pytest.raises(ValueError, match="Invalid table name"):
-            PostgreSQLStorageAdapter(None, table_name=invalid_name)  # type: ignore
+            PostgreSQLStorage(None, table_name=invalid_name)  # type: ignore
 
 
 class TestSecurityPrinciples:
@@ -105,12 +105,12 @@ class TestSecurityPrinciples:
         """Validation should fail immediately during __init__ (Fail Fast)."""
         # Should fail at initialization, not at first query
         with pytest.raises(ValueError):
-            PostgreSQLStorageAdapter(None, table_name="invalid; DROP")  # type: ignore
+            PostgreSQLStorage(None, table_name="invalid; DROP")  # type: ignore
 
     def test_clear_error_messages(self):
         """Error messages should be clear and helpful (Principle of Least Surprise)."""
         with pytest.raises(ValueError) as exc_info:
-            PostgreSQLStorageAdapter(None, table_name="123invalid")  # type: ignore
+            PostgreSQLStorage(None, table_name="123invalid")  # type: ignore
 
         error_msg = str(exc_info.value)
         # Check that error message is detailed
@@ -121,6 +121,6 @@ class TestSecurityPrinciples:
 
     def test_validation_constants_defined(self):
         """Validation constants should be class-level (SOLID: OCP)."""
-        assert hasattr(PostgreSQLStorageAdapter, "_TABLE_NAME_PATTERN")
-        assert hasattr(PostgreSQLStorageAdapter, "_MAX_TABLE_NAME_LENGTH")
-        assert PostgreSQLStorageAdapter._MAX_TABLE_NAME_LENGTH == 63
+        assert hasattr(PostgreSQLStorage, "_TABLE_NAME_PATTERN")
+        assert hasattr(PostgreSQLStorage, "_MAX_TABLE_NAME_LENGTH")
+        assert PostgreSQLStorage._MAX_TABLE_NAME_LENGTH == 63

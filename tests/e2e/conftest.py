@@ -4,7 +4,7 @@ import threading
 
 import pytest
 
-from chronis import InMemoryLockAdapter, InMemoryStorageAdapter, PollingScheduler
+from chronis import InMemoryLock, InMemoryStorage, PollingScheduler
 
 
 class ThreadSafeCounter:
@@ -135,8 +135,8 @@ def distributed_schedulers():
             for scheduler in schedulers:
                 scheduler.start()
     """
-    storage = InMemoryStorageAdapter()
-    lock = InMemoryLockAdapter()
+    storage = InMemoryStorage()
+    lock = InMemoryLock()
 
     schedulers = []
     for _ in range(3):

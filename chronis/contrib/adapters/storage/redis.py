@@ -8,7 +8,7 @@ from chronis.type_defs import JobStorageData, JobUpdateData
 from chronis.utils.time import parse_iso_datetime, utc_now
 
 
-class RedisStorageAdapter(JobStorageAdapter):
+class RedisStorage(JobStorageAdapter):
     """
     Redis-based job storage adapter with secondary indexes.
 
@@ -42,7 +42,7 @@ class RedisStorageAdapter(JobStorageAdapter):
     Example:
         >>> import redis
         >>> client = redis.Redis(host='localhost', port=6379, decode_responses=True)
-        >>> storage = RedisStorageAdapter(client)
+        >>> storage = RedisStorage(client)
         >>> job = storage.create_job({
         ...     "job_id": "test-123",
         ...     "name": "Test Job",
@@ -67,7 +67,7 @@ class RedisStorageAdapter(JobStorageAdapter):
             ...     db=0,
             ...     decode_responses=True  # Important for JSON
             ... )
-            >>> storage = RedisStorageAdapter(client)
+            >>> storage = RedisStorage(client)
         """
         self.redis = redis_client
         self.key_prefix = key_prefix

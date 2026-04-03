@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from chronis import InMemoryLockAdapter, InMemoryStorageAdapter, PollingScheduler
+from chronis import InMemoryLock, InMemoryStorage, PollingScheduler
 
 
 def wait_for(
@@ -317,8 +317,8 @@ def fast_scheduler():
 
     Does NOT start the scheduler - tests should call methods directly.
     """
-    storage = InMemoryStorageAdapter()
-    lock = InMemoryLockAdapter()
+    storage = InMemoryStorage()
+    lock = InMemoryLock()
     scheduler = PollingScheduler(
         storage_adapter=storage,
         lock_adapter=lock,
@@ -339,8 +339,8 @@ def basic_scheduler():
     Similar to fast_scheduler but with default intervals.
     Use this when you need a fresh scheduler for each test.
     """
-    storage = InMemoryStorageAdapter()
-    lock = InMemoryLockAdapter()
+    storage = InMemoryStorage()
+    lock = InMemoryLock()
     scheduler = PollingScheduler(
         storage_adapter=storage,
         lock_adapter=lock,

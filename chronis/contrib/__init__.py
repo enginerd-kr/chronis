@@ -21,8 +21,8 @@ pip install chronis[all]
 ```python
 # Redis adapters (optional)
 try:
-    from chronis.contrib.adapters.lock import RedisLockAdapter
-    from chronis.contrib.adapters.storage import RedisStorageAdapter
+    from chronis.contrib.adapters.lock import RedisLock
+    from chronis.contrib.adapters.storage import RedisStorage
 except ImportError:
     # Install with: pip install chronis[redis]
     pass

@@ -345,7 +345,7 @@ class LockAdapter(ABC):
             True if lock acquired, False otherwise
 
         Example:
-            >>> lock_adapter = RedisLockAdapter(redis_client)
+            >>> lock_adapter = RedisLock(redis_client)
             >>> # Non-blocking acquire
             >>> acquired = lock_adapter.acquire("job-123", ttl_seconds=60)
             >>> # Blocking acquire with timeout

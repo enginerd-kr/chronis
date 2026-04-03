@@ -13,8 +13,8 @@ import psycopg2
 import redis
 
 from chronis import PollingScheduler
-from chronis.contrib.adapters.lock import RedisLockAdapter
-from chronis.contrib.adapters.storage import PostgreSQLStorageAdapter
+from chronis.contrib.adapters.lock import RedisLock
+from chronis.contrib.adapters.storage import PostgreSQLStorage
 
 # Global flag for graceful shutdown
 shutdown_requested = False
@@ -182,8 +182,8 @@ def main():
 
     # Create adapters
     # All instances can safely run auto_migrate (race-condition safe)
-    storage = PostgreSQLStorageAdapter(storage_conn, auto_migrate=True)
-    lock = RedisLockAdapter(redis_client, key_prefix="docker:lock:")
+    storage = PostgreSQLStorage(storage_conn, auto_migrate=True)
+    lock = RedisLock(redis_client, key_prefix="docker:lock:")
 
     # Create scheduler
     scheduler = PollingScheduler(

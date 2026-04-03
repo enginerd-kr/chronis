@@ -3,11 +3,11 @@ Chronis - Distributed Scheduler Framework for Multi-Container Environments
 
 Usage:
     from chronis import PollingScheduler
-    from chronis.adapters.storage import InMemoryStorageAdapter
-    from chronis.adapters.lock import InMemoryLockAdapter
+    from chronis.adapters.storage import InMemoryStorage
+    from chronis.adapters.lock import InMemoryLock
 
-    storage = InMemoryStorageAdapter()
-    lock = InMemoryLockAdapter()
+    storage = InMemoryStorage()
+    lock = InMemoryLock()
     scheduler = PollingScheduler(storage_adapter=storage, lock_adapter=lock)
 
     # Register job function
@@ -51,8 +51,8 @@ Usage:
 """
 
 # Core classes
-from chronis.adapters.lock import InMemoryLockAdapter
-from chronis.adapters.storage import InMemoryStorageAdapter
+from chronis.adapters.lock import InMemoryLock
+from chronis.adapters.storage import InMemoryStorage
 from chronis.core import (
     JobAlreadyExistsError,
     JobInfo,
@@ -72,7 +72,7 @@ __all__ = [
     "JobAlreadyExistsError",
     "JobNotFoundError",
     # Storage Adapters
-    "InMemoryStorageAdapter",
+    "InMemoryStorage",
     # Lock Adapters
-    "InMemoryLockAdapter",
+    "InMemoryLock",
 ]

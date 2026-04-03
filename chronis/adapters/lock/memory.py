@@ -10,7 +10,7 @@ from chronis.adapters.base import LockAdapter
 logger = logging.getLogger(__name__)
 
 
-class InMemoryLockAdapter(LockAdapter):
+class InMemoryLock(LockAdapter):
     """
     In-memory lock adapter with ownership tracking (for local development/testing).
 
@@ -28,12 +28,12 @@ class InMemoryLockAdapter(LockAdapter):
         - NOT production-ready
 
         For production use, switch to:
-        - RedisLockAdapter (recommended)
+        - RedisLock (recommended)
         - DynamoDBLockAdapter
         - Or implement a custom adapter
 
     Example:
-        >>> lock = InMemoryLockAdapter()
+        >>> lock = InMemoryLock()
         >>>
         >>> # Non-blocking acquire
         >>> if lock.acquire("my-lock", ttl_seconds=60):
@@ -64,8 +64,8 @@ class InMemoryLockAdapter(LockAdapter):
 
         # Warn about production usage
         logger.warning(
-            "InMemoryLockAdapter is for testing/development only. "
-            "Use RedisLockAdapter or DynamoDBLockAdapter in production."
+            "InMemoryLock is for testing/development only. "
+            "Use RedisLock or DynamoDBLockAdapter in production."
         )
 
     def acquire(

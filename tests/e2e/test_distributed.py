@@ -107,7 +107,7 @@ class TestDistributedLock:
             assert thread_safe_tracker.job_count() == n_jobs
 
             # With lock, total executions should be significantly less than n_jobs * 3
-            # Allow up to 2x duplicates (some duplicates due to InMemoryLockAdapter limitations)
+            # Allow up to 2x duplicates (some duplicates due to InMemoryLock limitations)
             max_expected = n_jobs * 2
             total_executions = thread_safe_tracker.total_count()
             assert total_executions <= max_expected, (

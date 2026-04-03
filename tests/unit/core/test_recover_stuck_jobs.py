@@ -3,14 +3,14 @@
 from datetime import timedelta
 from unittest.mock import MagicMock
 
-from chronis import InMemoryLockAdapter, InMemoryStorageAdapter, PollingScheduler
+from chronis import InMemoryLock, InMemoryStorage, PollingScheduler
 from chronis.utils.time import utc_now
 
 
 def _make_scheduler(**overrides):
     defaults = {
-        "storage_adapter": InMemoryStorageAdapter(),
-        "lock_adapter": InMemoryLockAdapter(),
+        "storage_adapter": InMemoryStorage(),
+        "lock_adapter": InMemoryLock(),
         "polling_interval_seconds": 1,
         "verbose": False,
     }

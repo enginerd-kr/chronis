@@ -3,14 +3,14 @@
 import pytest
 
 from chronis.adapters.base import JobStorageAdapter
-from chronis.adapters.storage import InMemoryStorageAdapter
+from chronis.adapters.storage import InMemoryStorage
 from chronis.core.state import JobStatus
 
 
 @pytest.fixture
 def storage():
     """Create in-memory storage adapter."""
-    return InMemoryStorageAdapter()
+    return InMemoryStorage()
 
 
 class TestInMemoryStorageCreate:

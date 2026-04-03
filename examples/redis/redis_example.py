@@ -16,8 +16,8 @@ import time
 import redis
 
 from chronis import PollingScheduler
-from chronis.contrib.adapters.lock import RedisLockAdapter
-from chronis.contrib.adapters.storage import RedisStorageAdapter
+from chronis.contrib.adapters.lock import RedisLock
+from chronis.contrib.adapters.storage import RedisStorage
 
 
 def send_email():
@@ -54,8 +54,8 @@ def main():
 
     # 2. Create adapters
     print("2. Creating Redis adapters...")
-    storage = RedisStorageAdapter(redis_client, key_prefix="example:jobs:")
-    lock = RedisLockAdapter(redis_client, key_prefix="example:lock:")
+    storage = RedisStorage(redis_client, key_prefix="example:jobs:")
+    lock = RedisLock(redis_client, key_prefix="example:lock:")
     print("   ✓ Adapters created\n")
 
     # 3. Create scheduler

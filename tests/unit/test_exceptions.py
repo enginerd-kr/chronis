@@ -2,8 +2,8 @@
 
 import pytest
 
-from chronis.adapters.lock import InMemoryLockAdapter
-from chronis.adapters.storage import InMemoryStorageAdapter
+from chronis.adapters.lock import InMemoryLock
+from chronis.adapters.storage import InMemoryStorage
 from chronis.core.common.exceptions import (
     FunctionNotRegisteredError,
     InvalidJobStateError,
@@ -77,8 +77,8 @@ class TestJobLifecycleErrors:
     @pytest.fixture
     def scheduler(self):
         """Create a test scheduler."""
-        storage = InMemoryStorageAdapter()
-        lock = InMemoryLockAdapter()
+        storage = InMemoryStorage()
+        lock = InMemoryLock()
         return PollingScheduler(storage_adapter=storage, lock_adapter=lock)
 
     def test_job_not_found_error_message(self, scheduler):
@@ -135,8 +135,8 @@ class TestFunctionErrors:
     @pytest.fixture
     def scheduler(self):
         """Create a test scheduler."""
-        storage = InMemoryStorageAdapter()
-        lock = InMemoryLockAdapter()
+        storage = InMemoryStorage()
+        lock = InMemoryLock()
         return PollingScheduler(storage_adapter=storage, lock_adapter=lock)
 
     def test_function_not_registered_error_message(self, scheduler):
@@ -174,8 +174,8 @@ class TestSchedulerStateErrors:
 
     def test_scheduler_already_running_error(self):
         """Test error when starting already running scheduler."""
-        storage = InMemoryStorageAdapter()
-        lock = InMemoryLockAdapter()
+        storage = InMemoryStorage()
+        lock = InMemoryLock()
         scheduler = PollingScheduler(storage_adapter=storage, lock_adapter=lock)
 
         scheduler.start()

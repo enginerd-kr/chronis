@@ -17,8 +17,8 @@ import psycopg2
 import redis
 
 from chronis import PollingScheduler
-from chronis.contrib.adapters.lock import RedisLockAdapter
-from chronis.contrib.adapters.storage import PostgreSQLStorageAdapter
+from chronis.contrib.adapters.lock import RedisLock
+from chronis.contrib.adapters.storage import PostgreSQLStorage
 
 # Global flag for graceful shutdown
 shutdown_requested = False
@@ -181,8 +181,8 @@ def main():
         return 1
 
     # Create adapters
-    storage = PostgreSQLStorageAdapter(storage_conn, auto_migrate=True)
-    lock = RedisLockAdapter(redis_client, key_prefix="stress:lock:")
+    storage = PostgreSQLStorage(storage_conn, auto_migrate=True)
+    lock = RedisLock(redis_client, key_prefix="stress:lock:")
 
     # Create scheduler with tuned settings for stress test
     scheduler = PollingScheduler(

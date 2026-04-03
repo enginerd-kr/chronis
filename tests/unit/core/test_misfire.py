@@ -233,13 +233,13 @@ class TestMisfireSkipPolicy:
         """skip 정책: misfired interval job의 next_run_time을 미래로 이동."""
         from datetime import timedelta
 
-        from chronis import InMemoryLockAdapter, InMemoryStorageAdapter, PollingScheduler
+        from chronis import InMemoryLock, InMemoryStorage, PollingScheduler
         from chronis.utils.time import utc_now
 
-        storage = InMemoryStorageAdapter()
+        storage = InMemoryStorage()
         scheduler = PollingScheduler(
             storage_adapter=storage,
-            lock_adapter=InMemoryLockAdapter(),
+            lock_adapter=InMemoryLock(),
             polling_interval_seconds=1,
             verbose=False,
         )
@@ -275,13 +275,13 @@ class TestMisfireSkipPolicy:
         """skip 정책: misfired date job은 삭제."""
         from datetime import timedelta
 
-        from chronis import InMemoryLockAdapter, InMemoryStorageAdapter, PollingScheduler
+        from chronis import InMemoryLock, InMemoryStorage, PollingScheduler
         from chronis.utils.time import utc_now
 
-        storage = InMemoryStorageAdapter()
+        storage = InMemoryStorage()
         scheduler = PollingScheduler(
             storage_adapter=storage,
-            lock_adapter=InMemoryLockAdapter(),
+            lock_adapter=InMemoryLock(),
             polling_interval_seconds=1,
             verbose=False,
         )
