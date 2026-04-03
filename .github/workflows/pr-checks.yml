@@ -5,6 +5,12 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write
+
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
@@ -44,3 +50,90 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
           MINIMUM_GREEN: 80
           MINIMUM_ORANGE: 60
+
+  claude-review-and-label:
+    needs: lint-and-test
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Claude review and label decision
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Review this pull request.
+
+            Goals:
+            1. Check correctness, regression risk, tests, error handling, and security.
+            2. Leave normal review comments if needed.
+            3. Return ONLY structured output for labels using this policy:
+
+            Label policy:
+            - "needs-test" if tests are missing for meaningful logic changes
+            - "risk-high" if auth, payments, deletes, migrations, concurrency, or security-sensitive code changed
+            - "needs-human-review" if the change is large, ambiguous, or architecture-affecting
+            - "safe-small-change" if the change is low-risk and straightforward
+
+            Rules:
+            - Choose zero or more labels from exactly this set:
+              ["needs-test", "risk-high", "needs-human-review", "safe-small-change"]
+            - Do not invent labels
+            - If "risk-high" is present, do not include "safe-small-change"
+            - If tests already sufficiently cover the change, do not include "needs-test"
+          claude_args: |
+            --json-schema {
+              "type": "object",
+              "properties": {
+                "labels": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "needs-test",
+                      "risk-high",
+                      "needs-human-review",
+                      "safe-small-change"
+                    ]
+                  },
+                  "uniqueItems": true
+                },
+                "summary": {
+                  "type": "string"
+                }
+              },
+              "required": ["labels"]
+            }
+
+      - name: Debug structured output
+        env:
+          STRUCTURED_OUTPUT: ${{ steps.claude.outputs.structured_output }}
+        run: |
+          echo "$STRUCTURED_OUTPUT"
+
+      - name: Sync managed labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          LABELS_JSON: ${{ steps.claude.outputs.structured_output }}
+        run: |
+          MANAGED_LABELS=("needs-test" "risk-high" "needs-human-review" "safe-small-change")
+
+          CURRENT=$(gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name')
+          TARGET=$(echo "$LABELS_JSON" | jq -r '.labels[]')
+
+          for label in "${MANAGED_LABELS[@]}"; do
+            if echo "$CURRENT" | grep -qx "$label"; then
+              if ! echo "$TARGET" | grep -qx "$label"; then
+                gh pr edit "$PR_NUMBER" --remove-label "$label"
+              fi
+            fi
+          done
+
+          for label in $TARGET; do
+            gh pr edit "$PR_NUMBER" --add-label "$label"
+          done
