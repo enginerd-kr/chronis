@@ -109,16 +109,30 @@ jobs:
             }
 
       - name: Debug structured output
+        env:
+          STRUCTURED_OUTPUT: ${{ steps.claude.outputs.structured_output }}
         run: |
-          echo '${{ steps.claude.outputs.structured_output }}'
+          echo "$STRUCTURED_OUTPUT"
 
-      - name: Apply labels
-        if: ${{ fromJSON(steps.claude.outputs.structured_output).labels[0] != null }}
+      - name: Sync managed labels
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           LABELS_JSON: ${{ steps.claude.outputs.structured_output }}
         run: |
-          echo "$LABELS_JSON" | jq -r '.labels[]' | while read label; do
+          MANAGED_LABELS=("needs-test" "risk-high" "needs-human-review" "safe-small-change")
+
+          CURRENT=$(gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name')
+          TARGET=$(echo "$LABELS_JSON" | jq -r '.labels[]')
+
+          for label in "${MANAGED_LABELS[@]}"; do
+            if echo "$CURRENT" | grep -qx "$label"; then
+              if ! echo "$TARGET" | grep -qx "$label"; then
+                gh pr edit "$PR_NUMBER" --remove-label "$label"
+              fi
+            fi
+          done
+
+          for label in $TARGET; do
             gh pr edit "$PR_NUMBER" --add-label "$label"
           done
