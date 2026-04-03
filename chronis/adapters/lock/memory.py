@@ -55,14 +55,11 @@ class InMemoryLock(LockAdapter):
 
         Logs a warning to remind developers this is not for production use.
         """
-        # Store locks as: lock_key -> (owner_id, expiry_time)
         self._locks: dict[str, tuple[str, float]] = {}
-        self._mutex = threading.Lock()  # Global lock for _locks dict
-        # Store conditions for blocking: lock_key -> Condition
+        self._mutex = threading.Lock()
         self._conditions: dict[str, threading.Condition] = {}
-        self.instance_token = str(uuid.uuid4())  # Unique instance identifier
+        self.instance_token = str(uuid.uuid4())
 
-        # Warn about production usage
         logger.warning(
             "InMemoryLock is for testing/development only. "
             "Use RedisLock or DynamoDBLockAdapter in production."
@@ -97,19 +94,15 @@ class InMemoryLock(LockAdapter):
         token = owner_id or self.instance_token
         expiry_time = time.time() + ttl_seconds
 
-        # Ensure condition exists
         with self._mutex:
             if lock_key not in self._conditions:
                 self._conditions[lock_key] = threading.Condition(self._mutex)
 
         condition = self._conditions[lock_key]
 
-        # Acquire lock with condition
         with condition:
-            # Clean up expired lock
             self._cleanup_expired_lock(lock_key)
 
-            # Try to acquire
             if lock_key not in self._locks:
                 self._locks[lock_key] = (token, expiry_time)
                 return True
@@ -117,25 +110,19 @@ class InMemoryLock(LockAdapter):
             if not blocking:
                 return False
 
-            # Blocking mode: wait with timeout
             start_time = time.time()
             remaining_timeout = timeout
 
             while lock_key in self._locks:
-                # Check timeout
                 if timeout is not None:
                     elapsed = time.time() - start_time
                     remaining_timeout = timeout - elapsed
                     if remaining_timeout <= 0:
                         return False
 
-                # Wait for signal (released by release())
                 condition.wait(timeout=remaining_timeout)
-
-                # Clean up expired lock
                 self._cleanup_expired_lock(lock_key)
 
-                # Retry acquisition
                 if lock_key not in self._locks:
                     self._locks[lock_key] = (token, expiry_time)
                     return True
@@ -170,15 +157,10 @@ class InMemoryLock(LockAdapter):
                 return False
 
             stored_owner, _ = self._locks[lock_key]
-
-            # Verify ownership
             if stored_owner != token:
                 return False
 
-            # Release lock
             del self._locks[lock_key]
-
-            # Signal one waiting thread
             condition.notify()
 
             return True
@@ -208,19 +190,15 @@ class InMemoryLock(LockAdapter):
         new_expiry_time = time.time() + ttl_seconds
 
         with self._mutex:
-            # Clean up expired lock before extending
             self._cleanup_expired_lock(lock_key)
 
             if lock_key not in self._locks:
                 return False
 
             stored_owner, _ = self._locks[lock_key]
-
-            # Verify ownership
             if stored_owner != token:
                 return False
 
-            # Extend TTL
             self._locks[lock_key] = (stored_owner, new_expiry_time)
             return True
 
@@ -244,7 +222,6 @@ class InMemoryLock(LockAdapter):
         with condition:
             if lock_key in self._locks:
                 del self._locks[lock_key]
-                # Signal all waiting threads
                 condition.notify_all()
                 return True
             return False

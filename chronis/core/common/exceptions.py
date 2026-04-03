@@ -1,11 +1,6 @@
 """Custom exceptions for Chronis."""
 
 
-# ============================================================================
-# Base Exception Classes
-# ============================================================================
-
-
 class SchedulerError(Exception):
     """Base exception for all scheduler errors."""
 
@@ -46,11 +41,6 @@ class SchedulerStateError(SchedulerError):
     pass
 
 
-# ============================================================================
-# Configuration Errors (Development-time)
-# ============================================================================
-
-
 class FunctionNotRegisteredError(SchedulerConfigurationError):
     """
     Function not registered with scheduler.
@@ -59,11 +49,6 @@ class FunctionNotRegisteredError(SchedulerConfigurationError):
     """
 
     pass
-
-
-# ============================================================================
-# Lookup Errors (Runtime)
-# ============================================================================
 
 
 class JobNotFoundError(SchedulerLookupError):
@@ -92,11 +77,6 @@ class JobAlreadyExistsError(SchedulerLookupError):
     """
 
     pass
-
-
-# ============================================================================
-# State Errors (Runtime)
-# ============================================================================
 
 
 class InvalidJobStateError(SchedulerStateError):

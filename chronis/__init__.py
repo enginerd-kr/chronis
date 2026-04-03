@@ -49,8 +49,6 @@ Usage:
     scheduler.resume_job("daily-report")
     scheduler.cancel_job("daily-report")
 """
-
-# Core classes
 from chronis.adapters.lock import InMemoryLock
 from chronis.adapters.storage import InMemoryStorage
 from chronis.core import (
@@ -63,16 +61,12 @@ from chronis.core import (
 )
 
 __all__ = [
-    # Core
     "PollingScheduler",
     "JobInfo",
     "JobStatus",
-    # Exceptions
     "SchedulerError",
     "JobAlreadyExistsError",
     "JobNotFoundError",
-    # Storage Adapters
     "InMemoryStorage",
-    # Lock Adapters
     "InMemoryLock",
 ]

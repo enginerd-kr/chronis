@@ -131,7 +131,6 @@ class PollingScheduler(BaseScheduler):
         Raises:
             ValueError: If parameters are invalid
         """
-        # Validate polling-specific parameters
         if polling_interval_seconds < self.MIN_POLLING_INTERVAL:
             raise ValueError(f"polling_interval_seconds must be >= {self.MIN_POLLING_INTERVAL}")
         if polling_interval_seconds > self.MAX_POLLING_INTERVAL:
@@ -144,7 +143,6 @@ class PollingScheduler(BaseScheduler):
                 "to prevent premature lock expiration"
             )
 
-        # Initialize base scheduler
         super().__init__(
             storage_adapter=storage_adapter,
             lock_adapter=lock_adapter,
@@ -156,21 +154,14 @@ class PollingScheduler(BaseScheduler):
             on_success=on_success,
         )
 
-        # Polling-specific configuration
         self.polling_interval_seconds = polling_interval_seconds
         self.max_queue_size = max_queue_size or (self.max_workers * 5)
         self.executor_interval_seconds = executor_interval_seconds or max(
             1, polling_interval_seconds / 2
         )
 
-        # Initialize job queue for backpressure control
         self._job_queue = JobQueue(max_queue_size=self.max_queue_size)
-
-        # Random node ID for distributed job ordering
-        # Each scheduler instance gets a unique ID to reduce lock contention
         self._node_id = str(uuid.uuid4())
-
-        # Initialize periodic runner for polling and execution tasks
         self._runner = _PeriodicRunner()
 
     def start(self) -> None:
@@ -192,12 +183,9 @@ class PollingScheduler(BaseScheduler):
                 "Scheduler is already running. Call scheduler.stop() first to restart."
             )
 
-        # Register periodic tasks
         self._runner = _PeriodicRunner()
         self._runner.add_task(self._execute_queued_jobs, self.executor_interval_seconds, "executor")
         self._runner.add_task(self._enqueue_jobs, self.polling_interval_seconds, "polling")
-
-        # Start periodic runner (non-blocking, daemon threads)
         self._runner.start()
         self._running = True
 
@@ -226,13 +214,8 @@ class PollingScheduler(BaseScheduler):
                 "was_running": False,
             }
 
-        # Shutdown periodic runner (stops polling for new jobs)
         self._runner.shutdown(wait=True)
-
-        # Wait for async jobs on shared event loop
         self._execution_coordinator.shutdown_async(wait=True)
-
-        # Shutdown thread pool executor (waits for sync jobs)
         self._executor.shutdown(wait=True, cancel_futures=False)
 
         self._running = False
@@ -257,10 +240,6 @@ class PollingScheduler(BaseScheduler):
             - in_flight_job_ids: List of job IDs currently in-flight
         """
         return self._job_queue.get_status()
-
-    # ------------------------------------------------------------------------
-    # Internal Methods (Polling Logic)
-    # ------------------------------------------------------------------------
 
     def _recover_stuck_jobs(self) -> None:
         """Detect and recover jobs stuck in RUNNING state after process crash."""
@@ -338,14 +317,11 @@ class PollingScheduler(BaseScheduler):
         """
         current_time = utc_now()
 
-        # Query jobs that are ready (next_run_time <= current_time)
-        # Over-fetch by 1.5x to account for node-specific hash reordering
-        # which may push some jobs beyond the limit boundary after re-sorting
+        # Over-fetch to account for node-specific hash reordering after re-sorting
         query_limit = int(limit * 1.5 + 1) if limit else None
         filters = {"status": "scheduled", "next_run_time_lte": current_time.isoformat()}
         jobs = self.storage.query_jobs(filters=filters, limit=query_limit)
 
-        # Classify into normal and misfired jobs
         normal_jobs, misfired_jobs = MisfireDetector.classify_due_jobs(
             jobs, current_time.isoformat()
         )
@@ -357,28 +333,23 @@ class PollingScheduler(BaseScheduler):
                 job_ids=[j.get("job_id") for j in misfired_jobs],
             )
 
-        # Apply misfire policy
         ready_misfired = []
         for job in misfired_jobs:
             policy = job.get("if_missed", "run_once")
             if policy == "skip":
                 self._skip_misfired_job(job)
             else:
-                # run_once / run_all: include in ready jobs
                 ready_misfired.append(job)
 
-        # Combine all jobs
         all_jobs = normal_jobs + ready_misfired
 
-        # Sort by priority (descending), then by node-specific hash, then by next_run_time
-        # The hash ensures each scheduler instance processes jobs in a different order,
+        # Hash ensures each scheduler instance processes jobs in different order,
         # reducing lock contention in distributed environments
         def sort_key(job: Any) -> tuple[int, int, str]:
             priority = job.get("priority", 5)
             job_id = job.get("job_id", "")
             next_run = job.get("next_run_time", "")
 
-            # Create node-specific hash to distribute jobs across schedulers
             combined = f"{self._node_id}:{job_id}"
             hash_val = int(hashlib.md5(combined.encode()).hexdigest()[:8], 16)
 
@@ -386,7 +357,6 @@ class PollingScheduler(BaseScheduler):
 
         all_jobs.sort(key=sort_key)  # type: ignore[arg-type]
 
-        # Apply limit if specified
         if limit is not None:
             all_jobs = all_jobs[:limit]
 
@@ -440,11 +410,9 @@ class PollingScheduler(BaseScheduler):
         for concurrent execution, improving throughput in distributed environments.
         """
         try:
-            # Process jobs in batches for better concurrency
-            batch_size = 100  # Process up to 100 jobs per iteration (increased for throughput)
+            batch_size = 100
 
             while not self._job_queue.is_empty():
-                # Get batch of job IDs from queue
                 job_ids = []
                 for _ in range(batch_size):
                     if self._job_queue.is_empty():
@@ -456,33 +424,23 @@ class PollingScheduler(BaseScheduler):
                 if not job_ids:
                     break
 
-                # Fetch all job data in single batch operation (optimized!)
                 jobs_dict = self.storage.get_jobs_batch(job_ids)
 
-                # Process batch: submit for execution
-                # Each try_execute() is non-blocking and submits to thread pool
                 for job_id in job_ids:
                     job_data = jobs_dict.get(job_id)
                     if job_data is None:
-                        # Job was deleted - mark as completed and continue
                         self._job_queue.mark_completed(job_id)
                         continue
 
-                    # Try to execute with distributed lock (non-blocking)
                     executed = self._execution_coordinator.try_execute(
                         dict(job_data), on_complete=self._job_queue.mark_completed
                     )
 
-                    # If not executed (lock failed or wrong status), mark as completed in queue
                     if not executed:
                         self._job_queue.mark_completed(job_id)
 
         except Exception as e:
             self.logger.error("Executor error", error=str(e))
-
-    # ========================================
-    # Simplified Public API (TriggerType hidden)
-    # ========================================
 
     def create_interval_job(
         self,
@@ -654,10 +612,6 @@ class PollingScheduler(BaseScheduler):
                 misfire_threshold_seconds=misfire_threshold_seconds,
             )
         )
-
-    # ========================================
-    # Fluent Builder API (Simplified Interface)
-    # ========================================
 
     def every(
         self,

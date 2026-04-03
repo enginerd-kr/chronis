@@ -191,16 +191,13 @@ class PostgreSQLStorage(JobStorageAdapter):
         Raises:
             ValueError: If job not found
         """
-        # Get current data
         job_data = self.get_job(job_id)
         if job_data is None:
             raise ValueError(f"Job {job_id} not found")
 
-        # Merge updates
         job_data.update(updates)  # type: ignore[typeddict-item]
         job_data["updated_at"] = utc_now().isoformat()  # type: ignore[typeddict-item]
 
-        # Update in database
         with self.conn.cursor() as cursor:
             cursor.execute(
                 sql.SQL("""
@@ -248,12 +245,10 @@ class PostgreSQLStorage(JobStorageAdapter):
         Raises:
             ValueError: If job_id not found
         """
-        # Get current data
         job_data = self.get_job(job_id)
         if job_data is None:
             raise ValueError(f"Job {job_id} not found")
 
-        # Build WHERE conditions dynamically
         where_conditions = ["job_id = %s"]
         where_params: list[Any] = [job_id]
 
@@ -265,17 +260,14 @@ class PostgreSQLStorage(JobStorageAdapter):
                 where_conditions.append("next_run_time = %s")
                 where_params.append(expected_value)
             else:
-                # For other fields, check JSONB data
                 where_conditions.append("data->>%s = %s")
                 where_params.append(field)
                 where_params.append(str(expected_value))
 
-        # Merge updates
         updated_job_data = job_data.copy()
         updated_job_data.update(updates)  # type: ignore[typeddict-item]
         updated_job_data["updated_at"] = utc_now().isoformat()  # type: ignore[typeddict-item]
 
-        # Atomic UPDATE with WHERE conditions
         with self.conn.cursor() as cursor:
             where_clause = " AND ".join(where_conditions)
             query = sql.SQL("""
@@ -307,7 +299,6 @@ class PostgreSQLStorage(JobStorageAdapter):
             self.conn.commit()
 
             if rows_affected == 0:
-                # No rows updated - expectations didn't match
                 return (False, None)
 
             return (True, updated_job_data)
@@ -344,12 +335,10 @@ class PostgreSQLStorage(JobStorageAdapter):
         params: list[Any] = []
 
         if filters:
-            # Status filter
             if "status" in filters:
                 conditions.append("status = %s")
                 params.append(filters["status"])
 
-            # Time filter
             if "next_run_time_lte" in filters:
                 conditions.append("next_run_time <= %s")
                 params.append(filters["next_run_time_lte"])
@@ -358,22 +347,18 @@ class PostgreSQLStorage(JobStorageAdapter):
                 conditions.append("updated_at <= %s")
                 params.append(filters["updated_at_lte"])
 
-            # Metadata filters (JSONB containment)
             for key, value in filters.items():
                 if key.startswith("metadata."):
                     metadata_key = key.replace("metadata.", "")
-                    # Use JSONB @> operator for containment
                     conditions.append("metadata @> %s::jsonb")
                     params.append(json.dumps({metadata_key: value}))
 
-        # Build WHERE clause safely
         where_clause = (
             sql.SQL("WHERE {}").format(sql.SQL(" AND ").join(sql.SQL(c) for c in conditions))
             if conditions
             else sql.SQL("")
         )
 
-        # Build main query with sql.Identifier for table name
         query = sql.SQL("""
             SELECT data
             FROM {}
@@ -384,7 +369,6 @@ class PostgreSQLStorage(JobStorageAdapter):
             where_clause,
         )
 
-        # Add LIMIT and OFFSET as parameterized values
         if limit:
             query += sql.SQL(" LIMIT %s")
             params.append(limit)
@@ -392,7 +376,6 @@ class PostgreSQLStorage(JobStorageAdapter):
             query += sql.SQL(" OFFSET %s")
             params.append(offset)
 
-        # Execute query
         with self.conn.cursor() as cursor:
             cursor.execute(query, params)
             rows = cursor.fetchall()

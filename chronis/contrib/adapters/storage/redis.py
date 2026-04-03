@@ -121,19 +121,12 @@ class RedisStorage(JobStorageAdapter):
 
         pipe = pipeline or self.redis
 
-        # Add to all jobs set
         pipe.sadd(self._make_all_jobs_key(), job_id)
 
-        # Add to time index (sorted set)
         score = self._timestamp_to_score(next_run_time)
         pipe.zadd(self._make_time_index_key(), {job_id: score})
 
-        # Add to status index
         pipe.sadd(self._make_status_index_key(status), job_id)
-
-        if pipeline is None:
-            # No pipeline provided, changes already executed
-            pass
 
     def _remove_from_indexes(self, job_id: str, old_status: str | None = None) -> None:
         """
@@ -145,17 +138,12 @@ class RedisStorage(JobStorageAdapter):
         """
         pipe = self.redis.pipeline()
 
-        # Remove from all jobs set
         pipe.srem(self._make_all_jobs_key(), job_id)
-
-        # Remove from time index
         pipe.zrem(self._make_time_index_key(), job_id)
 
-        # Remove from all status indexes (if old_status unknown, try common ones)
         if old_status:
             pipe.srem(self._make_status_index_key(old_status), job_id)
         else:
-            # Remove from all possible status indexes
             for status in ["pending", "scheduled", "running", "paused", "failed"]:
                 pipe.srem(self._make_status_index_key(status), job_id)
 
@@ -179,12 +167,10 @@ class RedisStorage(JobStorageAdapter):
         job_id = job_data["job_id"]
         key = self._make_job_key(job_id)
 
-        # Atomic check-and-set using HSETNX (returns 1 if created, 0 if exists)
         created = self.redis.hsetnx(key, "data", self._serialize(dict(job_data)))
         if not created:
             raise ValueError(f"Job {job_id} already exists")
 
-        # Update indexes (job data is already stored)
         pipe = self.redis.pipeline()
         self._update_indexes(job_data, pipeline=pipe)
         pipe.execute()
@@ -256,26 +242,20 @@ class RedisStorage(JobStorageAdapter):
         if job_data is None:
             raise ValueError(f"Job {job_id} not found")
 
-        # Remember old values for index updates
         old_status = job_data.get("status")
 
-        # Merge updates
         job_data.update(updates)  # type: ignore[typeddict-item]
         job_data["updated_at"] = utc_now().isoformat()  # type: ignore[typeddict-item]
 
-        # Use pipeline for atomic updates
         pipe = self.redis.pipeline()
 
-        # Update job data
         key = self._make_job_key(job_id)
         pipe.hset(key, "data", self._serialize(dict(job_data)))
 
-        # Remove from old status index if status changed
         new_status = job_data.get("status")
         if old_status and old_status != new_status:
             pipe.srem(self._make_status_index_key(old_status), job_id)
 
-        # Update indexes
         self._update_indexes(job_data, pipeline=pipe)
 
         pipe.execute()
@@ -306,55 +286,42 @@ class RedisStorage(JobStorageAdapter):
         """
         key = self._make_job_key(job_id)
 
-        # Check if job exists first (before WATCH)
         job_data = self.get_job(job_id)
         if job_data is None:
             raise ValueError(f"Job {job_id} not found")
 
-        # Use Redis WATCH for optimistic locking
         with self.redis.pipeline() as pipe:
             try:
-                # Watch the key for changes
                 pipe.watch(key)
 
-                # Re-read under WATCH for consistency
                 raw_data = pipe.hget(key, "data")
                 if raw_data is None:
                     pipe.unwatch()
                     raise ValueError(f"Job {job_id} not found")
                 job_data = self._deserialize(raw_data)  # type: ignore[assignment]
 
-                # Check if expected values match
                 for field, expected_value in expected_values.items():
                     current_value = job_data.get(field)
                     if current_value != expected_value:
-                        # Mismatch - return failure
                         pipe.unwatch()
                         return (False, None)
 
-                # Remember old values for index updates
                 old_status = job_data.get("status")
 
-                # Merge updates
                 updated_job_data = job_data.copy()
                 updated_job_data.update(updates)  # type: ignore[typeddict-item]
                 updated_job_data["updated_at"] = utc_now().isoformat()  # type: ignore[typeddict-item]
 
-                # Start transaction
                 pipe.multi()
 
-                # Update job data
                 pipe.hset(key, "data", self._serialize(dict(updated_job_data)))
 
-                # Remove from old status index if status changed
                 new_status = updated_job_data.get("status")
                 if old_status and old_status != new_status:
                     pipe.srem(self._make_status_index_key(old_status), job_id)
 
-                # Update indexes
                 self._update_indexes(updated_job_data, pipeline=pipe)
 
-                # Execute transaction
                 pipe.execute()
 
                 return (True, updated_job_data)
@@ -362,7 +329,6 @@ class RedisStorage(JobStorageAdapter):
             except ValueError:
                 raise
             except Exception:
-                # Transaction failed (key was modified by another instance)
                 return (False, None)
 
     def delete_job(self, job_id: str) -> bool:
@@ -375,16 +341,13 @@ class RedisStorage(JobStorageAdapter):
             2. DEL job data
             3. Remove from all indexes
         """
-        # Get job to know its status
         job_data = self.get_job(job_id)
         old_status = job_data.get("status") if job_data else None
 
-        # Delete job data
         key = self._make_job_key(job_id)
         result = self.redis.delete(key)
 
         if result > 0:
-            # Remove from indexes
             self._remove_from_indexes(job_id, old_status)
             return True
 
@@ -417,19 +380,15 @@ class RedisStorage(JobStorageAdapter):
         job_ids: set[str] | None = None
 
         if filters:
-            # Use time index for time queries
             if "next_run_time_lte" in filters:
                 max_time = filters["next_run_time_lte"]
                 max_score = self._timestamp_to_score(max_time)
 
-                # Get all matching job IDs from time index
-                # (offset/limit applied later after intersection and sorting)
                 time_filtered_ids = self.redis.zrangebyscore(
                     self._make_time_index_key(), min=0, max=max_score
                 )
                 job_ids = set(time_filtered_ids) if time_filtered_ids else set()
 
-            # Use status index for status queries
             if "status" in filters:
                 status = filters["status"]
                 status_filtered_ids = self.redis.smembers(self._make_status_index_key(status))
@@ -437,19 +396,15 @@ class RedisStorage(JobStorageAdapter):
                 if job_ids is None:
                     job_ids = set(status_filtered_ids)
                 else:
-                    # Intersection with time filter
                     job_ids &= set(status_filtered_ids)
 
-        # If no indexed filters used, get all job IDs
         if job_ids is None:
             job_ids = set(self.redis.smembers(self._make_all_jobs_key()))
 
-        # Fetch job data for filtered IDs using batch operation
         job_ids_list = list(job_ids)
         jobs_dict = self.get_jobs_batch(job_ids_list)
         jobs = list(jobs_dict.values())
 
-        # Apply client-side filters on fetched results
         if filters:
             if "updated_at_lte" in filters:
                 cutoff = filters["updated_at_lte"]
@@ -464,10 +419,8 @@ class RedisStorage(JobStorageAdapter):
                     metadata_key = key.replace("metadata.", "")
                     jobs = [j for j in jobs if j.get("metadata", {}).get(metadata_key) == value]
 
-        # Sort by next_run_time
         jobs.sort(key=lambda j: j.get("next_run_time") or "")
 
-        # Apply offset and limit (single place, after all filtering and sorting)
         if offset:
             jobs = jobs[offset:]
         if limit:

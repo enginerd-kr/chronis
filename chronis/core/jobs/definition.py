@@ -25,14 +25,12 @@ class JobDefinition(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    # Required fields
     job_id: str
     name: str
     trigger_type: TriggerType
     trigger_args: dict[str, Any]
     func: Callable | str
 
-    # Scheduling options
     timezone: str = "UTC"
     args: tuple | None = None
     kwargs: dict[str, Any] | None = None
@@ -40,7 +38,6 @@ class JobDefinition(BaseModel):
     next_run_time: datetime | None = None
     metadata: dict[str, Any] | None = None
 
-    # Execution options
     on_failure: "OnFailureCallback | None" = None
     on_success: "OnSuccessCallback | None" = None
     max_retries: int = 0
@@ -158,18 +155,13 @@ class JobInfo:
     metadata: dict[str, Any]
     created_at: datetime
     updated_at: datetime
-    # Retry information
     max_retries: int = 0
     retry_delay_seconds: int = 60
     retry_count: int = 0
-    # Timeout information
     timeout_seconds: int | None = None
-    # Priority information
     priority: int = 5
-    # Misfire information
     if_missed: str | None = None
     misfire_threshold_seconds: int = 60
-    # Execution history
     last_run_time: datetime | None = None
     last_scheduled_time: datetime | None = None
 
