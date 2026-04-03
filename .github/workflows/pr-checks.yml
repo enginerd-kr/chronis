@@ -28,6 +28,7 @@ jobs:
             code:
               - 'chronis/**'
               - 'tests/**'
+              - 'examples/**'
               - 'pyproject.toml'
               - 'uv.lock'
               - '.github/workflows/pr-checks.yml'
