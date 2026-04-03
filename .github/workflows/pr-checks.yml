@@ -76,7 +76,7 @@ jobs:
 
   claude-review-and-label:
     needs: [changes, lint-and-test]
-    if: always() && github.event.pull_request.head.repo.full_name == github.repository && (needs.lint-and-test.result == 'success' || needs.lint-and-test.result == 'skipped')
+    if: always() && needs.changes.result == 'success' && github.event.pull_request.head.repo.full_name == github.repository && (needs.lint-and-test.result == 'success' || needs.lint-and-test.result == 'skipped')
     runs-on: ubuntu-latest
 
     steps:
