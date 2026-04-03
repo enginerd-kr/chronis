@@ -108,29 +108,7 @@ jobs:
             - Do not invent labels
             - If "risk-high" is present, do not include "safe-small-change"
             - If tests already sufficiently cover the change, do not include "needs-test"
-          claude_args: |
-            --json-schema {
-              "type": "object",
-              "properties": {
-                "labels": {
-                  "type": "array",
-                  "items": {
-                    "type": "string",
-                    "enum": [
-                      "needs-test",
-                      "risk-high",
-                      "needs-human-review",
-                      "safe-small-change"
-                    ]
-                  },
-                  "uniqueItems": true
-                },
-                "summary": {
-                  "type": "string"
-                }
-              },
-              "required": ["labels"]
-            }
+          claude_args: '--json-schema {"type":"object","properties":{"labels":{"type":"array","items":{"type":"string","enum":["needs-test","risk-high","needs-human-review","safe-small-change"]},"uniqueItems":true},"summary":{"type":"string"}},"required":["labels"]}'
 
       - name: Debug structured output
         env:
