@@ -26,7 +26,6 @@ class JobExecutor:
         self.function_registry = function_registry
         self.logger = logger
 
-        # Shared event loop for async job execution (lazy-initialized)
         self._async_loop: asyncio.AbstractEventLoop | None = None
         self._async_thread: threading.Thread | None = None
         self._async_lock = threading.Lock()
@@ -89,7 +88,6 @@ class JobExecutor:
         """Get or create the shared event loop for async jobs (thread-safe)."""
         if self._async_loop is None or self._async_loop.is_closed():
             with self._async_lock:
-                # Double-checked locking to avoid redundant loop creation
                 if self._async_loop is None or self._async_loop.is_closed():
                     self._async_loop = asyncio.new_event_loop()
                     self._async_thread = threading.Thread(

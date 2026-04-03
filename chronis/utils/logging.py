@@ -17,17 +17,14 @@ def setup_logger(name: str = "scheduler", level: int = logging.INFO) -> logging.
     """
     logger = logging.getLogger(name)
     logger.setLevel(level)
-    logger.propagate = False  # Prevent duplicate logs to root logger
+    logger.propagate = False
 
-    # Prevent duplicate handlers
     if logger.handlers:
         return logger
 
-    # Console handler
     handler = logging.StreamHandler()
     handler.setLevel(level)
 
-    # Structured format (time, level, context, message)
     formatter = logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - [%(context)s] - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
@@ -75,5 +72,4 @@ class ContextLogger:
         return ContextLogger(self.logger, {**self.context, **context})
 
 
-# Default logger
 _default_logger = setup_logger()

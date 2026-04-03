@@ -66,10 +66,6 @@ class FluentJobBuilder:
         self._if_missed: Literal["skip", "run_once", "run_all"] | None = None
         self._misfire_threshold_seconds: int = 60
 
-    # ========================================
-    # Trigger Methods (3 APIs)
-    # ========================================
-
     def every(
         self,
         seconds: int | None = None,
@@ -191,10 +187,6 @@ class FluentJobBuilder:
         self._trigger_params = {"run_date": when}
         return self
 
-    # ========================================
-    # Config Method
-    # ========================================
-
     def config(
         self,
         *,
@@ -261,10 +253,6 @@ class FluentJobBuilder:
             self._misfire_threshold_seconds = misfire_threshold
 
         return self
-
-    # ========================================
-    # Run Method
-    # ========================================
 
     def run(
         self,

@@ -39,19 +39,11 @@ class JobQueue:
         """
         self.max_queue_size = max_queue_size
 
-        # Pending queue: job IDs waiting to be executed (Priority Queue)
-        # Items are tuples: (negative_priority, sequence, job_id)
         self._pending_queue: PriorityQueue[tuple[int, int, str]] = PriorityQueue(
             maxsize=max_queue_size
         )
-
-        # Sequence counter for FIFO ordering within same priority
         self._sequence_counter = 0
-
-        # In-flight jobs: job IDs dequeued and sent for execution (thread-safe set)
         self._in_flight_jobs: set[str] = set()
-
-        # All tracked job IDs (pending + in-flight) for duplicate prevention
         self._known_job_ids: set[str] = set()
 
         self._lock = threading.RLock()
@@ -112,10 +104,7 @@ class JobQueue:
             Job ID or None if queue is empty
         """
         try:
-            # Dequeue tuple: (negative_priority, sequence, job_id)
             _priority, _sequence, job_id = self._pending_queue.get_nowait()
-
-            # Mark as in-flight (keep in _known_job_ids)
             with self._lock:
                 self._in_flight_jobs.add(job_id)
 

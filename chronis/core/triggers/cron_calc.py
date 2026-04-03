@@ -12,10 +12,6 @@ import re
 from calendar import monthrange
 from datetime import datetime, timedelta, tzinfo
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
 WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 MONTHS = [
     "jan",
@@ -76,10 +72,6 @@ def _datetime_ceil(dateval: datetime) -> datetime:
         return dateval.replace(second=0, microsecond=0) + timedelta(minutes=1)
     return dateval.replace(second=0, microsecond=0)
 
-
-# ---------------------------------------------------------------------------
-# Expressions
-# ---------------------------------------------------------------------------
 
 
 class AllExpression:
@@ -215,10 +207,6 @@ class LastDayOfMonthExpression(AllExpression):
         return monthrange(date.year, date.month)[1]
 
 
-# ---------------------------------------------------------------------------
-# Fields
-# ---------------------------------------------------------------------------
-
 
 class BaseField:
     REAL = True
@@ -296,11 +284,6 @@ FIELDS_MAP: dict[str, type[BaseField]] = {
     "hour": BaseField,
     "minute": BaseField,
 }
-
-
-# ---------------------------------------------------------------------------
-# Main calculation
-# ---------------------------------------------------------------------------
 
 
 def _build_fields(
@@ -437,7 +420,6 @@ def calculate_next_cron_time(
     )
     tz = current.tzinfo
 
-    # Handle folded datetimes (DST fall-back)
     if current.fold == 1:
         current = datetime.fromisoformat(current.isoformat()) + timedelta(microseconds=1)
 

@@ -83,14 +83,11 @@ class InMemoryStorage(JobStorageAdapter):
 
             current_job = self._jobs[job_id]
 
-            # Compare: Check if all expected values match current values
             for field, expected_value in expected_values.items():
                 current_value = current_job.get(field)
                 if current_value != expected_value:
-                    # Mismatch - return failure without updating
                     return (False, None)
 
-            # Swap: All expectations matched, apply updates
             self._jobs[job_id].update(updates)  # type: ignore[typeddict-item]
             self._jobs[job_id]["updated_at"] = utc_now().isoformat()  # type: ignore[typeddict-item]
             return (True, self._jobs[job_id].copy())  # type: ignore[return-value]

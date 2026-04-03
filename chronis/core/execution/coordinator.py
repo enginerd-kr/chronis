@@ -77,8 +77,6 @@ class ExecutionCoordinator:
 
         job_logger = self.logger.with_context(job_id=job_id, job_name=job_name)
 
-        # CAS is the authoritative check; no pre-check needed (avoids TOCTOU)
-
         with self._acquire_lock_context(lock_key) as lock_acquired:
             if not lock_acquired:
                 return False
@@ -133,8 +131,6 @@ class ExecutionCoordinator:
                 )
                 future.add_done_callback(lambda f: on_complete(job_id))
             else:
-                # For sync jobs with timeout, use threading.Event to coordinate
-                # between the worker thread and the Timer thread.
                 timed_out = threading.Event() if timeout_seconds else None
 
                 future = self.executor.submit(
@@ -178,10 +174,6 @@ class ExecutionCoordinator:
                 )
             raise submit_error
 
-    # ------------------------------------------------------------------
-    # Execution dispatch (delegates to JobExecutor)
-    # ------------------------------------------------------------------
-
     def _execute_in_background(
         self,
         job_data: dict[str, Any],
@@ -218,10 +210,6 @@ class ExecutionCoordinator:
         """Shut down the shared async event loop."""
         self._job_executor.shutdown_async(wait)
 
-    # ------------------------------------------------------------------
-    # Success/failure handlers
-    # ------------------------------------------------------------------
-
     def _handle_job_success(self, job_data: dict[str, Any], job_logger: ContextLogger) -> None:
         """Handle successful job execution (shared by sync and async paths)."""
         job_id = job_data["job_id"]
@@ -232,10 +220,8 @@ class ExecutionCoordinator:
             )
 
             if next_status is None:
-                # DATE job: delete directly
                 self.storage.delete_job(job_id)
             else:
-                # Recurring job: combine ALL updates into single storage call
                 updates: JobUpdateData = {
                     "status": next_status.value,
                     "updated_at": now.isoformat(),
@@ -287,10 +273,6 @@ class ExecutionCoordinator:
                 exc_info=True,
             )
 
-    # ------------------------------------------------------------------
-    # CAS and state management
-    # ------------------------------------------------------------------
-
     def _try_claim_job_with_cas(
         self, job_id: str, job_data: dict[str, Any]
     ) -> tuple[bool, dict[str, Any] | None]:
@@ -311,31 +293,25 @@ class ExecutionCoordinator:
         trigger_type = job_data["trigger_type"]
         current_time_str = utc_now().isoformat()
 
-        # Build expected values - job must match these to be claimed
         expected_values = {
             "status": JobStatus.SCHEDULED.value,
         }
 
-        # Also verify next_run_time hasn't changed (prevents stale queue entries)
         queue_next_run = job_data.get("next_run_time")
         if queue_next_run:
-            # Only claim if next_run_time is still in the past
             if queue_next_run > current_time_str:
                 return (False, None)
             expected_values["next_run_time"] = queue_next_run
 
-        # Build updates - what to change if expectations match
         updates: JobUpdateData = {
             "status": JobStatus.RUNNING.value,
             "updated_at": current_time_str,
         }
 
-        # For recurring jobs, optimistically update next_run_time
         if trigger_type != TriggerType.DATE.value:
             trigger_args = job_data["trigger_args"]
             timezone = job_data.get("timezone", "UTC")
 
-            # Use scheduled time as base to prevent drift accumulation
             scheduled_time = job_data.get("next_run_time")
             base_time = None
             if scheduled_time:
@@ -345,8 +321,7 @@ class ExecutionCoordinator:
                 trigger_type, trigger_args, timezone, current_time=base_time
             )
 
-            # Handle misfire: if next_run_time is in the past, recalculate from now
-            # Exception: run_all policy keeps incremental time for catch-up execution
+            # run_all policy keeps incremental time for catch-up execution
             if utc_time and utc_time <= utc_now() and job_data.get("if_missed") != "run_all":
                 utc_time, local_time = NextRunTimeCalculator.calculate_with_local_time(
                     trigger_type, trigger_args, timezone
@@ -357,7 +332,6 @@ class ExecutionCoordinator:
                 if local_time:
                     updates["next_run_time_local"] = local_time.isoformat()
 
-        # Atomic compare-and-swap operation
         try:
             success, updated_job = self.storage.compare_and_swap_job(
                 job_id, expected_values, updates
@@ -367,11 +341,7 @@ class ExecutionCoordinator:
                 result["_original_scheduled_time"] = queue_next_run
                 return (True, result)
             return (False, None)
-        except ValueError:
-            # Job not found (deleted)
-            return (False, None)
         except Exception:
-            # Other errors - don't claim job (expected in distributed environments)
             return (False, None)
 
     def _update_job_status(self, job_id: str, status: JobStatus) -> None:
@@ -383,10 +353,6 @@ class ExecutionCoordinator:
                 "updated_at": utc_now().isoformat(),
             },
         )
-
-    # ------------------------------------------------------------------
-    # Callbacks
-    # ------------------------------------------------------------------
 
     def _invoke_success_callback(self, job_id: str, job_data: dict[str, Any]) -> None:
         """Invoke job-specific and global success handlers."""
@@ -423,10 +389,6 @@ class ExecutionCoordinator:
                 job_id=job_id,
                 exc_info=True,
             )
-
-    # ------------------------------------------------------------------
-    # Retry and lock management
-    # ------------------------------------------------------------------
 
     def _schedule_retry(
         self, job_data: dict[str, Any], next_retry_count: int, job_logger: ContextLogger

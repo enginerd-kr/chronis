@@ -70,29 +70,24 @@ class BaseScheduler(ABC):
         self.on_failure = on_failure
         self.on_success = on_success
 
-        # Running state
         self._running = False
 
-        # Job function and callback registries
         self._job_registry: dict[str, Callable] = {}
         self._failure_handler_registry: dict[str, OnFailureCallback] = {}
         self._success_handler_registry: dict[str, OnSuccessCallback] = {}
         self._registry_lock = threading.RLock()
 
-        # Initialize structured logger
         base_logger = (
             logger.logger if isinstance(logger, ContextLogger) else (logger or _default_logger)
         )
         self.logger = ContextLogger(base_logger, {"component": self.__class__.__name__})
 
-        # Initialize execution coordinator (shared across all scheduler types)
         self._init_execution_coordinator()
 
     def _init_execution_coordinator(self) -> None:
         """Initialize execution coordinator with thread pool."""
         from concurrent.futures import ThreadPoolExecutor
 
-        # Initialize ThreadPoolExecutor for job execution
         self._executor = ThreadPoolExecutor(
             max_workers=self.max_workers, thread_name_prefix="chronis-worker-"
         )
@@ -147,10 +142,6 @@ class BaseScheduler(ABC):
         with self._registry_lock:
             self._job_registry[name] = func
 
-    # ========================================
-    # Job CRUD Operations (Common)
-    # ========================================
-
     def create_job(self, job: JobDefinition) -> JobInfo:
         """
         Create new job.
@@ -164,17 +155,14 @@ class BaseScheduler(ABC):
         Raises:
             JobAlreadyExistsError: Job already exists
         """
-        # Register on_failure handler if provided
         if job.on_failure:
             with self._registry_lock:
                 self._failure_handler_registry[job.job_id] = job.on_failure
 
-        # Register on_success handler if provided
         if job.on_success:
             with self._registry_lock:
                 self._success_handler_registry[job.job_id] = job.on_success
 
-        # Create job in storage
         job_data = job.to_dict()
         try:
             result = self.storage.create_job(job_data)  # type: ignore[arg-type]
@@ -237,7 +225,6 @@ class BaseScheduler(ABC):
         Raises:
             JobNotFoundError: Job not found
         """
-        # Build updates dictionary
         updates_dict: dict[str, Any] = {
             k: v
             for k, v in {
@@ -326,7 +313,6 @@ class BaseScheduler(ABC):
         action: str,
     ) -> bool:
         """Validate and apply a job state transition using CAS for atomicity."""
-        # Check job exists first
         job = self.get_job(job_id)
         if not job:
             raise JobNotFoundError(
@@ -334,7 +320,6 @@ class BaseScheduler(ABC):
                 "Use scheduler.query_jobs() to see available jobs."
             )
 
-        # Try CAS for each allowed status
         now_str = utc_now().isoformat()
         for expected_status in allowed:
             try:
@@ -353,7 +338,6 @@ class BaseScheduler(ABC):
                     "Use scheduler.query_jobs() to see available jobs."
                 ) from None
 
-        # CAS failed for all allowed statuses - re-read for error message
         current_job = self.get_job(job_id)
         current_status = current_job.status.value if current_job else "unknown"
         allowed_str = " or ".join(s.value.upper() for s in allowed)

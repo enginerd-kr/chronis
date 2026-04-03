@@ -112,10 +112,9 @@ class RedisLock(LockAdapter):
         signal_key = f"{full_key}:signal"
         token = owner_id or self.instance_token
 
-        # Try to acquire lock
         result = self.redis.set(
             name=full_key,
-            value=token,  # Store owner token for verification
+            value=token,
             nx=True,
             ex=ttl_seconds,
         )
@@ -123,15 +122,12 @@ class RedisLock(LockAdapter):
         if result or not blocking:
             return bool(result)
 
-        # Blocking mode: wait for signal
         start_time = time.time()
         remaining_timeout = timeout
 
         while True:
-            # Wait for signal using BLPOP (efficient, no spinloop)
             result = self.redis.blpop(signal_key, timeout=remaining_timeout or 0)
 
-            # Retry acquisition
             acquired = self.redis.set(
                 name=full_key,
                 value=token,
@@ -142,7 +138,6 @@ class RedisLock(LockAdapter):
             if acquired:
                 return True
 
-            # Check timeout
             if timeout is not None:
                 elapsed = time.time() - start_time
                 remaining_timeout = timeout - elapsed
@@ -169,13 +164,12 @@ class RedisLock(LockAdapter):
         signal_key = f"{full_key}:signal"
         token = owner_id or self.instance_token
 
-        # Atomic release with ownership verification using Lua
         result = self.redis.eval(
             LUA_RELEASE_SCRIPT,
-            2,  # num keys
-            full_key,  # KEYS[1]
-            signal_key,  # KEYS[2]
-            token,  # ARGV[1]
+            2,
+            full_key,
+            signal_key,
+            token,
         )
 
         return result == 1
@@ -204,13 +198,12 @@ class RedisLock(LockAdapter):
         full_key = f"{self.key_prefix}{lock_key}"
         token = owner_id or self.instance_token
 
-        # Atomic extend with ownership verification using Lua
         result = self.redis.eval(
             LUA_EXTEND_SCRIPT,
-            1,  # num keys
-            full_key,  # KEYS[1]
-            token,  # ARGV[1]
-            ttl_seconds,  # ARGV[2]
+            1,
+            full_key,
+            token,
+            ttl_seconds,
         )
 
         return result == 1

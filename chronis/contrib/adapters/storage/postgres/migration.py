@@ -59,7 +59,6 @@ class MigrationRunner:
     """Executes database migrations with version tracking."""
 
     HISTORY_TABLE = "chronis_migration_history"
-    # Advisory lock key for migration synchronization (arbitrary unique number)
     MIGRATION_LOCK_KEY = 7283946501
 
     def __init__(self, connection: Any, migrations_dir: Path | str) -> None:
@@ -144,21 +143,13 @@ class MigrationRunner:
         import hashlib
         import time
 
-        # Read migration SQL
         sql_content = migration.filepath.read_text(encoding="utf-8")
-
-        # Calculate checksum for verification
         checksum = hashlib.sha256(sql_content.encode()).hexdigest()
-
-        # Execute migration
         start_time = time.time()
 
         with self.conn.cursor() as cursor:
             try:
-                # Execute the migration SQL
                 cursor.execute(sql_content)
-
-                # Record in history
                 execution_time_ms = int((time.time() - start_time) * 1000)
 
                 cursor.execute(
@@ -220,11 +211,9 @@ class MigrationRunner:
         try:
             self._ensure_history_table()
 
-            # Get applied and pending migrations
             applied_versions = self._get_applied_versions()
             all_migrations = self._discover_migrations()
 
-            # Filter pending migrations
             pending = [
                 m
                 for m in all_migrations
@@ -236,7 +225,6 @@ class MigrationRunner:
                 print("✓ No pending migrations")
                 return 0
 
-            # Execute pending migrations in order
             print(f"Found {len(pending)} pending migration(s)")
 
             for migration in pending:
