@@ -130,7 +130,7 @@ jobs:
             CLAUDE_OUTPUT=$(jq -r '.[] | select(.type == "result") | .result // .content // empty' "$EXECUTION_FILE" 2>/dev/null || cat "$EXECUTION_FILE" 2>/dev/null)
           fi
 
-          TARGET=$(echo "$CLAUDE_OUTPUT" | grep -oP '(?<=LABELS: ).*' | tr ',' '\n' | sed 's/ //g' | grep -v '^none$' | grep -v '^$')
+          TARGET=$(echo "$CLAUDE_OUTPUT" | grep -oP '(?<=LABELS: ).*' | tr ',' '\n' | sed 's/ //g' | grep -v '^none$' | grep -v '^$' || true)
 
           for label in "${MANAGED_LABELS[@]}"; do
             if echo "$CURRENT" | grep -qx "$label"; then
