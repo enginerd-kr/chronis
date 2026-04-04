@@ -26,12 +26,12 @@ from chronis.adapters.lock import InMemoryLock
 from chronis.contrib.adapters.storage import PostgreSQLStorage
 
 
-def send_notification():
+def send_notification(**extra):
     """Example job function."""
     print(f"[{time.strftime('%H:%M:%S')}] Sending notification...")
 
 
-def generate_report():
+def generate_report(**extra):
     """Another example job function."""
     print(f"[{time.strftime('%H:%M:%S')}] Generating report...")
 

@@ -142,19 +142,19 @@ class ExecutionHistory:
 # =============================================================================
 
 
-def data_sync_job(source: str):
+def data_sync_job(source: str, **extra):
     """Job that syncs data from source."""
     print(f"[{datetime.now()}] Syncing data from {source}...")
     time.sleep(0.5)
 
 
-def report_generation_job(report_type: str):
+def report_generation_job(report_type: str, **extra):
     """Job that generates reports."""
     print(f"[{datetime.now()}] Generating {report_type} report...")
     time.sleep(0.3)
 
 
-def flaky_api_job():
+def flaky_api_job(**extra):
     """Job that fails occasionally (simulates flaky API)."""
     import random
 

@@ -20,12 +20,12 @@ from chronis.contrib.adapters.lock import RedisLock
 from chronis.contrib.adapters.storage import RedisStorage
 
 
-def send_email():
+def send_email(**extra):
     """Example job function."""
     print(f"[{time.strftime('%H:%M:%S')}] Sending email...")
 
 
-def process_data():
+def process_data(**extra):
     """Another example job function."""
     print(f"[{time.strftime('%H:%M:%S')}] Processing data...")
 

@@ -43,7 +43,7 @@ scheduler = PollingScheduler(
     lock_adapter=InMemoryLock(),
 )
 
-def send_email():
+def send_email(**extra):
     print("Sending email...")
 
 scheduler.register_job_function("send_email", send_email)
@@ -60,6 +60,25 @@ scheduler.on(hour=9).config(timezone="Asia/Seoul").run("send_email")
 
 scheduler.start()
 ```
+
+### Accepting Extra Keyword Arguments
+
+When registering job functions, always declare `**extra` as a catch-all parameter. This ensures your function gracefully handles any additional keyword arguments that may be passed at runtime:
+
+```python
+# Good - accepts extra keyword arguments
+def send_email(**extra):
+    print("Sending email...")
+
+def generate_report(report_type: str, **extra):
+    print(f"Generating {report_type} report...")
+
+# Bad - will raise TypeError on unexpected keyword arguments
+def send_email():
+    print("Sending email...")
+```
+
+This is especially important when your function is called with keyword arguments via `run()` or `kwargs={}`, as future updates or integrations may introduce additional context.
 
 ## API
 
