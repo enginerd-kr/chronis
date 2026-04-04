@@ -94,7 +94,7 @@ jobs:
             Goals:
             1. Check correctness, regression risk, tests, error handling, and security.
             2. Leave normal review comments if needed.
-            3. Return ONLY structured output for labels using this policy:
+            3. Decide which labels to apply based on the policy below.
 
             Label policy:
             - "needs-test" if tests are missing for meaningful logic changes
@@ -108,24 +108,28 @@ jobs:
             - Do not invent labels
             - If "risk-high" is present, do not include "safe-small-change"
             - If tests already sufficiently cover the change, do not include "needs-test"
-          claude_args: '--json-schema {"type":"object","properties":{"labels":{"type":"array","items":{"type":"string","enum":["needs-test","risk-high","needs-human-review","safe-small-change"]},"uniqueItems":true},"summary":{"type":"string"}},"required":["labels"]}'
 
-      - name: Debug structured output
-        env:
-          STRUCTURED_OUTPUT: ${{ steps.claude.outputs.structured_output }}
-        run: |
-          echo "$STRUCTURED_OUTPUT"
+            At the very end of your response, output the chosen labels on a single line in this exact format:
+            LABELS: label1, label2
+            If no labels apply, output:
+            LABELS: none
 
       - name: Sync managed labels
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          LABELS_JSON: ${{ steps.claude.outputs.structured_output }}
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
           MANAGED_LABELS=("needs-test" "risk-high" "needs-human-review" "safe-small-change")
 
           CURRENT=$(gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name')
-          TARGET=$(echo "$LABELS_JSON" | jq -r '.labels[]')
+
+          CLAUDE_OUTPUT=""
+          if [ -n "$EXECUTION_FILE" ] && [ -f "$EXECUTION_FILE" ]; then
+            CLAUDE_OUTPUT=$(jq -r '.[] | select(.type == "result") | .result // .content // empty' "$EXECUTION_FILE" 2>/dev/null || cat "$EXECUTION_FILE" 2>/dev/null)
+          fi
+
+          TARGET=$(echo "$CLAUDE_OUTPUT" | grep -oP '(?<=LABELS: ).*' | tr ',' '\n' | sed 's/ //g' | grep -v '^none$' | grep -v '^$')
 
           for label in "${MANAGED_LABELS[@]}"; do
             if echo "$CURRENT" | grep -qx "$label"; then
@@ -136,5 +140,7 @@ jobs:
           done
 
           for label in $TARGET; do
-            gh pr edit "$PR_NUMBER" --add-label "$label"
+            if printf '%s\n' "${MANAGED_LABELS[@]}" | grep -qx "$label"; then
+              gh pr edit "$PR_NUMBER" --add-label "$label"
+            fi
           done
