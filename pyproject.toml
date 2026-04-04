@@ -1,6 +1,6 @@
 [project]
 name = "chronis"
-version = "0.1.0rc2"
+version = "0.1.0rc3"
 description = "Distributed scheduler framework for multi-container environments"
 readme = "README.md"
 license = { text = "MIT" }
