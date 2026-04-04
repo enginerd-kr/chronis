@@ -10,17 +10,17 @@ from chronis import (
 )
 
 
-def send_email():
+def send_email(**extra):
     """Example job function - send email."""
     print(f"[{datetime.now()}] Sending email...")
 
 
-def cleanup_logs():
+def cleanup_logs(**extra):
     """Example job function - cleanup logs."""
     print(f"[{datetime.now()}] Cleaning up logs...")
 
 
-def generate_report(report_type: str):
+def generate_report(report_type: str, **extra):
     """Example job function - generate report."""
     print(f"[{datetime.now()}] Generating {report_type} report...")
 

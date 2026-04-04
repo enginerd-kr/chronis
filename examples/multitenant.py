@@ -5,7 +5,7 @@ from chronis.adapters.lock import InMemoryLock
 from chronis.adapters.storage import InMemoryStorage
 
 
-def send_report(tenant_name: str):
+def send_report(tenant_name: str, **extra):
     """Send report for a tenant."""
     print(f"Sending report for tenant: {tenant_name}")
 

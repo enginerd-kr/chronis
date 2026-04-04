@@ -139,12 +139,12 @@ class SimpleDLQ:
 # =============================================================================
 
 
-def reliable_job():
+def reliable_job(**extra):
     """Job that always succeeds."""
     print(f"[{datetime.now()}] ✅ Reliable job executed successfully")
 
 
-def flaky_job(item_id: int):
+def flaky_job(item_id: int, **extra):
     """Job that fails occasionally."""
     import random
 
@@ -153,7 +153,7 @@ def flaky_job(item_id: int):
     print(f"[{datetime.now()}] ✅ Processed item {item_id}")
 
 
-def always_failing_job(order_id: int):
+def always_failing_job(order_id: int, **extra):
     """Job that always fails (for demonstration)."""
     raise ValueError(f"Payment gateway error for order {order_id}")
 
