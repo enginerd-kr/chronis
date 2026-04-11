@@ -205,6 +205,28 @@ class RedisAdapter(JobStorageAdapter):
         return result
 ```
 
+### File (JSON)
+
+```python
+from chronis.contrib.adapters.storage.file import FileStorage
+
+# Default: creates chronis_jobs.json in current directory
+storage = FileStorage()
+
+# Custom path
+storage = FileStorage(file_path="/var/data/my_jobs.json")
+
+# Disable auto-creation (raises FileNotFoundError if file missing)
+storage = FileStorage(file_path="jobs.json", auto_create=False)
+```
+
+Features:
+
+- Single JSON file persistence with atomic writes (`os.replace`)
+- Thread-safe via `threading.Lock` (single-process only)
+- Auto-creates file and parent directories
+- Suitable for local development where persistence across restarts is needed
+
 ## Lock Adapter Interface
 
 Implement `LockAdapter` with these methods:
@@ -489,6 +511,7 @@ def test_storage_adapter():
 ### Storage Adapters
 
 - **In-Memory**: [`chronis/adapters/storage/memory.py`](../chronis/adapters/storage/memory.py)
+- **File (JSON)**: [`chronis/contrib/adapters/storage/file.py`](../chronis/contrib/adapters/storage/file.py)
 - **PostgreSQL**: [`chronis/contrib/adapters/storage/postgres/adapter.py`](../chronis/contrib/adapters/storage/postgres/adapter.py)
 - **Redis**: [`chronis/contrib/adapters/storage/redis.py`](../chronis/contrib/adapters/storage/redis.py)
 
