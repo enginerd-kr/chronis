@@ -2,6 +2,14 @@
 
 __all__ = []
 
+# File storage adapter (optional)
+try:
+    from chronis.contrib.adapters.storage.file import FileStorage
+
+    __all__.append("FileStorage")
+except ImportError:
+    FileStorage = None  # type: ignore[assignment, misc]
+
 # Redis storage adapter (optional)
 try:
     from chronis.contrib.adapters.storage.redis import RedisStorage
